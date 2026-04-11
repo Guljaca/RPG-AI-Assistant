@@ -27,6 +27,7 @@ RPG AI Assistant
 - Желательно Instruct
 - Желательно Uncensored
 - Подойдет Q4_K_M, Q6 позволит чуть больше контекста понимать
+* Qwen 3.5 9b дает хороший результат
 * Я использую qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k
 - Запустить install_deps.bat для установки зависимостей Python
 - Запустить run_rpg_assistant.bat
