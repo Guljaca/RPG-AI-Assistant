@@ -2,13 +2,38 @@
   "name": "Чат 2026-04-11 19:40",
   "profile": {
     "name": "Profile_fca17abe",
-    "enabled_narrators": [],
-    "enabled_characters": [],
-    "enabled_locations": [],
-    "enabled_items": []
+    "enabled_narrators": [
+      "n1",
+      "n2",
+      "n3"
+    ],
+    "enabled_characters": [
+      "c1",
+      "c2",
+      "c3",
+      "c4"
+    ],
+    "enabled_locations": [
+      "l1"
+    ],
+    "enabled_items": [
+      "i1"
+    ]
   },
-  "history": [],
+  "history": [
+    {
+      "role": "assistant",
+      "content": "Солнечный луч коснулся деревянной кровати. В комнате тихо и мирно. На столе лежал простой завтрак. Снаружи виден велосипед.<finish_stage>"
+    },
+    {
+      "role": "user",
+      "content": "Я побежал расталкивать сестру в ее комнату"
+    }
+  ],
   "created": "2026-04-11T19:40:23.196828",
-  "last_used": "2026-04-11T19:42:07.183325",
-  "local_descriptions": {}
+  "last_used": "2026-04-12T04:52:05.482964",
+  "local_descriptions": {},
+  "memory_summaries": [
+    "Игрок во"
+  ]
 }
