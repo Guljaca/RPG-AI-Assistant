@@ -1,14 +1,14 @@
 {
   "api_url": "http://localhost:1234/v1",
   "model_name": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
-  "max_history_messages": 2,
+  "max_history_messages": 0,
   "show_thinking": true,
   "dice_d20_count": 10,
   "dice_d100_count": 10,
   "dice_d6_count": 100,
   "use_two_models": false,
-  "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
-  "translator_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
+  "primary_model": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
+  "translator_model": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
   "enable_assistant_translation": true,
   "max_tokens": 50000,
   "temperature": 0.8,
@@ -17,54 +17,41 @@
   "translator_temperature": 0.9,
   "translator_max_tokens": 180000,
   "stage_prompts_config": {
-    "stage1_request_descriptions": [
-      "history:3",
-      "narrator:n1",
-      "narrator:n2",
-      "dice_rules",
-      "stage1_request_descriptions"
-    ],
+    "stage1_request_descriptions": [],
     "stage1_player_action": [
-      "history:3",
-      "narrator:n1",
-      "narrator:n2",
-      "dice_rules",
-      "stage1_player_action"
+      "dice_rules"
     ],
     "stage1_random_event": [
-      "history:3",
       "narrator:n1",
       "narrator:n2",
-      "dice_rules",
-      "stage1_random_event"
+      "dice_rules"
     ],
     "stage1_turn_order": [
       "stage1_turn_order"
     ],
     "stage2_npc_action": [
-      "history:3",
       "narrator:n1",
       "narrator:n2",
-      "dice_rules",
-      "stage2_npc_action"
+      "dice_rules"
     ],
     "stage3_final": [
+      "history:5",
       "narrator:n5",
-      "narrator:n3",
-      "stage3_final"
+      "narrator:n3"
     ],
     "null": [
       "narrator:n1",
       "narrator:n2",
       "narrator:n3"
     ],
-    "stage4_summary": [
-      "stage4_summary"
-    ],
-    "stage1_truth_check": [
-      "stage1_truth_check"
-    ]
+    "stage4_summary": [],
+    "stage1_truth_check": [],
+    "stage1_validate_scene": [],
+    "stage1_validate_random_event": [],
+    "stage1_random_event_continue": []
   },
   "enable_memory_summary": true,
-  "max_memory_summaries": 10
+  "max_memory_summaries": 3,
+  "compress_descriptions": true,
+  "max_compressed_desc_length": 500
 }

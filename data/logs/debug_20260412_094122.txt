@@ -1,8 +1,0 @@
-=== DEBUG LOG ===
-User message at 2026-04-12T09:41:22.069763:
-REGENERATE: А что у нее под халатом, что я вижу? Раз уж он упал
-
-[2026-04-12T09:41:22.075341] === STAGE1: request_descriptions (attempt 1) ===
-
-[2026-04-12T09:43:04.622089] USER_STOPPED_GENERATION
-

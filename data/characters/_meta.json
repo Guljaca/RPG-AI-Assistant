@@ -1,6 +1,8 @@
 {
   "next_id": 4,
   "free_ids": [],
-  "next_num": 5,
-  "free_nums": []
+  "next_num": 6,
+  "free_nums": [
+    5
+  ]
 }
