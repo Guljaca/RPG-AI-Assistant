@@ -1,14 +1,14 @@
 {
   "api_url": "http://localhost:1234/v1",
   "model_name": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
-  "max_history_messages": 1,
+  "max_history_messages": 2,
   "show_thinking": true,
   "dice_d20_count": 10,
   "dice_d100_count": 10,
   "dice_d6_count": 100,
   "use_two_models": false,
-  "primary_model": "qwen3.5-9b-claude-4.6-highiq-thinking-heretic-uncensored-i1",
-  "translator_model": "qwen3.5-9b-claude-4.6-highiq-thinking-heretic-uncensored-i1",
+  "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
+  "translator_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
   "enable_assistant_translation": true,
   "max_tokens": 50000,
   "temperature": 0.8,
@@ -39,8 +39,6 @@
       "stage1_random_event"
     ],
     "stage1_turn_order": [
-      "history:3",
-      "dice_rules",
       "stage1_turn_order"
     ],
     "stage2_npc_action": [
@@ -51,10 +49,8 @@
       "stage2_npc_action"
     ],
     "stage3_final": [
-      "history:3",
-      "narrator:n1",
-      "narrator:n2",
-      "memory_summary_generation",
+      "narrator:n5",
+      "narrator:n3",
       "stage3_final"
     ],
     "null": [
@@ -64,8 +60,11 @@
     ],
     "stage4_summary": [
       "stage4_summary"
+    ],
+    "stage1_truth_check": [
+      "stage1_truth_check"
     ]
   },
   "enable_memory_summary": true,
-  "max_memory_summaries": 20
+  "max_memory_summaries": 10
 }

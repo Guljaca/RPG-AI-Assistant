@@ -53,7 +53,7 @@ if errorlevel 1 (
 echo.
 echo Starting RPG AI Assistant...
 echo (The window will close after the program finishes. Press any key to close manually.)
-python "Project_Py3_RPG_AI_main_Tools_version_V4.2.py"
+python "Project_Py3_RPG_AI_main_Tools_version_V4.4.py"
 
 :: 5. Check return code and show error message
 if errorlevel 1 (
