@@ -1,5 +1,4 @@
 # RPG AI Assistant
-RPG AI Assistant
 
 <img width="1197" height="750" alt="Screenshot_109" src="https://github.com/user-attachments/assets/f67e73e4-d098-40fb-a963-7249949a770a" />
 
