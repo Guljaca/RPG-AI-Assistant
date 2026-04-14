@@ -187,6 +187,7 @@ class StageProcessor:
         self.main_app = main_app
         self.generation_start_time = None
         self.stage = None
+        self.last_changed_objects = []
         self.stage_data = {
             "user_message": "",
             "original_user_message": "",
@@ -302,6 +303,8 @@ class StageProcessor:
         self.main_app.center_panel.set_input_state("normal")
         self.main_app.center_panel.update_translation_button_state()
         self.main_app.current_debug_log_path = None
+        # Показать итоговый отчёт о добавленной памяти
+        self.main_app.display_generation_memory_summary()
 
     def _save_current_session(self):
         self.main_app._save_current_session_safe()
@@ -618,7 +621,8 @@ class StageProcessor:
             user_message=self.stage_data["user_message"],
             descriptions=descriptions_text
         )
-        main_prompt += "\n\n⚠️ Вызови report_truth_check(violation='...', edited_message='...')"
+        # Дополнительное напоминание (можно оставить или убрать, т.к. уже есть в промте)
+        main_prompt += "\n\n⚠️ ТОЛЬКО вызов report_truth_check. Пример: report_truth_check('', '')"
 
         messages = [
             {"role": "user", "content": f"Проверь сообщение: {self.stage_data['user_message']}"},
@@ -644,24 +648,42 @@ class StageProcessor:
             parsed = self._try_parse_tool_calls_from_text(content, ["report_truth_check"])
             if parsed:
                 report_call = parsed[0]
+                self._display_system("📝 Извлёк report_truth_check из текста.\n")
 
         if not report_call:
             if retry_count < 2:
-                self._display_error(f"⚠️ Повтор truth_check...\n")
+                self._display_error(f"⚠️ Модель не вызвала report_truth_check. Повтор ({retry_count+1}/2)...\n")
                 self._stage3_truth_check(retry_count+1)
                 return
             else:
+                self._display_system("⚠️ Пропускаем проверку правдивости.\n")
                 self.stage_data["truth_violation"] = ""
                 self._stage4_player_action()
                 return
 
         try:
             args = json.loads(report_call["function"]["arguments"])
-            self.stage_data["truth_violation"] = args.get("violation", "")
-            if args.get("edited_message"):
-                self.stage_data["user_message"] = args["edited_message"]
-                self._display_system(f"✏️ Сообщение изменено: {self.stage_data['user_message']}\n")
+            violation = ""
+            edited = ""
+
+            # Поддержка позиционных аргументов: report_truth_check(violation, edited)
+            if isinstance(args, list) and len(args) >= 2:
+                violation = args[0] if isinstance(args[0], str) else str(args[0])
+                edited = args[1] if isinstance(args[1], str) else str(args[1])
+            # Поддержка именованных аргументов (старый формат)
+            else:
+                violation = args.get("violation", "")
+                edited = args.get("edited_message", "")
+
+            self.stage_data["truth_violation"] = violation
+            if edited:
+                self.stage_data["user_message"] = edited
+                self._display_system(f"✏️ Сообщение изменено: {edited}\n")
+            else:
+                self._display_system("✅ Нарушений не найдено.\n")
+
             self._stage4_player_action()
+
         except Exception as e:
             self._log_debug("ERROR", f"truth_check parse error: {e}")
             if retry_count < 2:
@@ -701,7 +723,8 @@ class StageProcessor:
             truth_violation=violation_section,
             dice_value=dice_value
         )
-        main_prompt += f"\n\n⚠️ Вызови report_player_action({dice_value}, 'твоё описание')."
+        # Используем короткое имя act и чёткий пример
+        main_prompt += f"\n\n⚠️ Вызови act({dice_value}, 'твоё описание в одинарных кавычках'). Пример: act(20, 'Успех')."
 
         messages = [
             {"role": "user", "content": f"Игрок: {self.stage_data['user_message']}"},
@@ -721,18 +744,20 @@ class StageProcessor:
         expected_dice = extra.get("expected_dice")
 
         report_call = None
+        # Поддерживаем старые имена + новое короткое "act"
+        allowed_funcs = ["report_player_action", "player_action", "act"]
         for tc in tool_calls:
-            if tc["function"]["name"] in ("report_player_action", "player_action"):
+            if tc["function"]["name"] in allowed_funcs:
                 report_call = tc
                 break
         if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, ["report_player_action", "player_action"])
+            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=allowed_funcs)
             if parsed:
                 report_call = parsed[0]
 
         if not report_call:
             if retry_count < 2:
-                self._display_error(f"⚠️ Модель не вызвала report_player_action. Повтор...\n")
+                self._display_error(f"⚠️ Модель не вызвала act. Повтор...\n")
                 self._stage4_player_action(retry_count+1)
                 return
             else:
@@ -742,6 +767,7 @@ class StageProcessor:
 
         try:
             args = json.loads(report_call["function"]["arguments"])
+            # Поддержка как позиционных аргументов act(val, desc), так и именованных
             if isinstance(args, list) and len(args) >= 2:
                 description = args[1] if isinstance(args[1], str) else str(args[1])
             else:
@@ -750,13 +776,12 @@ class StageProcessor:
             self._display_system(f"✍️ Результат: {description[:100]}...\n")
             self._stage5_random_event_determine()
         except Exception as e:
-            self._log_debug("ERROR", f"report_player_action error: {e}")
+            self._log_debug("ERROR", f"act parsing error: {e}")
             if retry_count < 2:
                 self._stage4_player_action(retry_count+1)
             else:
                 self.stage_data["player_action_desc"] = "Действие выполнено."
                 self._stage5_random_event_determine()
-
     # --------------------------------------------------------------------------
     # СТАДИЯ 4: определение случайного события (произошло ли)
     # --------------------------------------------------------------------------
@@ -820,20 +845,30 @@ class StageProcessor:
         if report_call:
             try:
                 args = json.loads(report_call["function"]["arguments"])
+                dice_val = expected_dice
+                event_occurred = False
+
+                # Поддержка позиционных аргументов: report_random_event(dice, 'yes', '')
                 if isinstance(args, list) and len(args) >= 2:
-                    dice_val = args[0]
-                    event_occurred = args[1]
+                    dice_val = args[0] if isinstance(args[0], int) else expected_dice
+                    occurred_str = str(args[1]).lower()
+                    event_occurred = occurred_str in ('yes', 'true', '1')
+                # Именованные аргументы (старый формат)
                 else:
-                    dice_val = args.get("dice_value")
-                    event_occurred = args.get("event_occurred")
+                    dice_val = args.get("dice_value", expected_dice)
+                    occurred_val = args.get("event_occurred")
+                    if isinstance(occurred_val, str):
+                        event_occurred = occurred_val.lower() in ('yes', 'true', '1')
+                    else:
+                        event_occurred = bool(occurred_val)
+
                 if dice_val != expected_dice:
                     self._display_error(f"⚠️ Модель вернула dice_value={dice_val}, ожидалось {expected_dice}. Использую значение модели.\n")
-                if isinstance(event_occurred, str):
-                    event_occurred = event_occurred.lower() in ('true', 'yes', '1')
-                self.stage_data["event_occurred"] = bool(event_occurred)
 
-                self._display_system(f"✨ Событие: {'произошло' if self.stage_data['event_occurred'] else 'НЕ произошло'} (d100={dice_val})\n")
-                if self.stage_data["event_occurred"]:
+                self.stage_data["event_occurred"] = event_occurred
+                self._display_system(f"✨ Событие: {'произошло' if event_occurred else 'НЕ произошло'} (d100={dice_val})\n")
+
+                if event_occurred:
                     self._stage5_random_event_request_objects()
                 else:
                     self._stage7_process_npcs()
@@ -848,7 +883,6 @@ class StageProcessor:
             self._display_system("⚠️ Модель не определила событие. Считаем, что событие не произошло.\n")
             self.stage_data["event_occurred"] = False
             self._stage7_process_npcs()
-
     # --------------------------------------------------------------------------
     # СТАДИЯ 5.1: запрос недостающих объектов для случайного события
     # --------------------------------------------------------------------------
@@ -993,14 +1027,20 @@ class StageProcessor:
             parsed = self._try_parse_tool_calls_from_text(content, ["report_random_event"])
             if parsed:
                 report_call = parsed[0]
+                self._display_system("📝 Извлёк report_random_event из текста.\n")
 
         if report_call:
             try:
                 args = json.loads(report_call["function"]["arguments"])
+                description = ""
+
+                # Поддержка позиционных аргументов: report_random_event(dice, 'yes', 'description')
                 if isinstance(args, list) and len(args) >= 3:
-                    description = args[2]
+                    description = args[2] if isinstance(args[2], str) else str(args[2])
+                # Именованные аргументы
                 else:
                     description = args.get("description", "")
+
                 self.stage_data["event_desc"] = description
                 self._display_system(f"✨ Событие: {description[:100]}...\n")
                 self._stage7_process_npcs()
@@ -1009,7 +1049,7 @@ class StageProcessor:
                 self._log_debug("ERROR", f"event parse error: {e}")
 
         if retry_count < 2:
-            self._display_error(f"⚠️ Модель не описала событие. Повтор...\n")
+            self._display_error(f"⚠️ Модель не описала событие. Повтор ({retry_count+1}/2)...\n")
             self._stage5_random_event_details(retry_count+1)
         else:
             self.stage_data["event_desc"] = "Произошло что-то неожиданное."
@@ -1245,6 +1285,8 @@ class StageProcessor:
                 return
             summary = "Игрок продолжил действия."
         self.main_app.memory_summaries.append(summary)
+        # Регистрируем добавленную запись для итогового отчёта
+        self.main_app.record_added_summary(summary)
         if len(self.main_app.memory_summaries) > self.main_app.max_memory_summaries:
             self.main_app.memory_summaries = self.main_app.memory_summaries[-self.main_app.max_memory_summaries:]
         self._save_current_session()
@@ -1306,6 +1348,7 @@ class StageProcessor:
             return
 
         updated = 0
+        changed_ids = [] 
         for line in content.strip().split('\n'):
             if ':' in line:
                 obj_id, change = line.split(':', 1)
@@ -1313,6 +1356,11 @@ class StageProcessor:
                 change = change.strip()
                 if obj_id and change and len(change) > 3:
                     self.main_app.update_associative_memory(obj_id, change)
+                    # Регистрируем добавленную запись для итогового отчёта
+                    self.main_app.record_added_assoc(obj_id, change)
                     updated += 1
+                    changed_ids.append(obj_id)   
+        # Сохраняем список изменённых объектов для возможного отката
+        self.last_changed_objects = list(set(changed_ids))  
         self._display_system(f"✅ Память обновлена для {updated} объектов.\n")
         self._finish_generation()

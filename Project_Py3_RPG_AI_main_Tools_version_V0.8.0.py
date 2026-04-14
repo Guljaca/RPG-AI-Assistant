@@ -1,4 +1,4 @@
-# Project_Py3_RPG_AI_main_Tools_version_V0.6.0.py
+# Project_Py3_RPG_AI_main_Tools_version_V0.8.0.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
@@ -573,6 +573,10 @@ class MainApp(tk.Tk):
             "stage10_associative_memory": True,
         })
 
+        # Для отслеживания добавленной памяти в текущей генерации
+        self.current_generation_added_summaries = []   # список строк summary
+        self.current_generation_added_assoc = []      # список строк вида "Объект (ID): изменение"
+
         self.event_handlers = {
             "send_message": self._handle_send_message,
             "start_game": self._handle_start_game,
@@ -585,6 +589,7 @@ class MainApp(tk.Tk):
             "regenerate_last_response": self._handle_regenerate_last_response,
             "regenerate_translation": self._handle_regenerate_translation,
             "delete_last_user_message": self._handle_delete_last_user_message,
+            "edit_session": self._handle_edit_session,   # <-- НОВЫЙ ОБРАБОТЧИК
             "update_narrator": lambda data: self._handle_update_object("narrators", data),
             "create_narrator": lambda data: self._handle_create_object("narrators", data),
             "delete_narrator": lambda data: self._handle_delete_object("narrators", data.get("id")),
@@ -629,6 +634,91 @@ class MainApp(tk.Tk):
         self.after(100, self._refresh_all_ui)
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
+    # ---------- НОВЫЙ МЕТОД: РЕДАКТИРОВАНИЕ СЕССИИ ----------
+    def _handle_edit_session(self, data=None):
+        """Открывает окно редактирования JSON-файла текущей сессии."""
+        if not self.current_session_id:
+            messagebox.showwarning("Редактирование", "Нет активной сессии.")
+            return
+        session_path = os.path.join(self.storage.dirs["sessions"], f"{self.current_session_id}.json")
+        if not os.path.exists(session_path):
+            messagebox.showerror("Ошибка", "Файл сессии не найден.")
+            return
+        try:
+            with open(session_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{e}")
+            return
+
+        # Создаём окно редактирования
+        edit_win = tk.Toplevel(self)
+        edit_win.title(f"Редактирование сессии: {self.current_session_id}")
+        edit_win.geometry("800x600")
+        edit_win.transient(self)
+        edit_win.grab_set()
+
+        text_area = scrolledtext.ScrolledText(edit_win, wrap=tk.WORD, font=("Courier", 10))
+        text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        text_area.insert(tk.END, content)
+
+        def save_and_reload():
+            new_content = text_area.get("1.0", tk.END).strip()
+            if not new_content:
+                messagebox.showerror("Ошибка", "Содержимое не может быть пустым.")
+                return
+            # Проверка валидности JSON
+            try:
+                json.loads(new_content)
+            except json.JSONDecodeError as e:
+                messagebox.showerror("Ошибка JSON", f"Некорректный JSON:\n{e}")
+                return
+            try:
+                with open(session_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
+                return
+            # Перезагружаем сессию
+            self._handle_load_session({"session_id": self.current_session_id})
+            edit_win.destroy()
+            messagebox.showinfo("Успех", "Сессия сохранена и перезагружена.")
+
+        btn_frame = ttk.Frame(edit_win)
+        btn_frame.pack(pady=5)
+        ttk.Button(btn_frame, text="Сохранить и перезагрузить", command=save_and_reload).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Отмена", command=edit_win.destroy).pack(side=tk.LEFT, padx=5)
+
+    # ---------- Методы для отслеживания добавленной памяти ----------
+    def record_added_summary(self, summary_text: str):
+        """Запоминает добавленную запись краткой памяти для итогового отчёта."""
+        self.current_generation_added_summaries.append(summary_text)
+
+    def record_added_assoc(self, obj_id: str, change_text: str):
+        """Запоминает добавленную запись ассоциативной памяти для итогового отчёта."""
+        obj = self._get_object_by_id(obj_id)
+        obj_name = obj.name if obj else obj_id
+        self.current_generation_added_assoc.append(f"{obj_name} ({obj_id}): {change_text}")
+
+    def display_generation_memory_summary(self):
+        """Выводит в центр.панель итоговый отчёт о том, что было добавлено в память за текущую генерацию."""
+        if not self.current_generation_added_summaries and not self.current_generation_added_assoc:
+            return
+        self.center_panel.display_message("\n📝 **Итог обновления памяти:**\n", "system")
+        if self.current_generation_added_summaries:
+            self.center_panel.display_message("🧠 **Краткая память (новые записи):**\n", "system")
+            for summ in self.current_generation_added_summaries:
+                self.center_panel.display_message(f"  • {summ}\n", "system")
+        if self.current_generation_added_assoc:
+            self.center_panel.display_message("🔗 **Ассоциативная память (изменения):**\n", "system")
+            for assoc in self.current_generation_added_assoc:
+                self.center_panel.display_message(f"  • {assoc}\n", "system")
+        self.center_panel.display_message("\n", "system")
+        # Очищаем списки после отображения, чтобы не показывать повторно
+        self.current_generation_added_summaries.clear()
+        self.current_generation_added_assoc.clear()
+
+    # ---------- Остальные методы (без изменений, кроме _rollback_...) ----------
     def get_description_for_model(self, obj_id: str) -> str:
         """
         Возвращает описание объекта для передачи модели (без сжатия).
@@ -644,8 +734,6 @@ class MainApp(tk.Tk):
         else:
             return f"Описание: {global_desc}"
 
-
-    # ---------- Методы, оставшиеся без изменений (или слегка адаптированные) ----------
     def _handle_update_object(self, obj_type: str, data: dict):
         obj_id = data.get("id")
         name = data.get("name", "").strip()
@@ -1119,14 +1207,18 @@ class MainApp(tk.Tk):
         if self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
             self.conversation_history.pop()
             self._save_current_session_safe()
+        # Очищаем память, связанную с предыдущей генерацией этого сообщения
+        self._rollback_last_memory()                     # удаляем последнее краткое резюме
+        # Если в stage_processor сохранялся список изменённых объектов – передаём его
+        changed_objects = getattr(self.stage_processor, 'last_changed_objects', None)
+        self._rollback_associative_memory(changed_objects)
+        self.last_original_response = None
+        self.last_translated_response = None
         self.center_panel.clear_chat()
         for msg in self.conversation_history:
             role = "Вы" if msg["role"] == "user" else "Ассистент"
             tag = "user" if msg["role"] == "user" else "assistant"
             self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
-        self.last_original_response = None
-        self.last_translated_response = None
-        self.center_panel.update_translation_button_state()
         self._start_debug_log(f"REGENERATE: {self.last_user_message}")
         self._start_generation(self.last_user_message)
 
@@ -1183,6 +1275,9 @@ class MainApp(tk.Tk):
         if self.is_generating:
             messagebox.showwarning("Генерация", "Модель уже генерирует ответ.")
             return
+        # Очищаем списки добавленной памяти для новой генерации
+        self.current_generation_added_summaries.clear()
+        self.current_generation_added_assoc.clear()
         self.is_generating = True
         self.stop_generation_flag = False
         self.center_panel.set_input_state(tk.DISABLED)
@@ -1196,6 +1291,7 @@ class MainApp(tk.Tk):
         if not any_enabled:
             self._direct_chat(user_message)
         else:
+            self.stage_processor.last_changed_objects = []
             self.stage_processor.start_generation(user_message)
 
     def _direct_chat(self, user_message: str):
@@ -1888,6 +1984,123 @@ class MainApp(tk.Tk):
         self._save_current_session_safe()
         messagebox.showinfo("Создано", f"Персонаж '{name}' создан (ID: {char.id}).")
 
+    def _rollback_last_memory(self):
+        """Удаляет последнее краткое резюме и выводит сообщение."""
+        if self.memory_summaries:
+            removed = self.memory_summaries.pop()
+            self.center_panel.display_message(f"🧠 **Удалена запись краткой памяти:**\n  • {removed}\n", "system")
+            self._log_debug("MEMORY_ROLLBACK", f"Removed summary: {removed}")
+            self._save_current_session_safe()
+
+    def _rollback_associative_memory(self, object_ids: List[str] = None):
+        """
+        Откатывает последнее изменение ассоциативной памяти для указанных объектов.
+        Если object_ids не указаны, удаляет последнее изменение для каждого объекта,
+        у которого есть изменения. Выводит сообщение с названиями объектов и текстом изменений.
+        """
+        removed_items = []  # для накопления сообщений
+        if object_ids is None:
+            # Удаляем последнее изменение для всех объектов
+            for obj_id in list(self.associative_memory.keys()):
+                if self.associative_memory[obj_id]:
+                    removed = self.associative_memory[obj_id].pop()
+                    obj = self._get_object_by_id(obj_id)
+                    obj_name = obj.name if obj else obj_id
+                    removed_items.append(f"{obj_name} ({obj_id}): {removed}")
+                    if not self.associative_memory[obj_id]:
+                        del self.associative_memory[obj_id]
+        else:
+            for obj_id in object_ids:
+                if obj_id in self.associative_memory and self.associative_memory[obj_id]:
+                    removed = self.associative_memory[obj_id].pop()
+                    obj = self._get_object_by_id(obj_id)
+                    obj_name = obj.name if obj else obj_id
+                    removed_items.append(f"{obj_name} ({obj_id}): {removed}")
+                    if not self.associative_memory[obj_id]:
+                        del self.associative_memory[obj_id]
+        if removed_items:
+            self.center_panel.display_message("🔗 **Удалены записи ассоциативной памяти:**\n", "system")
+            for item in removed_items:
+                self.center_panel.display_message(f"  • {item}\n", "system")
+        self._save_current_session_safe()
+
+    def _handle_regenerate_last_response(self, data=None):
+        """Перегенерация последнего ответа с очисткой памяти."""
+        if self.is_generating:
+            messagebox.showwarning("Генерация", "Модель уже генерирует ответ.")
+            return
+        if not self.last_user_message:
+            messagebox.showinfo("Перегенерация", "Нет последнего сообщения пользователя.")
+            return
+
+        # Удаляем последний ответ ассистента из истории
+        if self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
+            self.conversation_history.pop()
+            self._save_current_session_safe()
+
+        # Очищаем память, связанную с предыдущей генерацией этого сообщения
+        self._rollback_last_memory()                     # удаляем последнее краткое резюме
+        # Если в stage_processor сохранялся список изменённых объектов – передаём его
+        changed_objects = getattr(self.stage_processor, 'last_changed_objects', None)
+        self._rollback_associative_memory(changed_objects)
+
+        # Очищаем кэшированные переводы
+        self.last_original_response = None
+        self.last_translated_response = None
+
+        # Перерисовываем чат без удалённого ответа
+        self.center_panel.clear_chat()
+        for msg in self.conversation_history:
+            role = "Вы" if msg["role"] == "user" else "Ассистент"
+            tag = "user" if msg["role"] == "user" else "assistant"
+            self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+
+        # Запускаем генерацию заново
+        self._start_debug_log(f"REGENERATE: {self.last_user_message}")
+        self._start_generation(self.last_user_message)
+
+    def _handle_delete_last_user_message(self, data=None):
+        """Удаление последнего сообщения пользователя и всех ответов на него с очисткой памяти."""
+        if self.is_generating:
+            messagebox.showwarning("Генерация", "Сначала остановите генерацию (кнопка Стоп).")
+            return
+        if not self.conversation_history:
+            return
+
+        # Находим индекс последнего сообщения пользователя
+        last_user_index = -1
+        for i in range(len(self.conversation_history)-1, -1, -1):
+            if self.conversation_history[i]["role"] == "user":
+                last_user_index = i
+                break
+        if last_user_index == -1:
+            messagebox.showinfo("Удаление", "Нет сообщений пользователя для удаления.")
+            return
+
+        # Обрезаем историю до последнего сообщения пользователя (не включая его)
+        self.conversation_history = self.conversation_history[:last_user_index]
+        self._sync_last_user_message()
+        self.last_original_response = None
+        self.last_translated_response = None
+
+        # Очищаем всю память, накопленную после этого сообщения
+        # (проще всего сбросить всё, так как точное отслеживание сложно)
+        self.memory_summaries = []
+        self.associative_memory = {}
+        self.local_descriptions = {}   # по желанию, если нужно сбросить и локальные описания
+
+        self._save_current_session_safe()
+
+        # Перерисовываем чат
+        self.center_panel.clear_chat()
+        for msg in self.conversation_history:
+            role = "Вы" if msg["role"] == "user" else "Ассистент"
+            tag = "user" if msg["role"] == "user" else "assistant"
+            self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+
+        self.center_panel.update_translation_button_state()
+        messagebox.showinfo("Удаление", "Последнее сообщение пользователя и ответы на него удалены. Память очищена.")
+
     def _handle_create_location(self, data):
         name = data.get("name", "").strip()
         description = data.get("description", "").strip()
@@ -1914,7 +2127,7 @@ class MainApp(tk.Tk):
         self._save_current_session_safe()
         messagebox.showinfo("Создано", f"Предмет '{name}' создан (ID: {item.id}).")
 
-# ---------- SettingsDialog (исправлен: добавлены чекбоксы стадий, прокрутка, центрирование) ----------
+# ---------- SettingsDialog (без изменений) ----------
 class SettingsDialog:
     def __init__(self, parent, current_settings):
         self.top = tk.Toplevel(parent)
