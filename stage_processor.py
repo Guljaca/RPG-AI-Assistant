@@ -1,7 +1,6 @@
 import json
 import random
 import re
-import threading
 from typing import Dict, List, Optional, Any, Callable, Tuple
 
 from models import Character
@@ -10,22 +9,22 @@ import time
 
 class UniversalParser:
     """
-    Извлекает вызовы функций из текстового ответа модели, если они не были переданы через tool_calls.
-    Поддерживает форматы:
-      - function_name(param1=value1, param2=value2)
-      - {"name": "function_name", "arguments": {...}}
-      - function_name({"param": value})
-      - Простые ключ=значение, если функция очевидна из контекста.
+    Извлекает вызовы функций из текстового ответа модели.
+    Поддерживает:
+      - function_name([...])
+      - function_name(value, value)
+      - function_name(param=value)
+      - {"name": "fn", "arguments": {...}}
     """
 
     FUNC_CALL_PATTERN = re.compile(
-        r'(?P<func>\w+)\s*\(\s*(?P<args>[^)]+?)\s*\)',
+        r'(?P<func>\w+)\s*\(\s*(?P<args>[^)]*?)\s*\)',
         re.DOTALL | re.IGNORECASE
     )
-    JSON_PATTERN = re.compile(r'\{[^{}]*\}+')
+    JSON_PATTERN = re.compile(r'\{[^{}]*\}')
 
     @classmethod
-    def parse(cls, text: str) -> List[Tuple[str, Dict[str, Any]]]:
+    def parse(cls, text: str) -> List[Tuple[str, Any]]:
         if not text:
             return []
         results = []
@@ -41,27 +40,12 @@ class UniversalParser:
                     obj = json.loads(json_match.group())
                     if 'name' in obj and 'arguments' in obj:
                         results.append((obj['name'], obj['arguments']))
-                    elif 'function' in obj and 'arguments' in obj:
-                        results.append((obj['function'], obj['arguments']))
-                except json.JSONDecodeError:
+                except:
                     continue
-        if not results and ('location_id' in text.lower() or 'character_ids' in text.lower()):
-            args = cls._extract_simple_dict(text)
-            if args:
-                if 'location_id' in args or 'character_ids' in args:
-                    results.append(('confirm_scene', args))
-                elif 'valid' in args:
-                    results.append(('report_validation_result', args))
-                elif 'violation' in args or 'edited_message' in args:
-                    results.append(('report_truth_check', args))
-                elif 'dice_value' in args and 'description' in args:
-                    results.append(('report_player_action', args))
-                elif 'event_occurred' in args:
-                    results.append(('report_random_event', args))
         return results
 
     @classmethod
-    def _parse_arguments(cls, args_str: str) -> Optional[Dict[str, Any]]:
+    def _parse_arguments(cls, args_str: str) -> Optional[Any]:
         args_str = args_str.strip()
         if not args_str:
             return None
@@ -70,8 +54,48 @@ class UniversalParser:
                 return json.loads(args_str)
             except:
                 pass
+        if args_str.startswith('[') and args_str.endswith(']'):
+            try:
+                inner = args_str[1:-1].strip()
+                if not inner:
+                    return []
+                items = []
+                for item in cls._split_args_preserve_brackets(inner, sep=','):
+                    item = item.strip()
+                    if item.startswith("'") and item.endswith("'"):
+                        items.append(item[1:-1])
+                    elif item.startswith('"') and item.endswith('"'):
+                        items.append(item[1:-1])
+                    elif item.isdigit():
+                        items.append(int(item))
+                    elif item in ('true', 'True'):
+                        items.append(True)
+                    elif item in ('false', 'False'):
+                        items.append(False)
+                    else:
+                        items.append(item)
+                return items
+            except:
+                pass
+        parts = cls._split_args_preserve_brackets(args_str, sep=',')
+        if len(parts) > 1 and not any('=' in p for p in parts):
+            result = []
+            for p in parts:
+                p = p.strip()
+                if p.startswith("'") and p.endswith("'"):
+                    result.append(p[1:-1])
+                elif p.startswith('"') and p.endswith('"'):
+                    result.append(p[1:-1])
+                elif p.isdigit():
+                    result.append(int(p))
+                elif p in ('true', 'True'):
+                    result.append(True)
+                elif p in ('false', 'False'):
+                    result.append(False)
+                else:
+                    result.append(p)
+            return result
         result = {}
-        parts = cls._split_args_preserve_brackets(args_str)
         for part in parts:
             if '=' not in part:
                 continue
@@ -91,8 +115,7 @@ class UniversalParser:
             elif value_str.startswith('[') and value_str.endswith(']'):
                 inner = value_str[1:-1].strip()
                 if inner:
-                    items = [cls._parse_single_value(x.strip()) for x in cls._split_args_preserve_brackets(inner, sep=',')]
-                    value = items
+                    value = [cls._parse_single_value(x.strip()) for x in cls._split_args_preserve_brackets(inner, sep=',')]
                 else:
                     value = []
             else:
@@ -142,34 +165,19 @@ class UniversalParser:
             return False
         return s
 
-    @classmethod
-    def _extract_simple_dict(cls, text: str) -> Dict[str, Any]:
-        result = {}
-        pairs = re.findall(r'(\w+)\s*[:=]\s*([^,;\n]+(?:,[^,;\n]+)*)', text)
-        for key, value_str in pairs:
-            key = key.strip()
-            value_str = value_str.strip()
-            if value_str.startswith(("'", '"')) and value_str.endswith(("'", '"')):
-                value_str = value_str[1:-1]
-            if ',' in value_str:
-                value = [v.strip() for v in value_str.split(',')]
-            else:
-                value = value_str
-            result[key] = value
-        return result
-
 
 class StageProcessor:
     """
-    Управляет поэтапной генерацией ответа ассистента в соответствии с Logic 2.txt.
+    Управляет поэтапной генерацией ответа ассистента.
+    Все броски генерируются внутри и берутся из очередей.
+    Модель НЕ вызывает roll_dice, только получает готовые числа.
     """
-    # Список стадий, которые можно отключать (кроме финальной)
     CONFIGURABLE_STAGES = [
         "stage1_request_descriptions",
-        "stage1_validate_scene",
         "stage1_truth_check",
         "stage1_player_action",
         "stage1_random_event",
+        "stage1_random_event_request_objects",
         "stage2_npc_action",
         "stage4_summary",
         "stage10_associative_memory"
@@ -189,7 +197,8 @@ class StageProcessor:
             "scene_summary": "",
             "player_action_dice": None,
             "player_action_desc": "",
-            "event_dice": None,
+            "event_occurrence_dice": None,
+            "event_quality_dice": None,
             "event_occurred": False,
             "event_desc": "",
             "event_additional_ids": [],
@@ -202,9 +211,29 @@ class StageProcessor:
             "npc_retry_count": 0
         }
         self.stage_retries = {}
+        self.dice_queue_d20 = []
+        self.dice_queue_d100 = []
+        self._refill_dice_queues()
+
+    def _refill_dice_queues(self):
+        self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
+        self.dice_queue_d100 = [random.randint(1, 100) for _ in range(5)]
+
+    def _pop_dice(self, dice_type: str) -> int:
+        if dice_type == 'd20':
+            if not self.dice_queue_d20:
+                self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
+            return self.dice_queue_d20.pop(0)
+        elif dice_type == 'd100':
+            if not self.dice_queue_d100:
+                self.dice_queue_d100 = [random.randint(1, 100) for _ in range(5)]
+            return self.dice_queue_d100.pop(0)
+        else:
+            return random.randint(1, 20)
 
     def start_generation(self, user_message: str):
         self.generation_start_time = time.time()
+        self._refill_dice_queues()
         self.stage_data.update({
             "user_message": user_message,
             "original_user_message": user_message,
@@ -215,7 +244,8 @@ class StageProcessor:
             "scene_summary": "",
             "player_action_dice": None,
             "player_action_desc": "",
-            "event_dice": None,
+            "event_occurrence_dice": None,
+            "event_quality_dice": None,
             "event_occurred": False,
             "event_desc": "",
             "event_additional_ids": [],
@@ -235,9 +265,6 @@ class StageProcessor:
     def _log_debug(self, step: str, content: str = "", error: str = None):
         if self.main_app.current_debug_log_path:
             self.main_app._log_debug(step, content, error)
-
-    def _get_next_dice_value(self, dice_type: str) -> Optional[int]:
-        return self.main_app.get_next_dice_value(dice_type)
 
     def _get_object_by_id(self, obj_id: str):
         return self.main_app._get_object_by_id(obj_id)
@@ -260,10 +287,7 @@ class StageProcessor:
         self.main_app.center_panel.display_message(msg, "error")
 
     def _display_message(self, msg: str, tag: str = "system"):
-        if tag == "system":
-            self.main_app.center_panel.display_message(msg, "system")
-        else:
-            self.main_app.center_panel.display_message(msg, tag)
+        self.main_app.center_panel.display_message(msg, tag)
 
     def _finish_generation(self):
         total_time = 0
@@ -306,72 +330,131 @@ class StageProcessor:
         rejection_phrases = [
             "не подходит", "не могу подтвердить", "не соответствует", "не вижу смысла",
             "отклоняю", "не удалось определить", "не вижу", "не подходящая сцена",
-            "не могу согласиться", "не подтверждаю", "не вижу объектов", "не подходит для сцены",
-            "не хочу", "не буду", "не нахожу", "не обнаружил", "не подходит под описание",
-            "не удовлетворяет", "не может быть", "не подходит по смыслу"
+            "не могу согласиться", "не подтверждаю", "не вижу объектов", "не подходит для сцены"
         ]
-        text_lower = text.lower()
-        return any(phrase in text_lower for phrase in rejection_phrases)
+        return any(phrase in text.lower() for phrase in rejection_phrases)
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 1: запрос описаний объектов и формирование сцены
+    # Синхронное получение описаний объектов
+    # --------------------------------------------------------------------------
+    def _fetch_descriptions_sync(self, obj_ids: List[str]):
+        """Синхронно получает описания для всех объектов и сохраняет в stage_data["descriptions"]."""
+        for obj_id in obj_ids:
+            self._display_system(f"📦 Получение описания для {obj_id}...\n")
+            try:
+                desc = self._get_object_description_with_local(obj_id)
+                self.stage_data["descriptions"][obj_id] = desc
+                self._display_system(f"✅ Описание {obj_id} получено.\n")
+            except Exception as e:
+                self._display_error(f"❌ Ошибка получения описания {obj_id}: {e}\n")
+                self.stage_data["descriptions"][obj_id] = f"Ошибка: {e}"
+        self._display_system("✅ Все описания объектов получены.\n")
+
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 1.1: запрос описаний объектов (кандидатов)
     # --------------------------------------------------------------------------
     def _stage1_request_descriptions(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage1_request_descriptions", True):
             self._log_debug("STAGE1_SKIPPED", "Stage1 disabled")
-            self._stage2_validate_scene()
+            self._stage3_truth_check()
             return
 
-        self._log_debug(f"=== STAGE1: request_descriptions (attempt {retry_count+1}) ===")
-        self._display_system(f"🔍 Этап 1/10: Определение объектов сцены (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE1.1: request_descriptions (attempt {retry_count+1}) ===")
+        self._display_system(f"🔍 Этап 1.1/9: Определение необходимых объектов (попытка {retry_count+1})...\n")
 
         if retry_count > 0:
             self.stage_data["descriptions"] = {}
-            self.stage_data["scene_location_id"] = None
-            self.stage_data["scene_character_ids"] = []
-            self.stage_data["scene_item_ids"] = []
-            self.stage_data["scene_summary"] = ""
 
         objects_text = []
         for lid in self.main_app.current_profile.enabled_locations:
             loc = self.main_app.locations.get(lid)
             if loc:
-                objects_text.append(f"Локация: {lid} - {loc.name}")
+                assoc = self.main_app.get_associative_memory_for_object(lid)
+                assoc_str = f" ({assoc})" if assoc else ""
+                objects_text.append(f"Локация: {lid} - {loc.name}{assoc_str}")
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
             if char:
-                objects_text.append(f"Персонаж: {cid} - {char.name}{' (ИГРОК)' if char.is_player else ''}")
+                assoc = self.main_app.get_associative_memory_for_object(cid)
+                assoc_str = f" ({assoc})" if assoc else ""
+                player_tag = ' (ИГРОК)' if char.is_player else ''
+                objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
             if item:
-                objects_text.append(f"Предмет: {iid} - {item.name}")
+                assoc = self.main_app.get_associative_memory_for_object(iid)
+                assoc_str = f" ({assoc})" if assoc else ""
+                objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_request_descriptions")
-        hint = "\n\nВАЖНО: Если у тебя не получается вызвать функцию confirm_scene, напиши её в тексте в формате: confirm_scene(location_id='ID', character_ids=['ID1','ID2'], item_ids=['ID1'])"
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_request_descriptions' не загружен. Проверьте файлы промтов.")
         main_prompt = prompt_template.format(
             user_message=self.stage_data["user_message"],
             available_objects=available
-        ) + hint
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_request_descriptions",
-            main_prompt=main_prompt
         )
+        # Жёсткое указание формата
+        main_prompt += "\n\n⚠️ Ты должен ответить ТОЛЬКО вызовом send_object_info с массивом ID объектов. Пример: send_object_info(['l1','c2','c3']). Никакого другого текста."
+
         messages = [
-            {"role": "user", "content": f"Сообщение игрока: {self.stage_data['user_message']}"}
-        ] + system_messages
+            {"role": "user", "content": f"Сообщение игрока: {self.stage_data['user_message']}"},
+            {"role": "system", "content": main_prompt}
+        ]
 
         self._send_request(
             messages,
-            lambda tc, cont, extra: self._after_stage1_descriptions(tc, cont, extra),
+            lambda tc, cont, extra: self._after_stage1_request_descriptions(tc, cont, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_request_descriptions",
             show_in_thinking=True
         )
+
+    def _after_stage1_request_descriptions(self, tool_calls, content, extra):
+        retry_count = extra.get("retry_count", 0)
+        self._log_debug("AFTER stage1_request_descriptions", f"tool_calls: {tool_calls}\ncontent: {content[:500] if content else ''}")
+
+        send_call = None
+        for tc in tool_calls:
+            if tc["function"]["name"] == "send_object_info":
+                send_call = tc
+                break
+
+        if not send_call and content:
+            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["send_object_info"])
+            if parsed:
+                send_call = parsed[0]
+                self._display_system("📝 Извлёк send_object_info из текста.\n")
+
+        if send_call:
+            try:
+                args = json.loads(send_call["function"]["arguments"])
+                object_ids = None
+                if isinstance(args, list):
+                    object_ids = args
+                elif "object_ids" in args:
+                    object_ids = args["object_ids"]
+                elif "ids" in args:
+                    object_ids = args["ids"]
+                elif len(args) == 1 and isinstance(list(args.values())[0], list):
+                    object_ids = list(args.values())[0]
+
+                if object_ids is not None and isinstance(object_ids, list) and object_ids:
+                    self._display_system(f"📦 Запрошены объекты: {object_ids}\n")
+                    self._fetch_descriptions_sync(object_ids)
+                    self._stage1_create_scene()
+                    return
+                else:
+                    self._display_error("⚠️ send_object_info вызван без корректного списка object_ids.\n")
+            except Exception as e:
+                self._log_debug("ERROR", f"send_object_info parse error: {e}")
+
+        if retry_count < 2:
+            self._display_error(f"⚠️ Модель не вызвала send_object_info. Повтор ({retry_count+1}/2)...\n")
+            self._stage1_request_descriptions(retry_count+1)
+        else:
+            self._display_system("⚠️ Модель не запросила объекты. Создаём сцену по умолчанию.\n")
+            self._create_default_scene()
 
     def _create_default_scene(self):
         location_id = None
@@ -384,6 +467,12 @@ class StageProcessor:
         self.stage_data["scene_location_id"] = location_id
         self.stage_data["scene_character_ids"] = character_ids
         self.stage_data["scene_item_ids"] = item_ids
+
+        all_ids = []
+        if location_id:
+            all_ids.append(location_id)
+        all_ids.extend(character_ids)
+        all_ids.extend(item_ids)
 
         scene_parts = []
         if location_id:
@@ -405,283 +494,136 @@ class StageProcessor:
         summary = "\n".join(scene_parts)
         self.stage_data["scene_summary"] = summary
         self._display_system(f"🔄 Сцена создана автоматически:\n{summary}\n")
-
-        all_ids = []
-        if location_id:
-            all_ids.append(location_id)
-        all_ids.extend(character_ids)
-        all_ids.extend(item_ids)
-
         if all_ids:
-            self._display_system(f"📦 Запрос описаний для {len(all_ids)} объектов...\n")
-            self._fetch_descriptions_async(all_ids, 0, self._stage2_validate_scene)
-        else:
-            self._stage2_validate_scene()
+            self._fetch_descriptions_sync(all_ids)
+        self._stage3_truth_check()
 
-    def _after_stage1_descriptions(self, tool_calls, content, extra):
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 1.2: создание сцены на основе полученных описаний
+    # --------------------------------------------------------------------------
+    def _stage1_create_scene(self, retry_count=0):
+        self._log_debug(f"=== STAGE1.2: create_scene (attempt {retry_count+1}) ===")
+        self._display_system(f"🎬 Этап 1.2/9: Создание сцены (попытка {retry_count+1})...\n")
+
+        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_create_scene")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_create_scene' не загружен. Проверьте файлы промтов.")
+        main_prompt = prompt_template.format(
+            user_message=self.stage_data["user_message"],
+            descriptions=descriptions_text
+        )
+        # Используем позиционные аргументы, строгий формат
+        main_prompt += "\n\n⚠️ Ты должен ответить ТОЛЬКО вызовом confirm_scene с позиционными аргументами: confirm_scene(location_id, character_ids, item_ids). Пример: confirm_scene('l1', ['c2','c3'], []). Никакого другого текста."
+
+        messages = [
+            {"role": "user", "content": f"Сообщение игрока: {self.stage_data['user_message']}"},
+            {"role": "system", "content": main_prompt}
+        ]
+
+        self._send_request(
+            messages,
+            lambda tc, cont, extra: self._after_stage1_create_scene(tc, cont, extra),
+            extra={"retry_count": retry_count},
+            stage_name="stage1_create_scene",
+            show_in_thinking=True
+        )
+
+    def _after_stage1_create_scene(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage1_descriptions", f"tool_calls: {tool_calls}\ncontent: {content[:500] if content else ''}")
-
         confirm_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "confirm_scene":
                 confirm_call = tc
                 break
-
         if not confirm_call and content:
-            parsed_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["confirm_scene"])
-            if parsed_calls:
-                confirm_call = parsed_calls[0]
-                self._log_debug("PARSED_CONFIRM_SCENE", f"Extracted from text: {confirm_call}")
-                self._display_system("📝 Извлёк вызов confirm_scene из текста ответа модели.\n")
+            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["confirm_scene"])
+            if parsed:
+                confirm_call = parsed[0]
+                self._display_system("📝 Извлёк confirm_scene из текста.\n")
 
         if confirm_call:
             try:
                 args = json.loads(confirm_call["function"]["arguments"])
-                location_id = args.get("location_id")
-                character_ids = args.get("character_ids", [])
-                item_ids = args.get("item_ids", [])
+                location_id = None
+                character_ids = []
+                item_ids = []
 
-                self.stage_data["scene_location_id"] = location_id if location_id else None
+                # Поддержка позиционных аргументов: ['l1', ['c2','c3'], []]
+                if isinstance(args, list) and len(args) >= 3:
+                    location_id = args[0] if isinstance(args[0], str) else None
+                    character_ids = args[1] if isinstance(args[1], list) else []
+                    item_ids = args[2] if isinstance(args[2], list) else []
+                else:
+                    location_id = args.get("location_id")
+                    character_ids = args.get("character_ids", [])
+                    item_ids = args.get("item_ids", [])
+
+                if not isinstance(location_id, str):
+                    location_id = None
+
+                self.stage_data["scene_location_id"] = location_id
                 self.stage_data["scene_character_ids"] = character_ids
                 self.stage_data["scene_item_ids"] = item_ids
 
                 scene_parts = []
-                if location_id:
-                    loc = self.main_app.locations.get(location_id)
-                    loc_name = loc.name if loc else location_id
-                    scene_parts.append(f"Локация: {loc_name} (ID: {location_id})")
-                if character_ids:
+                if self.stage_data["scene_location_id"]:
+                    loc = self.main_app.locations.get(self.stage_data["scene_location_id"])
+                    loc_name = loc.name if loc else self.stage_data["scene_location_id"]
+                    scene_parts.append(f"Локация: {loc_name} (ID: {self.stage_data['scene_location_id']})")
+                if self.stage_data["scene_character_ids"]:
                     char_names = []
-                    for cid in character_ids:
+                    for cid in self.stage_data["scene_character_ids"]:
                         char = self.main_app.characters.get(cid)
                         char_names.append(f"{char.name} (ID: {cid})" if char else cid)
                     scene_parts.append(f"Персонажи: {', '.join(char_names)}")
-                if item_ids:
+                if self.stage_data["scene_item_ids"]:
                     item_names = []
-                    for iid in item_ids:
+                    for iid in self.stage_data["scene_item_ids"]:
                         item = self.main_app.items.get(iid)
                         item_names.append(f"{item.name} (ID: {iid})" if item else iid)
                     scene_parts.append(f"Предметы: {', '.join(item_names)}")
                 summary = "\n".join(scene_parts)
                 self.stage_data["scene_summary"] = summary
-                self._display_system(f"✅ Сцена сгенерирована моделью:\n{summary}\n")
-
-                all_ids = []
-                if location_id:
-                    all_ids.append(location_id)
-                all_ids.extend(character_ids)
-                all_ids.extend(item_ids)
-
-                if all_ids:
-                    self._display_system(f"📦 Запрос описаний для {len(all_ids)} объектов...\n")
-                    self._fetch_descriptions_async(all_ids, 0, self._stage2_validate_scene)
-                else:
-                    self._display_system("✅ Все описания объектов получены. Модель приступает к валидации сцены.\n")
-                    self._stage2_validate_scene()
+                self._display_system(f"✅ Сцена создана:\n{summary}\n")
+                self._stage3_truth_check()
                 return
             except Exception as e:
                 self._log_debug("ERROR", f"confirm_scene parse error: {e}")
-                if retry_count < 2:
-                    self._display_error(f"⚠️ Техническая ошибка при обработке confirm_scene: {e}. Повтор ({retry_count+1}/2)...\n")
-                    self._stage1_request_descriptions(retry_count+1)
-                    return
-                else:
-                    self._display_error(f"⚠️ Техническая ошибка после 3 попыток. Продолжаем с последней полученной сценой (если есть).\n")
-                    if self.stage_data["scene_location_id"] or self.stage_data["scene_character_ids"]:
-                        all_ids = []
-                        if self.stage_data["scene_location_id"]:
-                            all_ids.append(self.stage_data["scene_location_id"])
-                        all_ids.extend(self.stage_data["scene_character_ids"])
-                        all_ids.extend(self.stage_data["scene_item_ids"])
-                        if all_ids:
-                            self._fetch_descriptions_async(all_ids, 0, self._stage2_validate_scene)
-                        else:
-                            self._stage2_validate_scene()
-                        return
-                    else:
-                        self._create_default_scene()
-                        return
-
-        if retry_count >= 2:
-            self._display_system("⚠️ Модель не вызвала confirm_scene после 3 попыток. Создаём сцену по умолчанию.\n")
-            self._create_default_scene()
-            return
-
-        if self._is_model_rejection(content):
-            self._display_system(
-                f"⚠️ Модель отклонила сцену. Причина:\n{content[:300]}\n"
-                "Создаём сцену по умолчанию.\n"
-            )
-            self._create_default_scene()
-            return
 
         if retry_count < 2:
-            self._display_error(
-                f"⚠️ Модель не вызвала confirm_scene. Повторная попытка ({retry_count+1}/2)...\n"
-                f"Ответ модели: {content[:200] if content else 'пустой ответ'}\n"
-            )
-            self._stage1_request_descriptions(retry_count+1)
+            self._display_error(f"⚠️ Модель не вызвала confirm_scene. Повтор ({retry_count+1}/2)...\n")
+            self._stage1_create_scene(retry_count+1)
         else:
-            self._display_error("❌ Модель не вызвала confirm_scene после 3 попыток. Создаём сцену по умолчанию.\n")
+            self._display_system("⚠️ Не удалось получить confirm_scene. Создаём сцену по умолчанию.\n")
             self._create_default_scene()
 
     # --------------------------------------------------------------------------
-    # Асинхронное получение описаний объектов
-    # --------------------------------------------------------------------------
-    def _fetch_descriptions_async(self, obj_ids: List[str], index: int, on_complete: Callable):
-        if index >= len(obj_ids):
-            self._display_system("✅ Все описания объектов получены.\n")
-            self._display_system("🔍 Модель анализирует полученные описания...\n")
-            on_complete()
-            return
-
-        obj_id = obj_ids[index]
-        self._display_system(f"📦 Получение описания для {obj_id}...\n")
-        self.main_app.update_idletasks()
-
-        def fetch_in_thread():
-            try:
-                desc = self._get_object_description_with_local(obj_id)
-                self.main_app.after(0, lambda: self._on_description_fetched(obj_id, desc, obj_ids, index + 1, on_complete))
-            except Exception as e:
-                error_msg = str(e)
-                self._log_debug("ERROR", f"Ошибка получения описания {obj_id}: {error_msg}")
-                self.main_app.after(0, lambda: self._on_description_fetched(obj_id, f"Ошибка: {error_msg}", obj_ids, index + 1, on_complete))
-
-        threading.Thread(target=fetch_in_thread, daemon=True).start()
-
-    def _on_description_fetched(self, obj_id: str, description: str, obj_ids: List[str], next_index: int, on_complete: Callable):
-        self.stage_data["descriptions"][obj_id] = description
-        self._display_system(f"✅ Описание {obj_id} получено.\n")
-        self._display_system(f"📄 Содержание: {description[:200]}...\n\n")
-        self.main_app.update_idletasks()
-        self._fetch_descriptions_async(obj_ids, next_index, on_complete)
-
-    # --------------------------------------------------------------------------
-    # СТАДИЯ 2: валидация сцены
-    # --------------------------------------------------------------------------
-    def _stage2_validate_scene(self, retry_count=0):
-        # Проверка, включена ли стадия
-        if not self.main_app.enabled_stages.get("stage1_validate_scene", True):
-            self._log_debug("STAGE2_SKIPPED", "Stage2 disabled")
-            self._stage3_truth_check()
-            return
-
-        self._log_debug(f"=== STAGE2: validate_scene (attempt {retry_count+1}) ===")
-        self._display_system(f"🔍 Этап 2/10: Валидация сцены (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
-
-        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
-        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_validate_scene")
-        main_prompt = prompt_template.format(
-            scene_summary=self.stage_data["scene_summary"],
-            descriptions=descriptions_text,
-            user_message=self.stage_data["user_message"]
-        )
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_validate_scene",
-            main_prompt=main_prompt
-        )
-        messages = [
-            {"role": "user", "content": f"Проверь корректность сцены для сообщения: {self.stage_data['user_message']}"}
-        ] + system_messages
-
-        self._send_request(
-            messages,
-            lambda tc, cont, extra: self._after_stage2_validate_scene(tc, cont, extra),
-            extra={"retry_count": retry_count},
-            stage_name="stage1_validate_scene",
-            show_in_thinking=True
-        )
-
-    def _after_stage2_validate_scene(self, tool_calls, content, extra):
-        retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage2_validate_scene", f"tool_calls: {tool_calls}")
-
-        report_call = None
-        for tc in tool_calls:
-            if tc["function"]["name"] == "report_validation_result":
-                report_call = tc
-                break
-
-        if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_validation_result"])
-            if parsed:
-                report_call = parsed[0]
-                self._log_debug("PARSED_VALIDATION", f"Extracted: {report_call}")
-
-        if not report_call:
-            if retry_count < 2:
-                self._display_error(f"⚠️ Модель не вызвала report_validation_result. Повтор ({retry_count+1}/2)...\n")
-                self._stage2_validate_scene(retry_count+1)
-                return
-            else:
-                self._display_system("⚠️ Модель не вызвала report_validation_result после 3 попыток. Считаем сцену валидной.\n")
-                self._stage3_truth_check()
-                return
-
-        try:
-            args = json.loads(report_call["function"]["arguments"])
-            valid = args.get("valid", False)
-            feedback = args.get("feedback", "")
-            if valid:
-                self._display_system("✅ Сцена успешно прошла валидацию.\n")
-                self._stage3_truth_check()
-            else:
-                self._display_system(f"❌ Сцена не прошла валидацию. Причина: {feedback}\n")
-                self._retry_scene_generation()
-        except Exception as e:
-            self._log_debug("ERROR", f"report_validation_result parse error: {e}")
-            if retry_count < 2:
-                self._display_error(f"⚠️ Ошибка обработки report_validation_result: {e}. Повтор ({retry_count+1}/2)...\n")
-                self._stage2_validate_scene(retry_count+1)
-            else:
-                self._display_system(f"⚠️ Ошибка после 3 попыток: {e}. Считаем сцену валидной.\n")
-                self._stage3_truth_check()
-
-    def _retry_scene_generation(self):
-        retry_key = "scene_generation_retries"
-        current = self.stage_data.get(retry_key, 0)
-        if current < 2:
-            self.stage_data[retry_key] = current + 1
-            self._display_system(f"🔄 Повторная генерация сцены (попытка {current+1}/2)...\n")
-            self._stage1_request_descriptions(retry_count=current+1)
-        else:
-            self._display_system("⚠️ Сцена не прошла валидацию после 3 попыток. Продолжаем с текущей сценой.\n")
-            self._stage3_truth_check()
-
-    # --------------------------------------------------------------------------
-    # СТАДИЯ 3: проверка правдивости
+    # СТАДИЯ 2: проверка правдивости
     # --------------------------------------------------------------------------
     def _stage3_truth_check(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage1_truth_check", True):
-            self._log_debug("STAGE3_SKIPPED", "Stage3 disabled")
+            self._log_debug("STAGE2_SKIPPED", "Stage2 (truth_check) disabled")
             self._stage4_player_action()
             return
 
-        self._log_debug(f"=== STAGE3: truth_check (attempt {retry_count+1}) ===")
-        self._display_system(f"🔍 Этап 3/10: Проверка правдивости сообщения (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE2: truth_check (attempt {retry_count+1}) ===")
+        self._display_system(f"🔍 Этап 2/9: Проверка правдивости (попытка {retry_count+1})...\n")
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_truth_check")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_truth_check' не загружен.")
         main_prompt = prompt_template.format(
             user_message=self.stage_data["user_message"],
             descriptions=descriptions_text
         )
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_truth_check",
-            main_prompt=main_prompt
-        )
+        main_prompt += "\n\n⚠️ Вызови report_truth_check(violation='...', edited_message='...')"
+
         messages = [
-            {"role": "user", "content": f"Проверь сообщение игрока на правдивость: {self.stage_data['user_message']}"}
-        ] + system_messages
+            {"role": "user", "content": f"Проверь сообщение: {self.stage_data['user_message']}"},
+            {"role": "system", "content": main_prompt}
+        ]
 
         self._send_request(
             messages,
@@ -693,472 +635,402 @@ class StageProcessor:
 
     def _after_stage3_truth_check(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage3_truth_check", f"tool_calls: {tool_calls}")
-
         report_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "report_truth_check":
                 report_call = tc
                 break
-
         if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_truth_check"])
+            parsed = self._try_parse_tool_calls_from_text(content, ["report_truth_check"])
             if parsed:
                 report_call = parsed[0]
 
         if not report_call:
             if retry_count < 2:
-                self._display_error(f"⚠️ Модель не вызвала report_truth_check. Повтор ({retry_count+1}/2)...\n")
+                self._display_error(f"⚠️ Повтор truth_check...\n")
                 self._stage3_truth_check(retry_count+1)
                 return
             else:
-                self._display_system("⚠️ Модель не вызвала report_truth_check после 3 попыток. Продолжаем с исходным сообщением.\n")
                 self.stage_data["truth_violation"] = ""
                 self._stage4_player_action()
                 return
 
         try:
             args = json.loads(report_call["function"]["arguments"])
-            violation = args.get("violation", "")
-            edited_message = args.get("edited_message", "")
-            self.stage_data["truth_violation"] = violation
-            if edited_message:
-                self.stage_data["user_message"] = edited_message
-                self._display_system(f"✏️ Сообщение игрока отредактировано моделью: '{edited_message}'\n")
-            if violation:
-                self._display_system(f"⚠️ Обнаружено нарушение: {violation[:200]}...\n")
-            else:
-                self._display_system("✅ Сообщение игрока не противоречит известным фактам.\n")
+            self.stage_data["truth_violation"] = args.get("violation", "")
+            if args.get("edited_message"):
+                self.stage_data["user_message"] = args["edited_message"]
+                self._display_system(f"✏️ Сообщение изменено: {self.stage_data['user_message']}\n")
             self._stage4_player_action()
         except Exception as e:
-            self._log_debug("ERROR", f"report_truth_check parse error: {e}")
+            self._log_debug("ERROR", f"truth_check parse error: {e}")
             if retry_count < 2:
-                self._display_error(f"⚠️ Ошибка обработки report_truth_check: {e}. Повтор ({retry_count+1}/2)...\n")
                 self._stage3_truth_check(retry_count+1)
             else:
-                self._display_system(f"⚠️ Ошибка после 3 попыток: {e}. Продолжаем с исходным сообщением.\n")
                 self.stage_data["truth_violation"] = ""
                 self._stage4_player_action()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 4: действие игрока
+    # СТАДИЯ 3: действие игрока
     # --------------------------------------------------------------------------
     def _stage4_player_action(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage1_player_action", True):
-            self._log_debug("STAGE4_SKIPPED", "Stage4 disabled")
+            self._log_debug("STAGE3_SKIPPED", "Stage3 (player_action) disabled")
             self._stage5_random_event_determine()
             return
 
-        self._log_debug(f"=== STAGE4: player_action (attempt {retry_count+1}) ===")
-        self._display_system(f"🎲 Этап 4/10: Обработка действия игрока (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE3: player_action (attempt {retry_count+1}) ===")
+        self._display_system(f"🎲 Этап 3/9: Действие игрока (попытка {retry_count+1})...\n")
+
+        dice_value = self._pop_dice('d20')
+        self.stage_data["player_action_dice"] = dice_value
+        self._display_system(f"🎲 Бросок d20: {dice_value}\n")
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
         dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
         violation_text = self.stage_data.get("truth_violation", "")
-        violation_section = f"\nВНИМАНИЕ: Игрок попытался смошенничать или противоречить фактам:\n{violation_text}\n" if violation_text else ""
+        violation_section = f"\nНарушение: {violation_text}\n" if violation_text else ""
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_player_action")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_player_action' не загружен.")
         main_prompt = prompt_template.format(
             user_message=self.stage_data["user_message"],
             descriptions=descriptions_text,
             dice_rules=dice_rules,
-            truth_violation=violation_section
+            truth_violation=violation_section,
+            dice_value=dice_value
         )
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_player_action",
-            main_prompt=main_prompt
-        )
+        main_prompt += f"\n\n⚠️ Вызови report_player_action({dice_value}, 'твоё описание')."
+
         messages = [
-            {"role": "user", "content": f"Игрок хочет: {self.stage_data['user_message']}. Вызови roll_dice(dice_type='d20'), получи результат, опиши действие и вызови report_player_action. Учти информацию о нарушении, если она есть."}
-        ] + system_messages
+            {"role": "user", "content": f"Игрок: {self.stage_data['user_message']}"},
+            {"role": "system", "content": main_prompt}
+        ]
 
         self._send_request(
             messages,
             lambda tc, cont, extra: self._after_stage4_player_action(tc, cont, extra),
-            extra={"retry_count": retry_count},
-            expect_tool_calls=True,
+            extra={"retry_count": retry_count, "expected_dice": dice_value},
             stage_name="stage1_player_action",
             show_in_thinking=True
         )
 
     def _after_stage4_player_action(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage4_player_action", f"tool_calls: {tool_calls}")
+        expected_dice = extra.get("expected_dice")
 
         report_call = None
         for tc in tool_calls:
-            if tc["function"]["name"] == "report_player_action":
+            if tc["function"]["name"] in ("report_player_action", "player_action"):
                 report_call = tc
                 break
-
         if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_player_action"])
+            parsed = self._try_parse_tool_calls_from_text(content, ["report_player_action", "player_action"])
             if parsed:
                 report_call = parsed[0]
 
         if not report_call:
             if retry_count < 2:
-                self._display_error(f"⚠️ Модель не вызвала report_player_action. Повтор ({retry_count+1}/2)...\n")
+                self._display_error(f"⚠️ Модель не вызвала report_player_action. Повтор...\n")
                 self._stage4_player_action(retry_count+1)
                 return
             else:
-                self._display_system("⚠️ Модель не вызвала report_player_action после 3 попыток. Используем действие по умолчанию.\n")
-                self.stage_data["player_action_dice"] = 10
-                self.stage_data["player_action_desc"] = "Игрок действует осторожно, но результат не очевиден."
+                self.stage_data["player_action_desc"] = "Игрок действует."
                 self._stage5_random_event_determine()
                 return
 
         try:
             args = json.loads(report_call["function"]["arguments"])
-            dice_value = args.get("dice_value")
-            description = args.get("description", "")
-            self.stage_data["player_action_dice"] = dice_value
-            self.stage_data["player_action_desc"] = description
-            self._display_system(f"🎲 Бросок d20: {dice_value}\n")
+            if isinstance(args, list) and len(args) >= 2:
+                description = args[1] if isinstance(args[1], str) else str(args[1])
+            else:
+                description = args.get("description", "")
+            self.stage_data["player_action_desc"] = description or "Действие выполнено."
             self._display_system(f"✍️ Результат: {description[:100]}...\n")
             self._stage5_random_event_determine()
         except Exception as e:
-            self._log_debug("ERROR", f"report_player_action parse error: {e}")
+            self._log_debug("ERROR", f"report_player_action error: {e}")
             if retry_count < 2:
-                self._display_error(f"⚠️ Ошибка обработки report_player_action: {e}. Повтор ({retry_count+1}/2)...\n")
                 self._stage4_player_action(retry_count+1)
             else:
-                self._display_system(f"⚠️ Ошибка после 3 попыток: {e}. Используем действие по умолчанию.\n")
-                self.stage_data["player_action_dice"] = 10
-                self.stage_data["player_action_desc"] = "Игрок действует осторожно, но результат не очевиден."
+                self.stage_data["player_action_desc"] = "Действие выполнено."
                 self._stage5_random_event_determine()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 5: определение случайного события (только d100)
+    # СТАДИЯ 4: определение случайного события (произошло ли)
     # --------------------------------------------------------------------------
     def _stage5_random_event_determine(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage1_random_event", True):
-            self._log_debug("STAGE5_SKIPPED", "Stage5 disabled")
+            self._log_debug("STAGE4_SKIPPED", "Stage4 (random_event) disabled")
             self._stage7_process_npcs()
             return
 
-        self._log_debug(f"=== STAGE5: random_event_determine (attempt {retry_count+1}) ===")
-        self._display_system(f"🎲 Этап 5/10: Проверка случайного события (бросок d100) (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE4: random_event (determine) (attempt {retry_count+1}) ===")
+        self._display_system(f"🎲 Этап 4/9: Определение случайного события (попытка {retry_count+1})...\n")
+
+        dice_value = self._pop_dice('d100')
+        self.stage_data["event_occurrence_dice"] = dice_value
+        self._display_system(f"🎲 Бросок d100: {dice_value}\n")
+
+        event_chance = getattr(self.main_app, 'random_event_chance', 30)
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
+        player_action = self.stage_data["player_action_desc"]
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_random_event' не загружен.")
         main_prompt = prompt_template.format(
             descriptions=descriptions_text,
-            player_action=self.stage_data["player_action_desc"]
+            player_action=player_action,
+            dice_value=dice_value,
+            event_chance=event_chance
         )
-        main_prompt += "\n\nВАЖНО: Сейчас нужно ТОЛЬКО определить, произошло ли событие. Вызови roll_dice('d100'), затем report_random_event с event_occurred=true/false. НЕ описывай событие и НЕ бросай d20 на этом этапе."
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_random_event",
-            main_prompt=main_prompt
-        )
+        main_prompt += "\n\n⚠️ Вызови report_random_event с параметрами dice_value, event_occurred (true/false) и description=''."
+
         messages = [
-            {"role": "user", "content": f"Проверь случайное событие. Вызови roll_dice('d100'), затем report_random_event с event_occurred."}
-        ] + system_messages
+            {"role": "user", "content": f"Действие игрока: {player_action}"},
+            {"role": "system", "content": main_prompt}
+        ]
 
         self._send_request(
             messages,
             lambda tc, cont, extra: self._after_stage5_random_event_determine(tc, cont, extra),
-            extra={"retry_count": retry_count},
+            extra={"retry_count": retry_count, "dice_value": dice_value, "event_chance": event_chance},
             stage_name="stage1_random_event",
             show_in_thinking=True
         )
 
     def _after_stage5_random_event_determine(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage5_random_event_determine", f"tool_calls: {tool_calls}")
+        expected_dice = extra.get("dice_value")
 
         report_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "report_random_event":
                 report_call = tc
                 break
-
         if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_random_event"])
+            parsed = self._try_parse_tool_calls_from_text(content, ["report_random_event"])
             if parsed:
                 report_call = parsed[0]
+                self._display_system("📝 Извлёк report_random_event из текста.\n")
 
-        if not report_call:
-            if self._try_extract_event_occurred_from_text(content):
-                self._display_system("✅ Случайное событие (факт) извлечено из текста.\n")
-                if self.stage_data.get("event_occurred"):
-                    self._stage5_random_event_details(retry_count=0)
+        if report_call:
+            try:
+                args = json.loads(report_call["function"]["arguments"])
+                if isinstance(args, list) and len(args) >= 2:
+                    dice_val = args[0]
+                    event_occurred = args[1]
+                else:
+                    dice_val = args.get("dice_value")
+                    event_occurred = args.get("event_occurred")
+                if dice_val != expected_dice:
+                    self._display_error(f"⚠️ Модель вернула dice_value={dice_val}, ожидалось {expected_dice}. Использую значение модели.\n")
+                if isinstance(event_occurred, str):
+                    event_occurred = event_occurred.lower() in ('true', 'yes', '1')
+                self.stage_data["event_occurred"] = bool(event_occurred)
+
+                self._display_system(f"✨ Событие: {'произошло' if self.stage_data['event_occurred'] else 'НЕ произошло'} (d100={dice_val})\n")
+                if self.stage_data["event_occurred"]:
+                    self._stage5_random_event_request_objects()
                 else:
                     self._stage7_process_npcs()
                 return
-            if retry_count < 2:
-                self._display_error(f"⚠️ Модель не вызвала report_random_event. Повтор ({retry_count+1}/2)...\n")
-                self._stage5_random_event_determine(retry_count+1)
-                return
-            else:
-                self._display_system("⚠️ Модель не вызвала report_random_event после 3 попыток. Событие считается отсутствующим.\n")
-                self.stage_data["event_occurred"] = False
-                self.stage_data["event_desc"] = ""
-                self.stage_data["event_dice"] = None
-                self._stage7_process_npcs()
-                return
+            except Exception as e:
+                self._log_debug("ERROR", f"report_random_event parse error: {e}")
 
-        try:
-            args = json.loads(report_call["function"]["arguments"])
-            dice_value = args.get("dice_value")
-            event_occurred = args.get("event_occurred", False)
-            self.stage_data["event_occurred"] = event_occurred
-            self.stage_data["event_dice"] = dice_value
-            if event_occurred:
-                self._display_system(f"✨ Случайное событие произошло! (d100={dice_value})\n")
-                self._stage5_random_event_details(retry_count=0)
-            else:
-                self._display_system(f"✅ Случайное событие не произошло. (d100={dice_value})\n")
-                self._stage7_process_npcs()
-        except Exception as e:
-            self._log_debug("ERROR", f"report_random_event parse error: {e}")
-            if retry_count < 2:
-                self._display_error(f"⚠️ Ошибка обработки report_random_event: {e}. Повтор ({retry_count+1}/2)...\n")
-                self._stage5_random_event_determine(retry_count+1)
-            else:
-                self._display_system(f"⚠️ Ошибка после 3 попыток: {e}. Событие считается отсутствующим.\n")
-                self.stage_data["event_occurred"] = False
-                self.stage_data["event_desc"] = ""
-                self._stage7_process_npcs()
-
-    def _try_extract_event_occurred_from_text(self, content: str) -> bool:
-        if not content:
-            return False
-        d100_match = re.search(r'd100[^\d]*(\d{1,3})', content, re.IGNORECASE)
-        no_event_keywords = ["не произошло", "не случилось", "ничего не", "события нет", "не было"]
-        event_occurred = not any(kw in content.lower() for kw in no_event_keywords)
-        if d100_match:
-            dice_val = int(d100_match.group(1))
-            self.stage_data["event_dice"] = dice_val
-            self.stage_data["event_occurred"] = event_occurred
-            return True
-        return False
+        if retry_count < 2:
+            self._display_error(f"⚠️ Модель не вызвала report_random_event. Повтор ({retry_count+1}/2)...\n")
+            self._stage5_random_event_determine(retry_count+1)
+        else:
+            self._display_system("⚠️ Модель не определила событие. Считаем, что событие не произошло.\n")
+            self.stage_data["event_occurred"] = False
+            self._stage7_process_npcs()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 5.1 и 5.2: детали события
+    # СТАДИЯ 5.1: запрос недостающих объектов для случайного события
     # --------------------------------------------------------------------------
-    def _stage5_random_event_details(self, retry_count=0):
-        # Эта часть не отключается отдельно, она следует за stage1_random_event
-        self._log_debug(f"=== STAGE5.1: random_event_details (attempt {retry_count+1}) ===")
-        self._display_system(f"✨ Этап 5.1/10: Запрос дополнительных объектов для события (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+    def _stage5_random_event_request_objects(self, retry_count=0):
+        self._log_debug(f"=== STAGE5.1: request objects for event (attempt {retry_count+1}) ===")
+        self._display_system(f"📦 Этап 5.1/9: Запрос объектов для события (попытка {retry_count+1})...\n")
+
+        objects_text = []
+        for lid in self.main_app.current_profile.enabled_locations:
+            loc = self.main_app.locations.get(lid)
+            if loc:
+                assoc = self.main_app.get_associative_memory_for_object(lid)
+                assoc_str = f" ({assoc})" if assoc else ""
+                objects_text.append(f"Локация: {lid} - {loc.name}{assoc_str}")
+        for cid in self.main_app.current_profile.enabled_characters:
+            char = self.main_app.characters.get(cid)
+            if char:
+                assoc = self.main_app.get_associative_memory_for_object(cid)
+                assoc_str = f" ({assoc})" if assoc else ""
+                player_tag = ' (ИГРОК)' if char.is_player else ''
+                objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
+        for iid in self.main_app.current_profile.enabled_items:
+            item = self.main_app.items.get(iid)
+            if item:
+                assoc = self.main_app.get_associative_memory_for_object(iid)
+                assoc_str = f" ({assoc})" if assoc else ""
+                objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
+        available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
+        player_action = self.stage_data["player_action_desc"]
+        event_dice = self.stage_data["event_occurrence_dice"]
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_request_objects")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_random_event_request_objects' не загружен.")
         main_prompt = prompt_template.format(
-            event_dice=self.stage_data['event_dice'],
+            event_dice=event_dice,
             descriptions=descriptions_text,
-            player_action=self.stage_data['player_action_desc'],
-            available_objects=self._get_available_objects_list()
+            player_action=player_action,
+            available_objects=available
         )
-        system_messages = self.main_app._build_context_messages(
+        main_prompt += "\n\n⚠️ Если не хватает объектов, вызови send_object_info. Если хватает, ничего не вызывай и ответь 'OK'."
+
+        messages = [
+            {"role": "user", "content": "Определи, нужны ли дополнительные объекты для описания события."},
+            {"role": "system", "content": main_prompt}
+        ]
+
+        self._send_request(
+            messages,
+            lambda tc, cont, extra: self._after_stage5_random_event_request_objects(tc, cont, extra),
+            extra={"retry_count": retry_count},
             stage_name="stage1_random_event_request_objects",
-            main_prompt=main_prompt
+            show_in_thinking=True
         )
-        messages = [{"role": "user", "content": "Опиши случайное событие."}] + system_messages
+
+    def _after_stage5_random_event_request_objects(self, tool_calls, content, extra):
+        retry_count = extra.get("retry_count", 0)
+
+        send_call = None
+        for tc in tool_calls:
+            if tc["function"]["name"] == "send_object_info":
+                send_call = tc
+                break
+        if not send_call and content:
+            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["send_object_info"])
+            if parsed:
+                send_call = parsed[0]
+                self._display_system("📝 Извлёк send_object_info из текста.\n")
+
+        if send_call:
+            try:
+                args = json.loads(send_call["function"]["arguments"])
+                object_ids = None
+                if isinstance(args, list):
+                    object_ids = args
+                elif "object_ids" in args:
+                    object_ids = args["object_ids"]
+                elif "ids" in args:
+                    object_ids = args["ids"]
+                elif len(args) == 1 and isinstance(list(args.values())[0], list):
+                    object_ids = list(args.values())[0]
+
+                if object_ids is not None and isinstance(object_ids, list) and object_ids:
+                    self._display_system(f"📦 Запрошены дополнительные объекты для события: {object_ids}\n")
+                    self.stage_data["event_additional_ids"] = object_ids
+                    self._fetch_descriptions_sync(object_ids)
+                    self._stage5_random_event_details()
+                    return
+                else:
+                    self._display_error("⚠️ send_object_info вызван без корректного списка object_ids.\n")
+            except Exception as e:
+                self._log_debug("ERROR", f"send_object_info parse error: {e}")
+
+        self._display_system("✅ Дополнительные объекты не требуются.\n")
+        self._stage5_random_event_details()
+
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 5.2: описание случайного события (с броском качества d20)
+    # --------------------------------------------------------------------------
+    def _stage5_random_event_details(self, retry_count=0):
+        self._log_debug(f"=== STAGE5.2: event details (attempt {retry_count+1}) ===")
+        self._display_system(f"✨ Этап 5.2/9: Описание события (попытка {retry_count+1})...\n")
+
+        quality_dice = self._pop_dice('d20')
+        self.stage_data["event_quality_dice"] = quality_dice
+        self._display_system(f"🎲 Качество события d20: {quality_dice}\n")
+
+        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_continue")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage1_random_event_continue' не загружен.")
+        main_prompt = prompt_template.format(
+            descriptions=descriptions_text,
+            player_action=self.stage_data["player_action_desc"],
+            dice_value=quality_dice
+        )
+        main_prompt += "\n\n⚠️ Вызови report_random_event с параметрами: dice_value, event_occurred=true, description='...'"
+
+        messages = [
+            {"role": "user", "content": "Опиши событие."},
+            {"role": "system", "content": main_prompt}
+        ]
 
         self._send_request(
             messages,
             lambda tc, cont, extra: self._after_stage5_random_event_details(tc, cont, extra),
             extra={"retry_count": retry_count},
-            stage_name="stage1_random_event_request_objects",
-            expect_tool_calls=True,
+            stage_name="stage1_random_event_continue",
             show_in_thinking=True
         )
 
     def _after_stage5_random_event_details(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage5_random_event_details", f"tool_calls: {tool_calls}")
-
-        for tc in tool_calls:
-            if tc["function"]["name"] == "send_object_info":
-                try:
-                    args = json.loads(tc["function"]["arguments"])
-                    object_ids = args.get("object_ids", [])
-                    result = self.main_app._handle_send_object_info({"object_ids": object_ids})
-                    descriptions = result.get("descriptions", {})
-                    for oid, desc in descriptions.items():
-                        self.stage_data["descriptions"][oid] = desc
-                        self.stage_data.setdefault("event_additional_ids", []).append(oid)
-                    self._display_system(f"📦 Получены описания для {', '.join(object_ids)}\n")
-                    self._continue_random_event_details_with_descriptions(retry_count)
-                    return
-                except Exception as e:
-                    self._log_debug("ERROR", f"send_object_info in event: {e}")
-
         report_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "report_random_event":
                 report_call = tc
                 break
-
         if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_random_event"])
+            parsed = self._try_parse_tool_calls_from_text(content, ["report_random_event"])
             if parsed:
                 report_call = parsed[0]
 
         if report_call:
             try:
                 args = json.loads(report_call["function"]["arguments"])
-                dice_value = args.get("dice_value")
-                event_desc = args.get("description", "")
-                self.stage_data["event_desc"] = event_desc
-                self.stage_data["event_dice"] = dice_value
-                self._display_system(f"✨ Событие: {event_desc[:100]}...\n")
-                if self.stage_data.get("event_additional_ids"):
-                    self._stage2_validate_scene_for_event(retry_count=0)
+                if isinstance(args, list) and len(args) >= 3:
+                    description = args[2]
                 else:
-                    self._update_associative_memory_for_event_objects()
-                    self._stage7_process_npcs()
-            except Exception as e:
-                self._log_debug("ERROR", f"report_random_event parse error: {e}")
-                if retry_count < 2:
-                    self._display_error(f"⚠️ Ошибка обработки report_random_event: {e}. Повтор ({retry_count+1}/2)...\n")
-                    self._stage5_random_event_details(retry_count+1)
-                else:
-                    self._display_system(f"⚠️ Ошибка после 3 попыток. Событие пропускается.\n")
-                    self.stage_data["event_occurred"] = False
-                    self.stage_data["event_desc"] = ""
-                    self._stage7_process_npcs()
-            return
-
-        if content:
-            desc_match = re.search(r'(?:описание|событие|произошло)[:：]\s*(.+?)(?=\n|$)', content, re.IGNORECASE)
-            if desc_match:
-                self.stage_data["event_desc"] = desc_match.group(1).strip()
-                self._display_system(f"✨ Событие извлечено из текста: {self.stage_data['event_desc'][:100]}...\n")
-                self._update_associative_memory_for_event_objects()
+                    description = args.get("description", "")
+                self.stage_data["event_desc"] = description
+                self._display_system(f"✨ Событие: {description[:100]}...\n")
                 self._stage7_process_npcs()
                 return
+            except Exception as e:
+                self._log_debug("ERROR", f"event parse error: {e}")
 
         if retry_count < 2:
-            self._display_error(f"⚠️ Модель не предоставила описание события. Повтор ({retry_count+1}/2)...\n")
+            self._display_error(f"⚠️ Модель не описала событие. Повтор...\n")
             self._stage5_random_event_details(retry_count+1)
         else:
-            self._display_system("⚠️ Модель не смогла описать событие после 3 попыток. Событие пропускается.\n")
-            self.stage_data["event_occurred"] = False
-            self.stage_data["event_desc"] = ""
-            self._stage7_process_npcs()
-
-    def _continue_random_event_details_with_descriptions(self, retry_count):
-        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
-        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_continue")
-        main_prompt = prompt_template.format(
-            descriptions=descriptions_text,
-            player_action=self.stage_data['player_action_desc']
-        )
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_random_event_continue",
-            main_prompt=main_prompt
-        )
-        messages = [{"role": "user", "content": "Опиши случайное событие с учётом полученных описаний."}] + system_messages
-
-        self._send_request(
-            messages,
-            lambda tc, cont, extra: self._after_stage5_random_event_details(tc, cont, extra),
-            extra={"retry_count": retry_count},
-            stage_name="stage1_random_event_continue",
-            expect_tool_calls=True,
-            show_in_thinking=True
-        )
-
-    def _stage2_validate_scene_for_event(self, retry_count=0):
-        self._log_debug(f"=== STAGE2 (for event): validate_scene (attempt {retry_count+1}) ===")
-        self._display_system(f"🔍 Проверка новых объектов события (попытка {retry_count+1})...\n")
-
-        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
-        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_validate_scene")
-        main_prompt = prompt_template.format(
-            scene_summary=self.stage_data["scene_summary"] + f"\nДополнительные объекты события: {', '.join(self.stage_data['event_additional_ids'])}",
-            descriptions=descriptions_text,
-            user_message=self.stage_data["user_message"]
-        )
-        system_messages = self.main_app._build_context_messages(
-            stage_name="stage1_validate_scene",
-            main_prompt=main_prompt
-        )
-        messages = [
-            {"role": "user", "content": f"Проверь корректность сцены с учётом новых объектов события."}
-        ] + system_messages
-
-        self._send_request(
-            messages,
-            lambda tc, cont, extra: self._after_stage2_validate_scene_for_event(tc, cont, extra),
-            extra={"retry_count": retry_count},
-            stage_name="stage1_validate_scene",
-            show_in_thinking=True
-        )
-
-    def _after_stage2_validate_scene_for_event(self, tool_calls, content, extra):
-        retry_count = extra.get("retry_count", 0)
-        report_call = None
-        for tc in tool_calls:
-            if tc["function"]["name"] == "report_validation_result":
-                report_call = tc
-                break
-        if not report_call and content:
-            parsed = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_validation_result"])
-            if parsed:
-                report_call = parsed[0]
-
-        if not report_call:
-            if retry_count < 2:
-                self._display_error(f"⚠️ Модель не вызвала report_validation_result. Повтор ({retry_count+1}/2)...\n")
-                self._stage2_validate_scene_for_event(retry_count+1)
-                return
-            else:
-                self._display_system("⚠️ Модель не ответила после 3 попыток. Продолжаем, но событие может быть некорректным.\n")
-                self._update_associative_memory_for_event_objects()
-                self._stage7_process_npcs()
-                return
-
-        try:
-            args = json.loads(report_call["function"]["arguments"])
-            valid = args.get("valid", False)
-            if not valid:
-                feedback = args.get("feedback", "")
-                self._display_system(f"⚠️ Новые объекты события не прошли проверку: {feedback}\nСобытие отменяется.\n")
-                self.stage_data["event_occurred"] = False
-                self.stage_data["event_desc"] = ""
-            else:
-                self._display_system("✅ Новые объекты события корректны.\n")
-                self._update_associative_memory_for_event_objects()
-            self._stage7_process_npcs()
-        except Exception as e:
-            self._log_debug("ERROR", f"validate_scene_for_event parse error: {e}")
-            self._update_associative_memory_for_event_objects()
+            self.stage_data["event_desc"] = "Произошло что-то неожиданное."
             self._stage7_process_npcs()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 7: обработка NPC
+    # СТАДИЯ 6: обработка NPC (действия)
     # --------------------------------------------------------------------------
     def _stage7_process_npcs(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage2_npc_action", True):
-            self._log_debug("STAGE7_SKIPPED", "Stage7 disabled")
+            self._log_debug("STAGE6_SKIPPED", "Stage6 (NPC) disabled")
             self._stage8_final()
             return
 
-        self._log_debug(f"=== STAGE7: process_npcs (attempt {retry_count+1}) ===")
-        self._display_system(f"🎭 Этап 7/10: Обработка NPC (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE6: NPCs (attempt {retry_count+1}) ===")
+        self._display_system(f"🎭 Этап 6/9: Обработка NPC (попытка {retry_count+1})...\n")
 
         npc_ids = [cid for cid in self.stage_data.get("scene_character_ids", [])
-                if not self.main_app.characters.get(cid, Character(is_player=False)).is_player]
-
+                   if not self.main_app.characters.get(cid, Character(is_player=False)).is_player]
         if not npc_ids:
-            self._display_system("Нет NPC в сцене. Переход к финальному этапу.\n")
+            self._display_system("Нет NPC.\n")
             self._stage8_final()
             return
 
@@ -1167,7 +1039,7 @@ class StageProcessor:
             self.stage_data["npc_actions"] = {}
 
         if self.stage_data["current_npc_index"] >= len(npc_ids):
-            self._display_system("✅ Все NPC обработаны. Переход к финальному этапу.\n")
+            self._display_system("✅ Все NPC обработаны.\n")
             self._stage8_final()
             return
 
@@ -1178,38 +1050,35 @@ class StageProcessor:
             self._stage7_process_npcs()
             return
 
-        self._log_debug(f"=== STAGE7: processing NPC {npc_id} ({npc.name}) attempt {retry_count+1} ===")
-        self._display_system(f"🎭 Планирование действий NPC: {npc.name} (попытка {retry_count+1})...\n")
-
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
         player_action = self.stage_data["player_action_desc"]
         event_desc = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else "Нет события"
 
-        previous_actions_text = "Нет"
-        if self.stage_data["npc_actions"]:
-            lines = []
-            for cid, action in self.stage_data["npc_actions"].items():
-                char = self.main_app.characters.get(cid)
-                if char:
-                    lines.append(f"{char.name}: {action}")
-            if lines:
-                previous_actions_text = "\n".join(lines)
+        previous = []
+        for cid, act in self.stage_data["npc_actions"].items():
+            ch = self.main_app.characters.get(cid)
+            if ch:
+                previous.append(f"{ch.name}: {act}")
+        previous_text = "\n".join(previous) if previous else "Нет"
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage2_npc_action")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage2_npc_action' не загружен.")
         main_prompt = prompt_template.format(
             npc_name=npc.name,
             npc_id=npc_id,
             descriptions=descriptions_text,
             player_action=player_action,
             event_description=event_desc,
-            previous_actions=previous_actions_text
+            previous_actions=previous_text
         )
-
+        main_prompt += "\n\n⚠️ Формат: Думает: ... Планирует: ..."
         messages = [{"role": "user", "content": main_prompt}]
+
         self._send_request(
             messages,
             lambda tc, cont, extra: self._after_stage7_npc_action(tc, cont, extra),
-            extra={"npc_id": npc_id, "retry_count": retry_count, "npc_name": npc.name},
+            extra={"npc_id": npc_id, "npc_name": npc.name, "retry_count": retry_count},
             expect_tool_calls=False,
             stage_name="stage2_npc_action",
             show_in_thinking=True
@@ -1217,118 +1086,83 @@ class StageProcessor:
 
     def _after_stage7_npc_action(self, tool_calls, content, extra):
         npc_id = extra["npc_id"]
-        npc_name = extra.get("npc_name", "Персонаж")
+        npc_name = extra.get("npc_name", "NPC")
         retry_count = extra.get("retry_count", 0)
-
-        self._log_debug(f"AFTER stage7_npc_action for {npc_id}", f"content: {content[:500] if content else ''}")
 
         intent = None
         if content:
             lines = content.strip().split('\n')
             thoughts = ""
             planned = ""
-
             for line in lines:
                 lower = line.lower()
-                if "думает" in lower or "мысль" in lower:
+                if "думает" in lower:
                     thoughts = line.split(':', 1)[-1].strip() if ':' in line else line
-                elif "планирует" in lower or "намерен" in lower or "собирается" in lower:
+                elif "планирует" in lower:
                     planned = line.split(':', 1)[-1].strip() if ':' in line else line
-
-            if not thoughts and not planned:
-                sentences = re.split(r'[.!?]', content)
-                sentences = [s.strip() for s in sentences if len(s.strip()) > 10]
-                if len(sentences) >= 2:
-                    thoughts = sentences[0]
-                    planned = sentences[1]
-                elif len(sentences) == 1:
-                    thoughts = sentences[0]
-                    planned = "продолжает наблюдать"
-
             if thoughts or planned:
                 intent = f"{thoughts} {planned}".strip()
             else:
                 intent = content[:200].strip()
 
-        if intent:
-            bad_phrases = ["солнечный свет", "татами", "велосипед", "дверь осталась незапертой",
-                        "тишина и спокойствие", "мгновение затишья", "большого пути"]
-            lower_intent = intent.lower()
-            if any(phrase in lower_intent for phrase in bad_phrases):
-                self._log_debug("NPC_BAD_RESPONSE", f"Filtered out: {intent}")
-                intent = None
-
         if not intent:
             if retry_count < 2:
-                self._display_error(f"⚠️ Модель не предоставила корректный ответ для {npc_name}. Повтор ({retry_count+1}/2)...\n")
-                self._stage7_process_npcs(retry_count + 1)
+                self._display_error(f"⚠️ Повтор для {npc_name}...\n")
+                self._stage7_process_npcs(retry_count+1)
                 return
             else:
-                intent = f"{npc_name} задумался, но не предпринимает явных действий."
-                self._display_system(f"⚠️ {npc_name} — использован ответ по умолчанию.\n")
+                intent = f"{npc_name} наблюдает."
 
         self.stage_data["npc_actions"][npc_id] = intent
-        self._display_system(f"✍️ {npc_name}: {intent[:100]}...\n")
+        self._display_system(f"✍️ {npc_name}: {intent[:100]}\n")
         self.stage_data["current_npc_index"] += 1
         self._stage7_process_npcs()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 8: финальное повествование
+    # СТАДИЯ 7: финальный рассказ (СТАДИЯ 8 по логике)
     # --------------------------------------------------------------------------
     def _stage8_final(self, retry_count=0):
-        self._log_debug(f"=== STAGE8: final narration (attempt {retry_count+1}) ===")
-        self._display_system(f"📖 Этап 8/10: Генерация финального ответа (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE7: final (attempt {retry_count+1}) ===")
+        self._display_system(f"📖 Этап 7/9: Генерация финального ответа (попытка {retry_count+1})...\n")
+
+        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
 
         location_id = self.stage_data.get("scene_location_id")
-        location_desc = self.stage_data["descriptions"].get(location_id, "Локация не описана") if location_id else "Локация не определена"
+        location_desc = self.stage_data["descriptions"].get(location_id, "Локация") if location_id else "Неизвестно"
 
         npc_actions_text = ""
-        npc_ids = []
         for cid in self.stage_data.get("scene_character_ids", []):
             char = self.main_app.characters.get(cid)
-            if char and not char.is_player:
-                npc_ids.append(cid)
-        for npc_id in npc_ids:
-            npc = self.main_app.characters.get(npc_id)
-            if npc and npc_id in self.stage_data["npc_actions"]:
-                npc_actions_text += f"{npc.name}: {self.stage_data['npc_actions'][npc_id]}\n"
+            if char and not char.is_player and cid in self.stage_data["npc_actions"]:
+                npc_actions_text += f"{char.name}: {self.stage_data['npc_actions'][cid]}\n"
 
-        is_game_start = self.stage_data["user_message"].startswith(("Начнем игру", "SYSTEM:"))
-        if is_game_start:
-            player_action_outcome = "Ты только начинаешь своё приключение."
-            event_description = "Вокруг тихо и спокойно."
-        else:
-            player_action_outcome = self.stage_data["player_action_desc"]
-            event_description = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else "Ничего не произошло"
+        player_outcome = self.stage_data["player_action_desc"]
+        event_desc = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else ""
 
         dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
 
-        dice_results = []
-        for npc_id in npc_ids:
-            npc = self.main_app.characters.get(npc_id)
-            if not npc:
-                continue
-            dice_val = self._get_next_dice_value("d20") or random.randint(1, 20)
-            result_text = {1:"крит.провал",2:"провал",3:"провал",4:"провал"}.get(dice_val,
-                        "успех" if 5 <= dice_val <= 15 else "большой успех" if dice_val <= 19 else "крит.успех")
-            dice_results.append(f"{npc.name}: бросок d20 = {dice_val} → {result_text}")
-            self.stage_data.setdefault("npc_dice", {})[npc_id] = dice_val
-        dice_summary = "\n".join(dice_results) if dice_results else "Нет NPC."
+        npc_dice_results = []
+        for cid in self.stage_data.get("scene_character_ids", []):
+            char = self.main_app.characters.get(cid)
+            if char and not char.is_player:
+                val = self._pop_dice('d20')
+                result = {1:"крит.провал",2:"провал",3:"провал",4:"провал"}.get(val, "успех" if 5<=val<=15 else "большой успех" if val<=19 else "крит.успех")
+                npc_dice_results.append(f"{char.name}: d20={val} → {result}")
+        dice_summary = "\n".join(npc_dice_results) if npc_dice_results else "Нет NPC"
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage3_final")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage3_final' не загружен.")
         prompt = prompt_template.format(
             location_desc=location_desc,
-            player_action_outcome=player_action_outcome,
-            event_description=event_description,
+            player_action_outcome=player_outcome,
+            event_description=event_desc,
             npcs_actions=npc_actions_text,
             dice_results=dice_summary,
-            dice_rules=dice_rules
+            dice_rules=dice_rules,
+            all_objects=descriptions_text
         )
-
-        messages = [{"role": "user", "content": prompt}] + self.main_app._build_context_messages(stage_name="stage3_final", main_prompt="")
+        messages = [{"role": "user", "content": prompt}]
         self.main_app.center_panel.start_temp_response()
         self._send_request(
             messages,
@@ -1337,64 +1171,57 @@ class StageProcessor:
             stage_name="stage3_final",
             use_temp=True,
             expect_tool_calls=False,
-            show_in_thinking=False   # финальный ответ не в thinking
+            show_in_thinking=False
         )
 
     def _after_stage8_final(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage8_final", f"content: {content[:500] if content else ''}")
-
-        final_text = content.strip()
-        if not final_text:
-            if retry_count < 2:
-                self._display_error("⚠️ Модель не сгенерировала ответ. Повтор...\n")
-                self._stage8_final(retry_count+1)
-                return
-            else:
-                final_text = "(Рассказчик молчит)"
+        final = content.strip() if content else ""
+        if not final and retry_count < 2:
+            self._display_error("⚠️ Пустой ответ, повтор...\n")
+            self._stage8_final(retry_count+1)
+            return
+        if not final:
+            final = "(Рассказчик молчит)"
 
         self.main_app.center_panel.clear_temp_response()
-        self.main_app.center_panel.display_message(f"\nАссистент: {final_text}\n\n", "assistant")
-        self.main_app.conversation_history.append({"role": "assistant", "content": final_text})
-        self.stage_data["final_response"] = final_text
+        self.main_app.center_panel.display_message(f"\nАссистент: {final}\n\n", "assistant")
+        self.main_app.conversation_history.append({"role": "assistant", "content": final})
+        self.stage_data["final_response"] = final
         self._save_current_session()
         self._stage9_summary()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 9: краткая выжимка
+    # СТАДИЯ 8: краткая память (summary)
     # --------------------------------------------------------------------------
     def _stage9_summary(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage4_summary", True):
-            self._log_debug("STAGE9_SKIPPED", "Stage9 disabled")
+            self._log_debug("STAGE8_SKIPPED", "Stage8 (summary) disabled")
             self._stage10_associative_memory()
             return
 
-        self._log_debug(f"=== STAGE9: memory summary (attempt {retry_count+1}) ===")
-        self._display_system(f"📝 Этап 9/10: Сохранение краткой памяти (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE8: summary (attempt {retry_count+1}) ===")
+        self._display_system(f"📝 Этап 8/9: Краткая память (попытка {retry_count+1})...\n")
 
-        last_user_msg = self.stage_data["original_user_message"]
-        last_assistant_msg = self.stage_data.get("final_response", "")
-        if not last_assistant_msg and self.main_app.conversation_history:
+        last_user = self.stage_data["original_user_message"]
+        last_assistant = self.stage_data.get("final_response", "")
+        if not last_assistant and self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
                 if msg["role"] == "assistant":
-                    last_assistant_msg = msg["content"]
+                    last_assistant = msg["content"]
                     break
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage4_summary")
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage4_summary' не загружен.")
         prompt = prompt_template.format(
-            last_user_msg=last_user_msg,
-            last_assistant_msg=last_assistant_msg
+            last_user_msg=last_user,
+            last_assistant_msg=last_assistant
         )
-
         messages = [
-            {"role": "system", "content": "Ты — полезный ассистент, который кратко резюмирует события."},
+            {"role": "system", "content": "Ты выделяешь одно ключевое изменение."},
             {"role": "user", "content": prompt}
         ]
-
         self.main_app.center_panel.start_temp_response()
         self._send_request(
             messages,
@@ -1409,66 +1236,35 @@ class StageProcessor:
 
     def _after_stage9_summary(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage9_summary", f"content: {content[:200] if content else ''}")
-
         self.main_app.center_panel.clear_temp_response()
-
-        summary = content.strip()
+        summary = content.strip() if content else ""
         if not summary or len(summary) > 100:
             if retry_count < 1:
-                self._display_error("⚠️ Ответ слишком длинный или пустой. Повтор...\n")
+                self._display_error("⚠️ Слишком длинно или пусто, повтор...\n")
                 self._stage9_summary(retry_count+1)
                 return
-            else:
-                summary = "Игрок продолжил свои действия."
-
+            summary = "Игрок продолжил действия."
         self.main_app.memory_summaries.append(summary)
         if len(self.main_app.memory_summaries) > self.main_app.max_memory_summaries:
             self.main_app.memory_summaries = self.main_app.memory_summaries[-self.main_app.max_memory_summaries:]
-
         self._save_current_session()
-        self._display_system(f"🧠 Краткая память сохранена: {summary[:100]}...\n")
+        self._display_system(f"🧠 Память: {summary[:100]}\n")
         self._stage10_associative_memory()
 
     # --------------------------------------------------------------------------
-    # Вспомогательные методы
+    # СТАДИЯ 9: ассоциативная память объектов
     # --------------------------------------------------------------------------
-    def _get_available_objects_list(self) -> str:
-        lines = []
-        for lid in self.main_app.current_profile.enabled_locations:
-            loc = self.main_app.locations.get(lid)
-            if loc:
-                assoc = self.main_app.get_associative_memory_for_object(lid)
-                lines.append(f"Локация: {lid} - {loc.name}" + (f" ({assoc})" if assoc else ""))
-        for cid in self.main_app.current_profile.enabled_characters:
-            char = self.main_app.characters.get(cid)
-            if char:
-                assoc = self.main_app.get_associative_memory_for_object(cid)
-                player_tag = " (ИГРОК)" if char.is_player else ""
-                lines.append(f"Персонаж: {cid} - {char.name}{player_tag}" + (f" ({assoc})" if assoc else ""))
-        for iid in self.main_app.current_profile.enabled_items:
-            item = self.main_app.items.get(iid)
-            if item:
-                assoc = self.main_app.get_associative_memory_for_object(iid)
-                lines.append(f"Предмет: {iid} - {item.name}" + (f" ({assoc})" if assoc else ""))
-        return "\n".join(lines) if lines else "Нет доступных объектов."
-
     def _stage10_associative_memory(self, retry_count=0):
-        # Проверка, включена ли стадия
         if not self.main_app.enabled_stages.get("stage10_associative_memory", True):
-            self._log_debug("STAGE10_SKIPPED", "Stage10 disabled")
+            self._log_debug("STAGE9_SKIPPED", "Stage9 (associative) disabled")
             self._finish_generation()
             return
 
-        self._log_debug(f"=== STAGE10: associative memory (attempt {retry_count+1}) ===")
-        self._display_system(f"🧠 Этап 10/10: Обновление ассоциативной памяти (попытка {retry_count+1})...\n")
-        if self.generation_start_time:
-            elapsed = time.time() - self.generation_start_time
-            self._log_debug(f"STAGE1 start at {elapsed:.2f}s")
+        self._log_debug(f"=== STAGE9: associative (attempt {retry_count+1}) ===")
+        self._display_system(f"🧠 Этап 9/9: Ассоциативная память (попытка {retry_count+1})...\n")
 
-        final_response = self.stage_data.get("final_response", "")
-        if not final_response:
-            self._display_system("Нет финального ответа для анализа – пропускаем стадию 10.\n")
+        final = self.stage_data.get("final_response", "")
+        if not final:
             self._finish_generation()
             return
 
@@ -1477,16 +1273,18 @@ class StageProcessor:
             obj = self.main_app._get_object_by_id(oid)
             if obj:
                 assoc = self.main_app.get_associative_memory_for_object(oid)
-                objects_info.append(f"Объект {oid} ({obj.name}):\nОписание: {desc}\n{assoc}")
+                objects_info.append(f"{oid} ({obj.name}): {desc}\n{assoc}")
         objects_text = "\n\n".join(objects_info) if objects_info else "Нет объектов."
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage10_associative_memory")
-        main_prompt = prompt_template.format(
-            final_response=final_response,
+        if not prompt_template:
+            raise RuntimeError("Промт 'stage10_associative_memory' не загружен.")
+        prompt = prompt_template.format(
+            final_response=final,
             objects=objects_text
         )
-
-        messages = [{"role": "user", "content": main_prompt}]
+        prompt += "\n\n⚠️ Формат: object_id: изменение"
+        messages = [{"role": "user", "content": prompt}]
         self._send_request(
             messages,
             lambda tc, cont, extra: self._after_stage10_associative_memory(tc, cont, extra),
@@ -1499,21 +1297,16 @@ class StageProcessor:
 
     def _after_stage10_associative_memory(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_debug("AFTER stage10_associative_memory", f"content: {content[:500] if content else ''}")
-
         if not content or len(content.strip()) < 5:
             if retry_count < 2:
-                self._display_error("⚠️ Модель не вернула изменений. Повтор...\n")
+                self._display_error("⚠️ Повтор...\n")
                 self._stage10_associative_memory(retry_count+1)
                 return
-            else:
-                self._display_system("⚠️ Не удалось получить изменения. Память не обновлена.\n")
-                self._finish_generation()
-                return
+            self._finish_generation()
+            return
 
-        lines = content.strip().split('\n')
         updated = 0
-        for line in lines:
+        for line in content.strip().split('\n'):
             if ':' in line:
                 obj_id, change = line.split(':', 1)
                 obj_id = obj_id.strip()
@@ -1521,14 +1314,5 @@ class StageProcessor:
                 if obj_id and change and len(change) > 3:
                     self.main_app.update_associative_memory(obj_id, change)
                     updated += 1
-        self._display_system(f"✅ Ассоциативная память обновлена для {updated} объектов.\n")
+        self._display_system(f"✅ Память обновлена для {updated} объектов.\n")
         self._finish_generation()
-
-    def _update_associative_memory_for_event_objects(self):
-        if not self.stage_data.get("event_additional_ids"):
-            return
-        event_desc = self.stage_data.get("event_desc", "случайное событие")
-        for obj_id in self.stage_data["event_additional_ids"]:
-            change = f"Появился в результате случайного события: {event_desc[:50]}"
-            self.main_app.update_associative_memory(obj_id, change)
-        self._display_system(f"🧠 Ассоциативная память обновлена для {len(self.stage_data['event_additional_ids'])} объектов события.\n")
