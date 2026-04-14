@@ -1,0 +1,6 @@
+=== DEBUG LOG ===
+User message at 2026-04-14T07:38:52.236971:
+SYSTEM: Начнем игру
+
+[2026-04-14T07:38:52.239165] === STAGE1: request_descriptions (attempt 1) ===
+

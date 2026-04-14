@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "name": "Работа",
+    "color": "#FF0000",
+    "group_id": 1
+  },
+  {
+    "id": 2,
+    "name": "Хобби",
+    "color": "#00FF00",
+    "group_id": 2
+  },
+  {
+    "id": 3,
+    "name": "Отдых",
+    "color": "#0000FF",
+    "group_id": 3
+  },
+  {
+    "id": 4,
+    "name": "Отвлечение",
+    "color": "#FFFF00",
+    "group_id": 4
+  }
+]

@@ -7,11 +7,11 @@
   "dice_d100_count": 10,
   "dice_d6_count": 100,
   "use_two_models": false,
-  "primary_model": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
-  "translator_model": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
+  "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
+  "translator_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
   "enable_assistant_translation": true,
-  "max_tokens": 50000,
-  "temperature": 0.8,
+  "max_tokens": 4096,
+  "temperature": 1.0,
   "primary_temperature": 0.8,
   "primary_max_tokens": 180000,
   "translator_temperature": 0.9,
@@ -48,10 +48,24 @@
     "stage1_truth_check": [],
     "stage1_validate_scene": [],
     "stage1_validate_random_event": [],
-    "stage1_random_event_continue": []
+    "stage1_random_event_continue": [],
+    "stage0_user_message": [
+      "Gemma-4"
+    ]
   },
   "enable_memory_summary": true,
   "max_memory_summaries": 3,
+  "enabled_stages": {
+    "stage1_request_descriptions": true,
+    "stage1_validate_scene": true,
+    "stage1_truth_check": true,
+    "stage1_player_action": true,
+    "stage1_random_event": true,
+    "stage2_npc_action": true,
+    "stage4_summary": true,
+    "stage10_associative_memory": true
+  },
   "compress_descriptions": true,
-  "max_compressed_desc_length": 500
+  "max_compressed_desc_length": 500,
+  "max_associative_memory_entries": 5
 }
