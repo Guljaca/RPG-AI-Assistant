@@ -1,4 +1,4 @@
-# Project_Py3_RPG_AI_main_Tools_version_V0.8.0.py
+# Project_Py3_RPG_AI_main_Tools_version_V0.9.0.py (без tools)
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
@@ -311,7 +311,6 @@ class PromptManager:
     def __init__(self, prompts_dir: str = "System_Prompts"):
         self.prompts_dir = prompts_dir
         self._ensure_dir()
-        # Удалён вызов _create_default_prompts
         self._check_required_prompts()
 
     def _ensure_dir(self):
@@ -372,7 +371,7 @@ class PromptManager:
             return True
         return False
 
-# ---------- LM Studio Client (без изменений) ----------
+# ---------- LM Studio Client (без tools) ----------
 class LMStudioClient:
     def __init__(self, base_url: str = "http://localhost:1234/v1"):
         self.base_url = base_url
@@ -390,24 +389,17 @@ class LMStudioClient:
         temperature: float = None,
         max_tokens: int = None,
         timeout: int = 180,
-        tools: List[Dict] = None
     ) -> Generator[Dict, None, None]:
-        """Стриминг чата с поддержкой tool calls и reasoning."""
+        """Стриминг чата без tools."""
         url = f"{self.base_url}/chat/completions"
         temp = temperature if temperature is not None else self.default_temperature
         mt = max_tokens if max_tokens is not None else self.default_max_tokens
-
-        if tools is None:
-            tools = []
 
         payload = {
             "model": model,
             "messages": messages,
             "temperature": temp,
             "max_tokens": mt,
-            "tools": tools,
-            "tool_choice": "auto",
-            "parallel_tool_calls": True,
             "stream": True
         }
 
@@ -429,7 +421,7 @@ class LMStudioClient:
                     choice = chunk.get("choices", [{}])[0]
                     delta = choice.get("delta", {})
 
-                    # Пробуем извлечь reasoning из разных полей
+                    # Reasoning
                     reasoning = None
                     if "reasoning_content" in delta:
                         reasoning = delta["reasoning_content"]
@@ -442,12 +434,11 @@ class LMStudioClient:
                     if reasoning:
                         yield {"type": "reasoning", "text": reasoning}
 
-                    if "tool_calls" in delta:
-                        yield {"type": "tool_calls", "tool_calls": delta["tool_calls"]}
-
+                    # Content
                     if "content" in delta and delta["content"]:
                         yield {"type": "content", "text": delta["content"]}
 
+                    # Usage
                     if "usage" in chunk:
                         yield {"type": "done", "usage": chunk["usage"]}
                 except json.JSONDecodeError:
@@ -473,7 +464,7 @@ class LMStudioClient:
             return data["choices"][0]["message"]["content"]
         except Exception as e:
             return f"[Ошибка: {e}]"
-        
+
 class MainApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -589,7 +580,7 @@ class MainApp(tk.Tk):
             "regenerate_last_response": self._handle_regenerate_last_response,
             "regenerate_translation": self._handle_regenerate_translation,
             "delete_last_user_message": self._handle_delete_last_user_message,
-            "edit_session": self._handle_edit_session,   # <-- НОВЫЙ ОБРАБОТЧИК
+            "edit_session": self._handle_edit_session,
             "update_narrator": lambda data: self._handle_update_object("narrators", data),
             "create_narrator": lambda data: self._handle_create_object("narrators", data),
             "delete_narrator": lambda data: self._handle_delete_object("narrators", data.get("id")),
@@ -651,7 +642,6 @@ class MainApp(tk.Tk):
             messagebox.showerror("Ошибка", f"Не удалось прочитать файл:\n{e}")
             return
 
-        # Создаём окно редактирования
         edit_win = tk.Toplevel(self)
         edit_win.title(f"Редактирование сессии: {self.current_session_id}")
         edit_win.geometry("800x600")
@@ -667,7 +657,6 @@ class MainApp(tk.Tk):
             if not new_content:
                 messagebox.showerror("Ошибка", "Содержимое не может быть пустым.")
                 return
-            # Проверка валидности JSON
             try:
                 json.loads(new_content)
             except json.JSONDecodeError as e:
@@ -679,7 +668,6 @@ class MainApp(tk.Tk):
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
                 return
-            # Перезагружаем сессию
             self._handle_load_session({"session_id": self.current_session_id})
             edit_win.destroy()
             messagebox.showinfo("Успех", "Сессия сохранена и перезагружена.")
@@ -691,17 +679,14 @@ class MainApp(tk.Tk):
 
     # ---------- Методы для отслеживания добавленной памяти ----------
     def record_added_summary(self, summary_text: str):
-        """Запоминает добавленную запись краткой памяти для итогового отчёта."""
         self.current_generation_added_summaries.append(summary_text)
 
     def record_added_assoc(self, obj_id: str, change_text: str):
-        """Запоминает добавленную запись ассоциативной памяти для итогового отчёта."""
         obj = self._get_object_by_id(obj_id)
         obj_name = obj.name if obj else obj_id
         self.current_generation_added_assoc.append(f"{obj_name} ({obj_id}): {change_text}")
 
     def display_generation_memory_summary(self):
-        """Выводит в центр.панель итоговый отчёт о том, что было добавлено в память за текущую генерацию."""
         if not self.current_generation_added_summaries and not self.current_generation_added_assoc:
             return
         self.center_panel.display_message("\n📝 **Итог обновления памяти:**\n", "system")
@@ -714,19 +699,14 @@ class MainApp(tk.Tk):
             for assoc in self.current_generation_added_assoc:
                 self.center_panel.display_message(f"  • {assoc}\n", "system")
         self.center_panel.display_message("\n", "system")
-        # Очищаем списки после отображения, чтобы не показывать повторно
         self.current_generation_added_summaries.clear()
         self.current_generation_added_assoc.clear()
 
-    # ---------- Остальные методы (без изменений, кроме _rollback_...) ----------
+    # ---------- Остальные методы (без изменений, кроме _send_model_request) ----------
     def get_description_for_model(self, obj_id: str) -> str:
-        """
-        Возвращает описание объекта для передачи модели (без сжатия).
-        """
         obj = self._get_object_by_id(obj_id)
         if not obj:
             return f"Объект {obj_id} не найден."
-
         global_desc = obj.description if obj.description else "Нет глобального описания."
         local_desc = self.local_descriptions.get(obj_id, "")
         if local_desc:
@@ -1001,18 +981,15 @@ class MainApp(tk.Tk):
         self._save_current_session_safe()
 
     def update_associative_memory(self, object_id: str, change_description: str):
-        """Добавляет запись об изменении объекта, обрезая список до max_associative_memory_entries."""
         if object_id not in self.associative_memory:
             self.associative_memory[object_id] = []
         memory_list = self.associative_memory[object_id]
         memory_list.append(change_description)
-        # Ограничиваем длину
         if len(memory_list) > self.max_associative_memory_entries:
             self.associative_memory[object_id] = memory_list[-self.max_associative_memory_entries:]
         self._save_current_session_safe()
 
     def get_associative_memory_for_object(self, object_id: str) -> str:
-        """Возвращает строку с историей изменений объекта или пустую строку."""
         changes = self.associative_memory.get(object_id, [])
         if not changes:
             return ""
@@ -1157,7 +1134,6 @@ class MainApp(tk.Tk):
                 if session_id == self.current_session_id:
                     sessions = self.storage.list_sessions()
                     if sessions:
-                        # Загружаем последнюю по дате использования, но не создаём безымянную
                         latest_sid = None
                         latest_time = None
                         for sid in sessions:
@@ -1178,7 +1154,6 @@ class MainApp(tk.Tk):
                         if latest_sid:
                             self._handle_load_session({"session_id": latest_sid})
                         else:
-                            # Совсем нет сессий – создаём новую
                             self._handle_new_session()
                     else:
                         self._handle_new_session()
@@ -1207,9 +1182,7 @@ class MainApp(tk.Tk):
         if self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
             self.conversation_history.pop()
             self._save_current_session_safe()
-        # Очищаем память, связанную с предыдущей генерацией этого сообщения
-        self._rollback_last_memory()                     # удаляем последнее краткое резюме
-        # Если в stage_processor сохранялся список изменённых объектов – передаём его
+        self._rollback_last_memory()
         changed_objects = getattr(self.stage_processor, 'last_changed_objects', None)
         self._rollback_associative_memory(changed_objects)
         self.last_original_response = None
@@ -1256,7 +1229,6 @@ class MainApp(tk.Tk):
             self.last_user_message = ""
             self.last_original_response = None
             self.last_translated_response = None
-            # Очищаем краткую память и локальные описания
             self.memory_summaries = []
             self.local_descriptions = {}
             self.center_panel.update_translation_button_state()
@@ -1275,15 +1247,12 @@ class MainApp(tk.Tk):
         if self.is_generating:
             messagebox.showwarning("Генерация", "Модель уже генерирует ответ.")
             return
-        # Очищаем списки добавленной памяти для новой генерации
         self.current_generation_added_summaries.clear()
         self.current_generation_added_assoc.clear()
         self.is_generating = True
         self.stop_generation_flag = False
         self.center_panel.set_input_state(tk.DISABLED)
         self.center_panel.start_new_response(clear_thinking=True)
-        # Проверяем, включены ли какие-либо стадии (кроме финальной, которая всегда выполняется)
-        # Если все настраиваемые стадии отключены, запускаем обычный чат
         configurable_stages = ["stage1_request_descriptions", "stage1_validate_scene", "stage1_truth_check",
                                "stage1_player_action", "stage1_random_event", "stage2_npc_action",
                                "stage4_summary", "stage10_associative_memory"]
@@ -1295,11 +1264,8 @@ class MainApp(tk.Tk):
             self.stage_processor.start_generation(user_message)
 
     def _direct_chat(self, user_message: str):
-        """Обычный чат с моделью без поэтапной обработки."""
         self._log_debug("DIRECT_CHAT", f"User message: {user_message}")
-        # Строим контекст как в stage3_final, но без данных сцены
         system_prompt = self.prompt_manager.get_prompt_content("stage3_final")
-        # Собираем контекст из истории и профиля
         context_messages = self._build_context_messages(stage_name="direct_chat", main_prompt=system_prompt)
         messages = [{"role": "user", "content": user_message}] + context_messages
         self.center_panel.start_temp_response()
@@ -1307,14 +1273,12 @@ class MainApp(tk.Tk):
             messages,
             callback=self._after_direct_chat,
             extra=None,
-            expect_tool_calls=False,
             stage_name="direct_chat",
             use_temp=True,
-            tools_override=[],
             show_in_thinking=False
         )
 
-    def _after_direct_chat(self, tool_calls, content, extra):
+    def _after_direct_chat(self, content, extra):
         final_text = content.strip()
         if not final_text:
             final_text = "(Модель не дала ответа)"
@@ -1331,10 +1295,10 @@ class MainApp(tk.Tk):
         self.current_debug_log_path = None
 
     # --------------------------------------------------------------------------
-    # Общий метод отправки запроса к модели (используется StageProcessor)
+    # Общий метод отправки запроса к модели (без tools)
     # --------------------------------------------------------------------------
-    def _send_model_request(self, messages: List[Dict], callback, extra=None, expect_tool_calls=True,
-                            stage_name: str = None, use_temp: bool = False, tools_override=None,
+    def _send_model_request(self, messages: List[Dict], callback, extra=None,
+                            stage_name: str = None, use_temp: bool = False,
                             show_in_thinking: bool = False):
         if self.use_two_models:
             model = self.primary_model
@@ -1359,147 +1323,59 @@ class MainApp(tk.Tk):
         self.center_panel.log_system_prompt(full_prompt, stage_name)
         self._log_debug("SEND_MODEL_REQUEST", full_prompt)
 
-        def _chat_loop(current_messages, depth=0):
-            print(f"[DEBUG] _chat_loop depth={depth}, messages count={len(current_messages)}")  # отладка
-            if depth > 10:
-                self.after(0, lambda: self.center_panel.display_message("\n[Ошибка: слишком много итераций tool calls]\n", "error"))
+        def stream_and_process():
+            full_content = ""
+            reasoning_buffer = ""
+            error = None
+            try:
+                for chunk in self.lm_client.chat_completion_stream(
+                    messages=messages,
+                    model=model,
+                    temperature=temp,
+                    max_tokens=max_tok,
+                ):
+                    if self.stop_generation_flag:
+                        break
+                    if chunk["type"] == "reasoning":
+                        reasoning_buffer += chunk["text"]
+                        if show_in_thinking:
+                            self.after(0, lambda t=chunk["text"]: self.center_panel.append_thinking(t))
+                    elif chunk["type"] == "content":
+                        full_content += chunk["text"]
+                        if show_in_thinking:
+                            self.after(0, lambda t=chunk["text"]: self.center_panel.append_thinking(t))
+                        else:
+                            if use_temp:
+                                self.after(0, lambda t=chunk["text"]: self.center_panel.append_temp_content(t))
+                            else:
+                                self.after(0, lambda t=chunk["text"]: self.center_panel.append_response(t))
+                    elif chunk["type"] == "error":
+                        error = chunk["message"]
+                        break
+            except Exception as e:
+                error = str(e)
+
+            if error:
+                self._log_debug("MODEL_ERROR", error=error)
+                self.after(0, lambda: self.center_panel.display_message(f"\n[Ошибка: {error}]\n", "error"))
+                self.after(0, lambda: setattr(self, 'is_generating', False))
+                self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
+                return
+            if self.stop_generation_flag:
+                self.after(0, lambda: self.center_panel.display_message("\n[Остановлено]\n", "system"))
                 self.after(0, lambda: setattr(self, 'is_generating', False))
                 self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
                 return
 
-            def stream_and_process():
-                full_content = ""
-                tool_calls = []
-                reasoning_buffer = ""
-                error = None
-                try:
-                    if tools_override is not None:
-                        tools = tools_override
-                    else:
-                        tools = [
-                            # ... (список инструментов без изменений, но можно оставить как есть)
-                        ]
+            # Вызываем callback с одним аргументом – текстом ответа
+            self.after(0, lambda: callback(full_content, extra))
 
-                    for chunk in self.lm_client.chat_completion_stream(
-                        messages=current_messages,
-                        model=model,
-                        temperature=temp,
-                        max_tokens=max_tok,
-                        tools=tools
-                    ):
-                        if self.stop_generation_flag:
-                            break
-                        if chunk["type"] == "reasoning":
-                            reasoning_buffer += chunk["text"]
-                            if show_in_thinking:
-                                self.after(0, lambda t=chunk["text"]: self.center_panel.append_thinking(t))
-                        elif chunk["type"] == "tool_calls":
-                            for tc in chunk["tool_calls"]:
-                                idx = tc.get("index", 0)
-                                while len(tool_calls) <= idx:
-                                    tool_calls.append({"id": None, "type": "function", "function": {"name": "", "arguments": ""}})
-                                if tc.get("id"):
-                                    tool_calls[idx]["id"] = tc["id"]
-                                if tc.get("function", {}).get("name"):
-                                    tool_calls[idx]["function"]["name"] += tc["function"]["name"]
-                                if tc.get("function", {}).get("arguments"):
-                                    tool_calls[idx]["function"]["arguments"] += tc["function"]["arguments"]
-                        elif chunk["type"] == "content":
-                            full_content += chunk["text"]
-                            if show_in_thinking:
-                                self.after(0, lambda t=chunk["text"]: self.center_panel.append_thinking(t))
-                            else:
-                                if use_temp:
-                                    self.after(0, lambda t=chunk["text"]: self.center_panel.append_temp_content(t))
-                                else:
-                                    self.after(0, lambda t=chunk["text"]: self.center_panel.append_response(t))
-                        elif chunk["type"] == "error":
-                            error = chunk["message"]
-                            break
-                except Exception as e:
-                    error = str(e)
+        threading.Thread(target=stream_and_process, daemon=True).start()
 
-                if error:
-                    self._log_debug("MODEL_ERROR", error=error)
-                    self.after(0, lambda: self.center_panel.display_message(f"\n[Ошибка: {error}]\n", "error"))
-                    self.after(0, lambda: setattr(self, 'is_generating', False))
-                    self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
-                    return
-                if self.stop_generation_flag:
-                    self.after(0, lambda: self.center_panel.display_message("\n[Остановлено]\n", "system"))
-                    self.after(0, lambda: setattr(self, 'is_generating', False))
-                    self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
-                    return
-
-                # === НОВАЯ ЛОГИКА ОБРАБОТКИ TOOL CALLS ===
-                # Разделяем: roll_dice обрабатываем автоматически, остальные передаём в callback
-                auto_handled = []      # tool_calls, которые мы обработали (roll_dice)
-                pending_calls = []     # tool_calls, которые нужно вернуть в callback
-                for tc in tool_calls:
-                    name = tc["function"]["name"]
-                    if name == "roll_dice":
-                        # Автоматическая обработка
-                        try:
-                            args = json.loads(tc["function"]["arguments"])
-                            dice_type = args.get("dice_type", "d20")
-                            if dice_type == "d20":
-                                value = random.randint(1, 20)
-                            elif dice_type == "d100":
-                                value = random.randint(1, 100)
-                            elif dice_type == "d6":
-                                value = random.randint(1, 6)
-                            else:
-                                value = random.randint(1, 20)
-                            tool_response = {
-                                "role": "tool",
-                                "tool_call_id": tc["id"],
-                                "content": json.dumps({"dice_value": value})
-                            }
-                            current_messages.append(tool_response)
-                            auto_handled.append(tc)
-                            self._log_debug("ROLL_DICE", f"{dice_type} -> {value}")
-                            self.after(0, lambda t=dice_type, v=value: self.center_panel.display_system_message(f"🎲 {t} → {v}\n"))
-                        except Exception as e:
-                            self._log_debug("ROLL_DICE_ERROR", str(e))
-                            tool_response = {
-                                "role": "tool",
-                                "tool_call_id": tc["id"],
-                                "content": json.dumps({"error": str(e)})
-                            }
-                            current_messages.append(tool_response)
-                            auto_handled.append(tc)
-                    else:
-                        # Все остальные вызовы (send_object_info, confirm_scene, report_...)
-                        pending_calls.append(tc)
-
-                # Если были обработаны roll_dice, добавляем assistant сообщение с tool_calls (если ещё нет)
-                if auto_handled:
-                    has_assistant_msg = any(msg.get("role") == "assistant" and msg.get("tool_calls") for msg in current_messages)
-                    if not has_assistant_msg:
-                        assistant_msg = {"role": "assistant", "content": full_content or None, "tool_calls": auto_handled}
-                        current_messages.append(assistant_msg)
-                    # Рекурсивно продолжаем диалог
-                    self.after(0, lambda: _chat_loop(current_messages, depth+1))
-                    return
-
-                # Если есть необработанные вызовы (send_object_info и др.) – передаём их в callback
-                if pending_calls and expect_tool_calls:
-                    print(f"[DEBUG] ПЕРЕДАЁМ В CALLBACK {len(pending_calls)} вызовов: {[c['function']['name'] for c in pending_calls]}")
-                    self.after(0, lambda: callback(pending_calls, full_content, extra))
-                    return
-
-                # Если нет вызовов или expect_tool_calls=False – вызываем callback с пустыми tool_calls
-                self.after(0, lambda: callback([], full_content, extra))
-
-            threading.Thread(target=stream_and_process, daemon=True).start()
-
-        _chat_loop(messages.copy())
-
-    # ---------- Метод построения контекста (исправлен: max_history_messages) ----------
+    # ---------- Метод построения контекста ----------
     def _build_context_messages(self, stage_name: str, main_prompt: str = "", extra_prompts: List[str] = None) -> List[Dict[str, str]]:
         messages = []
 
-        # Краткая память (если включена) – добавляется всегда, это не история диалога
         if self.enable_memory_summary and self.memory_summaries:
             memory_text = (
                 "Краткая история предыдущих событий (справочно, не заменяет инструкции ниже):\n"
@@ -1508,16 +1384,15 @@ class MainApp(tk.Tk):
             messages.append({"role": "system", "content": memory_text})
 
         config = self.stage_prompts_config.get(stage_name, [])
-        history_limit = None   # None = использовать глобальную настройку
+        history_limit = None
 
         for entry in config:
             if entry.startswith("history:"):
-                # Формат: history:5 или history:0
                 parts = entry.split(":", 1)
                 if len(parts) > 1 and parts[1].isdigit():
                     history_limit = int(parts[1])
                 else:
-                    history_limit = 0   # 0 = не добавлять
+                    history_limit = 0
             elif entry.startswith("narrator:"):
                 narr_id = entry[9:]
                 narr = self.narrators.get(narr_id)
@@ -1528,13 +1403,11 @@ class MainApp(tk.Tk):
                 if content:
                     messages.append({"role": "system", "content": content})
 
-        # Определяем, сколько сообщений истории добавить
         if history_limit is None:
-            # Нет явной директивы в конфиге – используем глобальную настройку
             history_limit = self.max_history_messages if self.max_history_messages > 0 else 0
         if history_limit > 0:
             history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
-            history = history[-history_limit:]   # берём последние N сообщений
+            history = history[-history_limit:]
             for msg in history:
                 messages.append({"role": msg["role"], "content": msg["content"]})
 
@@ -1545,44 +1418,6 @@ class MainApp(tk.Tk):
                 messages.append({"role": "system", "content": p})
 
         return messages
-    
-    def _handle_send_object_info(self, arguments: dict) -> Dict[str, Any]:
-        object_ids_raw = arguments.get("object_ids", [])
-        if isinstance(object_ids_raw, str):
-            try:
-                object_ids = json.loads(object_ids_raw)
-            except:
-                object_ids = [object_ids_raw]
-        else:
-            object_ids = object_ids_raw
-
-        allowed_ids = []
-        for obj_id in object_ids:
-            if obj_id.startswith('n') and obj_id in self.current_profile.enabled_narrators:
-                allowed_ids.append(obj_id)
-            elif obj_id.startswith('c') and obj_id in self.current_profile.enabled_characters:
-                allowed_ids.append(obj_id)
-            elif obj_id.startswith('l') and obj_id in self.current_profile.enabled_locations:
-                allowed_ids.append(obj_id)
-            elif obj_id.startswith('i') and obj_id in self.current_profile.enabled_items:
-                allowed_ids.append(obj_id)
-
-        self.center_panel.append_thinking(f"📦 Модель запросила описания объектов: {', '.join(object_ids)}\n")
-        descriptions = {}
-        for obj_id in allowed_ids:
-            desc = self.get_description_for_model(obj_id)
-            obj = self._get_object_by_id(obj_id)
-            if isinstance(obj, Character) and (obj.inventory or obj.equipped):
-                if obj.inventory:
-                    inv_names = [self.items.get(iid, Item(name="?")).name for iid in obj.inventory]
-                    desc += f"\nИнвентарь: {', '.join(inv_names)}"
-                if obj.equipped:
-                    eq_names = [self.items.get(iid, Item(name="?")).name for iid in obj.equipped]
-                    desc += f"\nЭкипировано: {', '.join(eq_names)}"
-            descriptions[obj_id] = desc
-
-        self.center_panel.append_thinking(f"✅ Описания для {len(descriptions)} объектов получены и переданы модели. Информация загружается в модель, это может занять время.\n")
-        return {"descriptions": descriptions}
 
     def _load_all_data(self):
         for narr in self.storage.load_all_objects("narrators"):
@@ -1601,7 +1436,6 @@ class MainApp(tk.Tk):
         self.current_profile.enabled_items = [iid for iid in self.current_profile.enabled_items if iid in self.items]
 
     def get_object_description_with_local(self, obj_id: str) -> str:
-        """Возвращает описание для отображения в UI (без сжатия)."""
         obj = self._get_object_by_id(obj_id)
         if not obj:
             return f"Объект {obj_id} не найден."
@@ -1611,48 +1445,6 @@ class MainApp(tk.Tk):
             return f"Глобальное описание: {global_desc}\nЛокальное описание: {local_desc}"
         else:
             return f"Описание: {global_desc}"
-
-    def _handle_delete_narrator(self, data):
-        obj_id = data.get("id")
-        if not obj_id or obj_id not in self.narrators:
-            return
-        narr = self.narrators[obj_id]
-        if messagebox.askyesno("Удаление", f"Удалить рассказчика '{narr.name}'?"):
-            self.storage.delete_object("narrators", obj_id)
-            del self.narrators[obj_id]
-            if obj_id in self.current_profile.enabled_narrators:
-                self.current_profile.enabled_narrators.remove(obj_id)
-            self._refresh_all_ui()
-            self._save_current_session_safe()
-            messagebox.showinfo("Удалено", f"Рассказчик '{narr.name}' удалён.")
-
-    def _handle_delete_character(self, data):
-        obj_id = data.get("id")
-        if not obj_id or obj_id not in self.characters:
-            return
-        char = self.characters[obj_id]
-        if messagebox.askyesno("Удаление", f"Удалить персонажа '{char.name}'?"):
-            self.storage.delete_object("characters", obj_id)
-            del self.characters[obj_id]
-            if obj_id in self.current_profile.enabled_characters:
-                self.current_profile.enabled_characters.remove(obj_id)
-            self._refresh_all_ui()
-            self._save_current_session_safe()
-            messagebox.showinfo("Удалено", f"Персонаж '{char.name}' удалён.")
-
-    def _handle_delete_location(self, data):
-        obj_id = data.get("id")
-        if not obj_id or obj_id not in self.locations:
-            return
-        loc = self.locations[obj_id]
-        if messagebox.askyesno("Удаление", f"Удалить локацию '{loc.name}'?"):
-            self.storage.delete_object("locations", obj_id)
-            del self.locations[obj_id]
-            if obj_id in self.current_profile.enabled_locations:
-                self.current_profile.enabled_locations.remove(obj_id)
-            self._refresh_all_ui()
-            self._save_current_session_safe()
-            messagebox.showinfo("Удалено", f"Локация '{loc.name}' удалена.")
 
     def _handle_create_object(self, obj_type: str, data: dict):
         name = data.get("name", "").strip()
@@ -1701,20 +1493,6 @@ class MainApp(tk.Tk):
             self._cleanup_stage_prompts_narrators()
         messagebox.showinfo("Удалено", f"{obj_type[:-1].capitalize()} '{obj.name}' удалён.")
 
-    def _handle_delete_item(self, data):
-        obj_id = data.get("id")
-        if not obj_id or obj_id not in self.items:
-            return
-        item = self.items[obj_id]
-        if messagebox.askyesno("Удаление", f"Удалить предмет '{item.name}'?"):
-            self.storage.delete_object("items", obj_id)
-            del self.items[obj_id]
-            if obj_id in self.current_profile.enabled_items:
-                self.current_profile.enabled_items.remove(obj_id)
-            self._refresh_all_ui()
-            self._save_current_session_safe()
-            messagebox.showinfo("Удалено", f"Предмет '{item.name}' удалён.")
-
     def _handle_refresh_ui(self, data=None):
         self._refresh_all_ui()
         if self.center_panel:
@@ -1749,13 +1527,8 @@ class MainApp(tk.Tk):
             self.memory_summaries = self.memory_summaries[-self.max_memory_summaries:]
             self._save_current_session_safe()
         self._log_debug("MEMORY_TRIMMED", f"New max size {self.max_memory_summaries}, summaries: {self.memory_summaries}")
-
-        # Настройка показа reasoning
         self.show_thinking = self.settings.get("show_thinking", True)
-
-        # Обновляем настройки стадий
         self.enabled_stages = self.settings.get("enabled_stages", self.enabled_stages)
-
         messagebox.showinfo("Настройки", "Настройки сохранены и применены.")
 
     def _handle_update_profile(self, data):
@@ -1945,7 +1718,7 @@ class MainApp(tk.Tk):
             full_translation = ""
             reasoning_buffer = ""
             try:
-                for chunk in self.lm_client.chat_completion_stream(messages=messages, model=model, temperature=temp, max_tokens=max_tok, tools=[]):
+                for chunk in self.lm_client.chat_completion_stream(messages=messages, model=model, temperature=temp, max_tokens=max_tok):
                     if self.stop_generation_flag:
                         break
                     if chunk["type"] == "reasoning":
@@ -1970,22 +1743,7 @@ class MainApp(tk.Tk):
                 self.after(0, lambda: self.center_panel.display_message(f"\n[Translation error: {e}]\n", "error"))
         threading.Thread(target=translate_stream, daemon=True).start()
 
-    def _handle_create_character(self, data):
-        name = data.get("name", "").strip()
-        description = data.get("description", "").strip()
-        is_player = data.get("is_player", False)
-        if not name:
-            messagebox.showwarning("Ошибка", "Название персонажа не может быть пустым.")
-            return
-        char = Character(name=name, description=description, is_player=is_player)
-        self.storage.save_object("characters", char)
-        self.characters[char.id] = char
-        self._refresh_all_ui()
-        self._save_current_session_safe()
-        messagebox.showinfo("Создано", f"Персонаж '{name}' создан (ID: {char.id}).")
-
     def _rollback_last_memory(self):
-        """Удаляет последнее краткое резюме и выводит сообщение."""
         if self.memory_summaries:
             removed = self.memory_summaries.pop()
             self.center_panel.display_message(f"🧠 **Удалена запись краткой памяти:**\n  • {removed}\n", "system")
@@ -1993,14 +1751,8 @@ class MainApp(tk.Tk):
             self._save_current_session_safe()
 
     def _rollback_associative_memory(self, object_ids: List[str] = None):
-        """
-        Откатывает последнее изменение ассоциативной памяти для указанных объектов.
-        Если object_ids не указаны, удаляет последнее изменение для каждого объекта,
-        у которого есть изменения. Выводит сообщение с названиями объектов и текстом изменений.
-        """
-        removed_items = []  # для накопления сообщений
+        removed_items = []
         if object_ids is None:
-            # Удаляем последнее изменение для всех объектов
             for obj_id in list(self.associative_memory.keys()):
                 if self.associative_memory[obj_id]:
                     removed = self.associative_memory[obj_id].pop()
@@ -2024,109 +1776,6 @@ class MainApp(tk.Tk):
                 self.center_panel.display_message(f"  • {item}\n", "system")
         self._save_current_session_safe()
 
-    def _handle_regenerate_last_response(self, data=None):
-        """Перегенерация последнего ответа с очисткой памяти."""
-        if self.is_generating:
-            messagebox.showwarning("Генерация", "Модель уже генерирует ответ.")
-            return
-        if not self.last_user_message:
-            messagebox.showinfo("Перегенерация", "Нет последнего сообщения пользователя.")
-            return
-
-        # Удаляем последний ответ ассистента из истории
-        if self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
-            self.conversation_history.pop()
-            self._save_current_session_safe()
-
-        # Очищаем память, связанную с предыдущей генерацией этого сообщения
-        self._rollback_last_memory()                     # удаляем последнее краткое резюме
-        # Если в stage_processor сохранялся список изменённых объектов – передаём его
-        changed_objects = getattr(self.stage_processor, 'last_changed_objects', None)
-        self._rollback_associative_memory(changed_objects)
-
-        # Очищаем кэшированные переводы
-        self.last_original_response = None
-        self.last_translated_response = None
-
-        # Перерисовываем чат без удалённого ответа
-        self.center_panel.clear_chat()
-        for msg in self.conversation_history:
-            role = "Вы" if msg["role"] == "user" else "Ассистент"
-            tag = "user" if msg["role"] == "user" else "assistant"
-            self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
-
-        # Запускаем генерацию заново
-        self._start_debug_log(f"REGENERATE: {self.last_user_message}")
-        self._start_generation(self.last_user_message)
-
-    def _handle_delete_last_user_message(self, data=None):
-        """Удаление последнего сообщения пользователя и всех ответов на него с очисткой памяти."""
-        if self.is_generating:
-            messagebox.showwarning("Генерация", "Сначала остановите генерацию (кнопка Стоп).")
-            return
-        if not self.conversation_history:
-            return
-
-        # Находим индекс последнего сообщения пользователя
-        last_user_index = -1
-        for i in range(len(self.conversation_history)-1, -1, -1):
-            if self.conversation_history[i]["role"] == "user":
-                last_user_index = i
-                break
-        if last_user_index == -1:
-            messagebox.showinfo("Удаление", "Нет сообщений пользователя для удаления.")
-            return
-
-        # Обрезаем историю до последнего сообщения пользователя (не включая его)
-        self.conversation_history = self.conversation_history[:last_user_index]
-        self._sync_last_user_message()
-        self.last_original_response = None
-        self.last_translated_response = None
-
-        # Очищаем всю память, накопленную после этого сообщения
-        # (проще всего сбросить всё, так как точное отслеживание сложно)
-        self.memory_summaries = []
-        self.associative_memory = {}
-        self.local_descriptions = {}   # по желанию, если нужно сбросить и локальные описания
-
-        self._save_current_session_safe()
-
-        # Перерисовываем чат
-        self.center_panel.clear_chat()
-        for msg in self.conversation_history:
-            role = "Вы" if msg["role"] == "user" else "Ассистент"
-            tag = "user" if msg["role"] == "user" else "assistant"
-            self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
-
-        self.center_panel.update_translation_button_state()
-        messagebox.showinfo("Удаление", "Последнее сообщение пользователя и ответы на него удалены. Память очищена.")
-
-    def _handle_create_location(self, data):
-        name = data.get("name", "").strip()
-        description = data.get("description", "").strip()
-        if not name:
-            messagebox.showwarning("Ошибка", "Название локации не может быть пустым.")
-            return
-        loc = Location(name=name, description=description)
-        self.storage.save_object("locations", loc)
-        self.locations[loc.id] = loc
-        self._refresh_all_ui()
-        self._save_current_session_safe()
-        messagebox.showinfo("Создано", f"Локация '{name}' создана (ID: {loc.id}).")
-
-    def _handle_create_item(self, data):
-        name = data.get("name", "").strip()
-        description = data.get("description", "").strip()
-        if not name:
-            messagebox.showwarning("Ошибка", "Название предмета не может быть пустым.")
-            return
-        item = Item(name=name, description=description)
-        self.storage.save_object("items", item)
-        self.items[item.id] = item
-        self._refresh_all_ui()
-        self._save_current_session_safe()
-        messagebox.showinfo("Создано", f"Предмет '{name}' создан (ID: {item.id}).")
-
 # ---------- SettingsDialog (без изменений) ----------
 class SettingsDialog:
     def __init__(self, parent, current_settings):
@@ -2135,7 +1784,6 @@ class SettingsDialog:
         self.top.geometry("700x800")
         self.top.transient(parent)
         self.top.grab_set()
-        # Центрирование окна относительно родителя
         parent.update_idletasks()
         x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (700 // 2)
         y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (800 // 2)
@@ -2143,13 +1791,11 @@ class SettingsDialog:
         self.result = None
         self.parent = parent
 
-        # Основной контейнер с прокруткой
         main_canvas = tk.Canvas(self.top, borderwidth=0)
         scrollbar = ttk.Scrollbar(self.top, orient="vertical", command=main_canvas.yview)
         main_canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         main_canvas.pack(side="left", fill="both", expand=True)
-        # Внутренний фрейм
         main_frame = ttk.Frame(main_canvas, padding="10")
         main_canvas.create_window((0, 0), window=main_frame, anchor="nw")
         main_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
@@ -2241,18 +1887,13 @@ class SettingsDialog:
         self.max_memory_summaries.delete(0, tk.END)
         self.max_memory_summaries.insert(0, str(current_settings.get("max_memory_summaries", 5)))
         self.max_memory_summaries.grid(row=10, column=1, sticky="w", pady=5)
-
-        # Настройка показа reasoning
         self.show_thinking_var = tk.BooleanVar(value=current_settings.get("show_thinking", True))
         ttk.Checkbutton(main_frame, text="Показывать мыслительный процесс (reasoning)", variable=self.show_thinking_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=5)
-
         ttk.Label(main_frame, text="Макс. записей ассоциативной памяти на объект:").grid(row=12, column=0, sticky="w", pady=5)
         self.max_assoc_entries = ttk.Spinbox(main_frame, from_=1, to=20, width=10)
         self.max_assoc_entries.delete(0, tk.END)
         self.max_assoc_entries.insert(0, str(current_settings.get("max_associative_memory_entries", 5)))
         self.max_assoc_entries.grid(row=12, column=1, sticky="w", pady=5)
-
-        # Настройки включения стадий
         stages_frame = ttk.LabelFrame(main_frame, text="Включение/отключение этапов генерации")
         stages_frame.grid(row=13, column=0, columnspan=2, sticky="ew", pady=10)
         self.stage_vars = {}
@@ -2272,7 +1913,6 @@ class SettingsDialog:
             cb = ttk.Checkbutton(stages_frame, text=label, variable=var)
             cb.grid(row=i, column=0, sticky="w", padx=5, pady=2)
         stages_frame.columnconfigure(0, weight=1)
-
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=14, column=0, columnspan=2, pady=20)
         ttk.Button(btn_frame, text="Сохранить", command=self._save).pack(side=tk.LEFT, padx=5)

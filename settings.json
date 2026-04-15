@@ -19,6 +19,9 @@
   "stage_prompts_config": {
     "stage1_request_descriptions": [],
     "stage1_player_action": [
+      "narrator:n1",
+      "narrator:n2",
+      "narrator:n3",
       "dice_rules"
     ],
     "stage1_random_event": [
@@ -32,12 +35,15 @@
     "stage2_npc_action": [
       "narrator:n1",
       "narrator:n2",
+      "narrator:n3",
       "dice_rules"
     ],
     "stage3_final": [
       "history:5",
       "narrator:n5",
       "narrator:n3",
+      "narrator:n1",
+      "narrator:n2",
       "dice_rules"
     ],
     "null": [
