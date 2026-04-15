@@ -1,3 +1,4 @@
+# stage_processor.py (исправленная версия: финальный ответ выводится после всех этапов)
 import json
 import random
 import re
@@ -266,6 +267,24 @@ class StageProcessor:
     def _log_debug(self, step: str, content: str = "", error: str = None):
         if self.main_app.current_debug_log_path:
             self.main_app._log_debug(step, content, error)
+        # Дополнительно выводим в "окно мыслей" как служебную информацию
+        if content and len(content) < 500:
+            self._display_system(f"[DEBUG] {step}: {content}")
+        elif content:
+            self._display_system(f"[DEBUG] {step}: {content[:200]}... (обрезано)")
+
+    def _log_full_response(self, stage: str, content: str, tool_calls: List[Dict]):
+        """Логирует полный ответ модели в файл и в UI."""
+        self._log_debug(f"FULL_RESPONSE_{stage}", f"Content:\n{content}\n\nTool calls:\n{json.dumps(tool_calls, indent=2, ensure_ascii=False)}")
+        self._display_thinking(f"📨 Ответ модели ({stage}):\n{content[:500]}\n{'(+tool_calls)' if tool_calls else ''}")
+
+    def _display_thinking(self, msg: str):
+        """Выводит сообщение в окно мыслей (если оно есть)."""
+        if hasattr(self.main_app, 'thinking_panel') and self.main_app.thinking_panel:
+            self.main_app.thinking_panel.append_text(msg + "\n")
+        else:
+            # fallback
+            self._display_system(f"[THINK] {msg}")
 
     def _get_object_by_id(self, obj_id: str):
         return self.main_app._get_object_by_id(obj_id)
@@ -276,6 +295,7 @@ class StageProcessor:
     def _send_request(self, messages, callback, extra=None, expect_tool_calls=True,
                       stage_name: str = None, use_temp: bool = False, tools_override=None,
                       show_in_thinking: bool = False):
+        # Передаём show_in_thinking в основной метод, который уже будет логировать
         self.main_app._send_model_request(
             messages, callback, extra, expect_tool_calls,
             stage_name, use_temp, tools_override, show_in_thinking
@@ -294,11 +314,22 @@ class StageProcessor:
         total_time = 0
         if self.generation_start_time is not None:
             total_time = time.time() - self.generation_start_time
-            self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
             self._log_debug("GENERATION_COMPLETED", f"Total time: {total_time:.2f} sec")
             self.generation_start_time = None
         else:
             self._log_debug("GENERATION_COMPLETED")
+        
+        # --- ВЫВОД ФИНАЛЬНОГО ОТВЕТА АССИСТЕНТА ПОСЛЕ ВСЕХ ЭТАПОВ ---
+        final_response = self.stage_data.get("final_response", "")
+        if final_response:
+            self.main_app.center_panel.display_message(f"\nАссистент: {final_response}\n\n", "assistant")
+            self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
+            self._save_current_session()
+        # ---------------------------------------------------------
+        
+        if total_time:
+            self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
+        
         self.main_app.is_generating = False
         self.main_app.center_panel.set_input_state("normal")
         self.main_app.center_panel.update_translation_button_state()
@@ -352,6 +383,7 @@ class StageProcessor:
                 self._display_error(f"❌ Ошибка получения описания {obj_id}: {e}\n")
                 self.stage_data["descriptions"][obj_id] = f"Ошибка: {e}"
         self._display_system("✅ Все описания объектов получены.\n")
+        print("scene_character_ids _fetch_descriptions_sync {}".format(self.stage_data["scene_character_ids"]))
 
     # --------------------------------------------------------------------------
     # СТАДИЯ 1.1: запрос описаний объектов (кандидатов)
@@ -415,6 +447,7 @@ class StageProcessor:
 
     def _after_stage1_request_descriptions(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage1_request_descriptions", content, tool_calls)
         self._log_debug("AFTER stage1_request_descriptions", f"tool_calls: {tool_calls}\ncontent: {content[:500] if content else ''}")
 
         send_call = None
@@ -470,6 +503,7 @@ class StageProcessor:
         self.stage_data["scene_location_id"] = location_id
         self.stage_data["scene_character_ids"] = character_ids
         self.stage_data["scene_item_ids"] = item_ids
+        print("scene_character_ids _create_default_scene {}".format(self.stage_data["scene_character_ids"]))
 
         all_ids = []
         if location_id:
@@ -534,6 +568,7 @@ class StageProcessor:
 
     def _after_stage1_create_scene(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage1_create_scene", content, tool_calls)
         confirm_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "confirm_scene":
@@ -547,27 +582,76 @@ class StageProcessor:
 
         if confirm_call:
             try:
+                print("[DEBUG] confirm_call arguments raw:", confirm_call["function"]["arguments"])
                 args = json.loads(confirm_call["function"]["arguments"])
-                location_id = None
-                character_ids = []
-                item_ids = []
+                print("[DEBUG] args parsed:", args)
 
-                # Поддержка позиционных аргументов: ['l1', ['c2','c3'], []]
+                # Поддержка позиционных аргументов
                 if isinstance(args, list) and len(args) >= 3:
                     location_id = args[0] if isinstance(args[0], str) else None
-                    character_ids = args[1] if isinstance(args[1], list) else []
-                    item_ids = args[2] if isinstance(args[2], list) else []
+                    
+                    # --- Обработка character_ids ---
+                    raw_chars = args[1]
+                    if isinstance(raw_chars, str):
+                        raw_chars = raw_chars.strip()
+                        if raw_chars.startswith('[') and raw_chars.endswith(']'):
+                            try:
+                                character_ids = json.loads(raw_chars)
+                                if not isinstance(character_ids, list):
+                                    character_ids = []
+                            except json.JSONDecodeError:
+                                character_ids = []
+                        else:
+                            character_ids = []
+                    elif isinstance(raw_chars, list):
+                        character_ids = raw_chars
+                    else:
+                        character_ids = []
+                    
+                    # --- Обработка item_ids ---
+                    raw_items = args[2]
+                    if isinstance(raw_items, str):
+                        raw_items = raw_items.strip()
+                        if raw_items.startswith('[') and raw_items.endswith(']'):
+                            try:
+                                item_ids = json.loads(raw_items)
+                                if not isinstance(item_ids, list):
+                                    item_ids = []
+                            except json.JSONDecodeError:
+                                item_ids = []
+                        else:
+                            item_ids = []
+                    elif isinstance(raw_items, list):
+                        item_ids = raw_items
+                    else:
+                        item_ids = []
+                    
+                    print("[DEBUG] character_ids after parsing:", character_ids)
                 else:
                     location_id = args.get("location_id")
                     character_ids = args.get("character_ids", [])
                     item_ids = args.get("item_ids", [])
+                    print("[DEBUG] character_ids from named args:", character_ids)
 
-                if not isinstance(location_id, str):
-                    location_id = None
+                # ========== ЗАЩИТА ==========
+                user_msg_lower = self.stage_data.get("user_message", "").lower()
+                print("[DEBUG] user_msg_lower:", user_msg_lower)
+                print("[DEBUG] descriptions keys:", list(self.stage_data["descriptions"].keys()))
+                
+                for oid, desc in self.stage_data["descriptions"].items():
+                    obj = self.main_app._get_object_by_id(oid)
+                    if obj and hasattr(obj, 'name') and not getattr(obj, 'is_player', False):
+                        name_lower = obj.name.lower()
+                        print(f"[DEBUG] checking {oid}: name='{obj.name}', name_lower='{name_lower}', in_msg={name_lower in user_msg_lower}, already_in={oid in character_ids}")
+                        if name_lower.split()[0] in user_msg_lower or user_msg_lower.startswith(name_lower.split()[0]):
+                            print(f"[DEBUG] ADDING {oid} to character_ids")
+                            character_ids.append(oid)
 
+                print("[DEBUG] final character_ids before assign:", character_ids)
                 self.stage_data["scene_location_id"] = location_id
                 self.stage_data["scene_character_ids"] = character_ids
                 self.stage_data["scene_item_ids"] = item_ids
+                print("Stage_1 {}".format(self.stage_data["scene_character_ids"]))
 
                 scene_parts = []
                 if self.stage_data["scene_location_id"]:
@@ -639,6 +723,7 @@ class StageProcessor:
 
     def _after_stage3_truth_check(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage1_truth_check", content, tool_calls)
         report_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "report_truth_check":
@@ -724,7 +809,7 @@ class StageProcessor:
             dice_value=dice_value
         )
         # Используем короткое имя act и чёткий пример
-        main_prompt += f"\n\n⚠️ Вызови act({dice_value}, 'твоё описание в одинарных кавычках'). Пример: act(20, 'Успех')."
+        main_prompt += f"\n\n⚠️ Вызови act([{dice_value}, 'твоё описание']). Пример: act([20, 'Успех'])"
 
         messages = [
             {"role": "user", "content": f"Игрок: {self.stage_data['user_message']}"},
@@ -742,9 +827,9 @@ class StageProcessor:
     def _after_stage4_player_action(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
         expected_dice = extra.get("expected_dice")
+        self._log_full_response("stage1_player_action", content, tool_calls)
 
         report_call = None
-        # Поддерживаем старые имена + новое короткое "act"
         allowed_funcs = ["report_player_action", "player_action", "act"]
         for tc in tool_calls:
             if tc["function"]["name"] in allowed_funcs:
@@ -756,6 +841,12 @@ class StageProcessor:
                 report_call = parsed[0]
 
         if not report_call:
+            # fallback: используем content как описание
+            if content and len(content.strip()) > 0:
+                self.stage_data["player_action_desc"] = content.strip()[:500]
+                self._display_system(f"✍️ Результат (из текста): {content[:100]}...\n")
+                self._stage5_random_event_determine()
+                return
             if retry_count < 2:
                 self._display_error(f"⚠️ Модель не вызвала act. Повтор...\n")
                 self._stage4_player_action(retry_count+1)
@@ -767,11 +858,19 @@ class StageProcessor:
 
         try:
             args = json.loads(report_call["function"]["arguments"])
-            # Поддержка как позиционных аргументов act(val, desc), так и именованных
+            description = ""
+
+            # Новый формат: act([dice, 'description'])
             if isinstance(args, list) and len(args) >= 2:
+                # args[0] - dice, args[1] - description
                 description = args[1] if isinstance(args[1], str) else str(args[1])
+            # Старый формат (позиционные аргументы)
+            elif isinstance(args, list) and len(args) >= 2 and not isinstance(args[0], list):
+                description = args[1] if isinstance(args[1], str) else str(args[1])
+            # Именованные аргументы
             else:
                 description = args.get("description", "")
+
             self.stage_data["player_action_desc"] = description or "Действие выполнено."
             self._display_system(f"✍️ Результат: {description[:100]}...\n")
             self._stage5_random_event_determine()
@@ -782,6 +881,7 @@ class StageProcessor:
             else:
                 self.stage_data["player_action_desc"] = "Действие выполнено."
                 self._stage5_random_event_determine()
+
     # --------------------------------------------------------------------------
     # СТАДИЯ 4: определение случайного события (произошло ли)
     # --------------------------------------------------------------------------
@@ -830,6 +930,7 @@ class StageProcessor:
     def _after_stage5_random_event_determine(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
         expected_dice = extra.get("dice_value")
+        self._log_full_response("stage1_random_event_determine", content, tool_calls)
 
         report_call = None
         for tc in tool_calls:
@@ -942,6 +1043,7 @@ class StageProcessor:
 
     def _after_stage5_random_event_request_objects(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage1_random_event_request_objects", content, tool_calls)
 
         send_call = None
         for tc in tool_calls:
@@ -1018,6 +1120,8 @@ class StageProcessor:
 
     def _after_stage5_random_event_details(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage1_random_event_details", content, tool_calls)
+
         report_call = None
         for tc in tool_calls:
             if tc["function"]["name"] == "report_random_event":
@@ -1066,6 +1170,7 @@ class StageProcessor:
 
         self._log_debug(f"=== STAGE6: NPCs (attempt {retry_count+1}) ===")
         self._display_system(f"🎭 Этап 6/9: Обработка NPC (попытка {retry_count+1})...\n")
+        print("stage_7 {}".format(self.stage_data))
 
         npc_ids = [cid for cid in self.stage_data.get("scene_character_ids", [])
                    if not self.main_app.characters.get(cid, Character(is_player=False)).is_player]
@@ -1128,6 +1233,7 @@ class StageProcessor:
         npc_id = extra["npc_id"]
         npc_name = extra.get("npc_name", "NPC")
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response(f"stage2_npc_action_{npc_id}", content, tool_calls)
 
         intent = None
         if content:
@@ -1209,13 +1315,15 @@ class StageProcessor:
             lambda tc, cont, extra: self._after_stage8_final(tc, cont, extra),
             extra={"retry_count": retry_count},
             stage_name="stage3_final",
-            use_temp=True,
+            use_temp=False,
             expect_tool_calls=False,
-            show_in_thinking=False
+            show_in_thinking=True
         )
 
     def _after_stage8_final(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage3_final", content, tool_calls)
+
         final = content.strip() if content else ""
         if not final and retry_count < 2:
             self._display_error("⚠️ Пустой ответ, повтор...\n")
@@ -1224,11 +1332,11 @@ class StageProcessor:
         if not final:
             final = "(Рассказчик молчит)"
 
-        self.main_app.center_panel.clear_temp_response()
-        self.main_app.center_panel.display_message(f"\nАссистент: {final}\n\n", "assistant")
-        self.main_app.conversation_history.append({"role": "assistant", "content": final})
+        # --- Сохраняем финальный ответ, но НЕ выводим его сразу ---
         self.stage_data["final_response"] = final
-        self._save_current_session()
+        self.main_app.center_panel.clear_temp_response()
+        # Сохранение сессии и добавление в историю перенесены в _finish_generation
+        # ------------------------------------------------------------
         self._stage9_summary()
 
     # --------------------------------------------------------------------------
@@ -1276,6 +1384,7 @@ class StageProcessor:
 
     def _after_stage9_summary(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage4_summary", content, tool_calls)
         self.main_app.center_panel.clear_temp_response()
         summary = content.strip() if content else ""
         if not summary or len(summary) > 100:
@@ -1339,6 +1448,7 @@ class StageProcessor:
 
     def _after_stage10_associative_memory(self, tool_calls, content, extra):
         retry_count = extra.get("retry_count", 0)
+        self._log_full_response("stage10_associative_memory", content, tool_calls)
         if not content or len(content.strip()) < 5:
             if retry_count < 2:
                 self._display_error("⚠️ Повтор...\n")

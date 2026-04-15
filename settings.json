@@ -1,6 +1,6 @@
 {
   "api_url": "http://localhost:1234/v1",
-  "model_name": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
+  "model_name": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix",
   "max_history_messages": 2,
   "show_thinking": true,
   "dice_d20_count": 10,
@@ -37,7 +37,8 @@
     "stage3_final": [
       "history:5",
       "narrator:n5",
-      "narrator:n3"
+      "narrator:n3",
+      "dice_rules"
     ],
     "null": [
       "narrator:n1",

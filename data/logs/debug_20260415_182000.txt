@@ -1,19 +1,19 @@
 === DEBUG LOG ===
-User message at 2026-04-14T22:36:01.110139:
-SYSTEM: Начнем игру
+User message at 2026-04-15T18:20:00.185545:
+REGENERATE: Я откладываю чай, и иду в комнату сестры
 
-[2026-04-14T22:36:01.112381] === STAGE1.1: request_descriptions (attempt 1) ===
+[2026-04-15T18:20:00.189625] === STAGE1.1: request_descriptions (attempt 1) ===
 
-[2026-04-14T22:36:01.151337] SEND_MODEL_REQUEST
-=== МОДЕЛЬ: qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k ===
-Температура: 1.0, Max tokens: 4096
+[2026-04-15T18:20:00.216464] SEND_MODEL_REQUEST
+=== МОДЕЛЬ: qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix ===
+Температура: 1.0, Max tokens: 8192
 
 [1] USER:
-  Сообщение игрока: Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит.
+  Сообщение игрока: Я откладываю чай, и иду в комнату сестры
 
 [2] SYSTEM:
   Ты — рассказчик в TTRPG.
-  Игрок написал: 'Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит.'
+  Игрок написал: 'Я откладываю чай, и иду в комнату сестры'
   
   Доступные объекты (ID и названия):
   Локация: l1 - Дом Игрока
@@ -26,4 +26,6 @@ SYSTEM: Начнем игру
   
   ⚠️ Ты должен ответить ТОЛЬКО вызовом send_object_info с массивом ID объектов. Пример: send_object_info(['l1','c2','c3']). Никакого другого текста.
 
+
+[2026-04-15T18:20:08.107722] USER_STOPPED_GENERATION
 
