@@ -1,4 +1,4 @@
-# Project_Py3_RPG_AI_main_Tools_version_V0.9.0.py (без tools)
+# Project_Py3_RPG_AI_main_Tools_version_V0.10.0.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
@@ -471,19 +471,7 @@ class MainApp(tk.Tk):
         self.title("RPG AI Assistant")
         self.geometry("1200x700")
         self.minsize(900, 600)
-        self.stage_names = [
-            "stage1_request_descriptions",
-            "stage1_validate_scene",
-            "stage1_truth_check",
-            "stage1_player_action",
-            "stage1_random_event",
-            "stage1_validate_random_event",
-            "stage1_turn_order",
-            "stage2_npc_action",
-            "stage3_final",
-            "stage4_summary"
-        ]
-        
+
         self.memory_summary = ""
         self.settings_file = "settings.json"
         self.settings = self.load_settings()
@@ -514,19 +502,24 @@ class MainApp(tk.Tk):
         self.enable_memory_summary = self.settings.get("enable_memory_summary", False)
         self.max_memory_summaries = self.settings.get("max_memory_summaries", 5)
         self.memory_summaries: List[str] = []
-        self.associative_memory: Dict[str, List[str]] = {}  
+        self.associative_memory: Dict[str, List[str]] = {}
         self.max_associative_memory_entries = self.settings.get("max_associative_memory_entries", 5)
+        self.enable_associative_memory = self.settings.get("enable_associative_memory", True)  # FIX: новый флаг
+
+        # Новые поля для отслеживания памяти по ходам
+        self.memory_turn_index: List[int] = []
+        self.assoc_turn_changes: List[List[Dict]] = []
 
         self.lm_client = LMStudioClient(base_url=self.settings.get("api_url", "http://localhost:1234/v1"))
 
         self.is_generating = False
         self.stop_generation_flag = False
 
-        self.current_dice_sequences = ([], [], [])
-        self.dice_indices = [0, 0, 0]
+        # FIX: удалены поля current_dice_sequences, dice_indices – кубики теперь в StageProcessor
 
-        # Состояние поэтапной генерации – вынесено в StageProcessor
+        # --- Инициализация StageProcessor ---
         self.stage_processor = StageProcessor(self)
+        self.stage_names = StageProcessor.ALL_STAGES
 
         self.use_two_models = self.settings.get("use_two_models", False)
         self.primary_model = self.settings.get("primary_model", "local-model")
@@ -538,8 +531,7 @@ class MainApp(tk.Tk):
         self.translator_temperature = self.settings.get("translator_temperature", 0.3)
         self.translator_max_tokens = self.settings.get("translator_max_tokens", 4096)
 
-        # Настройка показа reasoning
-        self.show_thinking = self.settings.get("show_thinking", True)
+        # FIX: удалён self.show_thinking
 
         self.lm_client.set_default_params(
             max_tokens=self.settings.get("max_tokens", 4096),
@@ -552,21 +544,16 @@ class MainApp(tk.Tk):
 
         self.stage_prompts_config = self.settings.get("stage_prompts_config", {})
 
-        # Настройки включения/отключения стадий
-        self.enabled_stages = self.settings.get("enabled_stages", {
-            "stage1_request_descriptions": True,
-            "stage1_validate_scene": True,
-            "stage1_truth_check": True,
-            "stage1_player_action": True,
-            "stage1_random_event": True,
-            "stage2_npc_action": True,
-            "stage4_summary": True,
-            "stage10_associative_memory": True,
-        })
+        # --- Синхронизация стадий с StageProcessor.ALL_STAGES ---
+        all_stages = StageProcessor.ALL_STAGES
+        saved_enabled = self.settings.get("enabled_stages", {})
+        self.enabled_stages = {stage: saved_enabled.get(stage, True) for stage in all_stages}
+        saved_retries = self.settings.get("stage_retry_limits", {})
+        self.stage_retry_limits = {stage: saved_retries.get(stage, 2) for stage in all_stages}
 
-        # Для отслеживания добавленной памяти в текущей генерации
-        self.current_generation_added_summaries = []   # список строк summary
-        self.current_generation_added_assoc = []      # список строк вида "Объект (ID): изменение"
+        # Для отслеживания добавленной памяти
+        self.current_generation_added_summaries = []
+        self.current_generation_added_assoc = []
 
         self.event_handlers = {
             "send_message": self._handle_send_message,
@@ -605,7 +592,7 @@ class MainApp(tk.Tk):
             "clear_chat": self._handle_clear_chat,
             "set_local_description": self._handle_set_local_description,
             "clear_local_description": self._handle_clear_local_description,
-            # Обработчики для стадий – перенаправляем в stage_processor
+            # Стадии (перенаправление в stage_processor)
             "stage1_request_descriptions": lambda data: self.stage_processor._stage1_request_descriptions(data.get("retry_count", 0) if data else 0),
             "stage1_player_action": lambda data: self.stage_processor._stage1_player_action(data.get("retry_count", 0) if data else 0),
             "stage1_random_event": lambda data: self.stage_processor._stage1_random_event(data.get("retry_count", 0) if data else 0),
@@ -625,9 +612,8 @@ class MainApp(tk.Tk):
         self.after(100, self._refresh_all_ui)
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
-    # ---------- НОВЫЙ МЕТОД: РЕДАКТИРОВАНИЕ СЕССИИ ----------
+    # ---------- РЕДАКТИРОВАНИЕ СЕССИИ ----------
     def _handle_edit_session(self, data=None):
-        """Открывает окно редактирования JSON-файла текущей сессии."""
         if not self.current_session_id:
             messagebox.showwarning("Редактирование", "Нет активной сессии.")
             return
@@ -684,7 +670,30 @@ class MainApp(tk.Tk):
     def record_added_assoc(self, obj_id: str, change_text: str):
         obj = self._get_object_by_id(obj_id)
         obj_name = obj.name if obj else obj_id
-        self.current_generation_added_assoc.append(f"{obj_name} ({obj_id}): {change_text}")
+        self.current_generation_added_assoc.append({"object_id": obj_id, "change": change_text})
+
+    def _finalize_generation_memory_turn(self):
+        """Сохраняет добавленные за текущую генерацию резюме и изменения ассоциативной памяти в индексы поворотов."""
+        if self.current_generation_added_summaries:
+            self.memory_turn_index.append(len(self.current_generation_added_summaries))
+            self.memory_summaries.extend(self.current_generation_added_summaries)
+        else:
+            self.memory_turn_index.append(0)
+        if self.current_generation_added_assoc:
+            self.assoc_turn_changes.append(self.current_generation_added_assoc.copy())
+            for entry in self.current_generation_added_assoc:
+                obj_id = entry["object_id"]
+                change = entry["change"]
+                if obj_id not in self.associative_memory:
+                    self.associative_memory[obj_id] = []
+                self.associative_memory[obj_id].append(change)
+                if len(self.associative_memory[obj_id]) > self.max_associative_memory_entries:
+                    self.associative_memory[obj_id] = self.associative_memory[obj_id][-self.max_associative_memory_entries:]
+        else:
+            self.assoc_turn_changes.append([])
+        self.current_generation_added_summaries.clear()
+        self.current_generation_added_assoc.clear()
+        self._save_current_session_safe()
 
     def display_generation_memory_summary(self):
         if not self.current_generation_added_summaries and not self.current_generation_added_assoc:
@@ -696,13 +705,14 @@ class MainApp(tk.Tk):
                 self.center_panel.display_message(f"  • {summ}\n", "system")
         if self.current_generation_added_assoc:
             self.center_panel.display_message("🔗 **Ассоциативная память (изменения):**\n", "system")
-            for assoc in self.current_generation_added_assoc:
-                self.center_panel.display_message(f"  • {assoc}\n", "system")
+            for entry in self.current_generation_added_assoc:
+                obj_id = entry["object_id"]
+                obj = self._get_object_by_id(obj_id)
+                obj_name = obj.name if obj else obj_id
+                self.center_panel.display_message(f"  • {obj_name} ({obj_id}): {entry['change']}\n", "system")
         self.center_panel.display_message("\n", "system")
-        self.current_generation_added_summaries.clear()
-        self.current_generation_added_assoc.clear()
 
-    # ---------- Остальные методы (без изменений, кроме _send_model_request) ----------
+    # ---------- Остальные методы ----------
     def get_description_for_model(self, obj_id: str) -> str:
         obj = self._get_object_by_id(obj_id)
         if not obj:
@@ -824,10 +834,7 @@ class MainApp(tk.Tk):
             "api_url": "http://localhost:1234/v1",
             "model_name": "",
             "max_history_messages": 10,
-            "show_thinking": True,
-            "dice_d20_count": 10,
-            "dice_d100_count": 10,
-            "dice_d6_count": 100,
+            # FIX: убраны dice_d20_count, dice_d100_count, dice_d6_count, show_thinking
             "use_two_models": False,
             "primary_model": "",
             "translator_model": "",
@@ -841,13 +848,19 @@ class MainApp(tk.Tk):
             "stage_prompts_config": {},
             "enable_memory_summary": True,
             "max_memory_summaries": 5,
+            "enable_associative_memory": True,          # FIX: новый флаг
+            "max_associative_memory_entries": 5,        # FIX: уже было
             "enabled_stages": {
                 "stage1_request_descriptions": True,
-                "stage1_validate_scene": True,
+                "stage1_create_scene": True,
                 "stage1_truth_check": True,
                 "stage1_player_action": True,
-                "stage1_random_event": True,
+                "stage1_random_event_determine": True,
+                "stage1_random_event_request_objects": True,
+                "stage1_random_event_details": True,
                 "stage2_npc_action": True,
+                "stage3_final": True,
+                "stage11_validation": True,
                 "stage4_summary": True,
                 "stage10_associative_memory": True,
             }
@@ -884,36 +897,7 @@ class MainApp(tk.Tk):
         with open(self.settings_file, "w") as f:
             json.dump(self.settings, f, indent=2)
 
-    def generate_dice_sequences(self):
-        d20_cnt = self.settings.get("dice_d20_count", 10)
-        d100_cnt = self.settings.get("dice_d100_count", 10)
-        d6_cnt = self.settings.get("dice_d6_count", 100)
-        return (
-            [random.randint(1, 20) for _ in range(d20_cnt)],
-            [random.randint(1, 100) for _ in range(d100_cnt)],
-            [random.randint(1, 6) for _ in range(d6_cnt)]
-        )
-
-    def get_next_dice_value(self, dice_type: str) -> Optional[int]:
-        if dice_type == "d20":
-            seq = self.current_dice_sequences[0]
-            idx = self.dice_indices[0]
-            if idx < len(seq):
-                self.dice_indices[0] += 1
-                return seq[idx]
-        elif dice_type == "d100":
-            seq = self.current_dice_sequences[1]
-            idx = self.dice_indices[1]
-            if idx < len(seq):
-                self.dice_indices[1] += 1
-                return seq[idx]
-        elif dice_type == "d6":
-            seq = self.current_dice_sequences[2]
-            idx = self.dice_indices[2]
-            if idx < len(seq):
-                self.dice_indices[2] += 1
-                return seq[idx]
-        return None
+    # FIX: удалены методы generate_dice_sequences и get_next_dice_value
 
     def _safe_stop_generation(self, callback=None):
         if self.is_generating:
@@ -941,15 +925,20 @@ class MainApp(tk.Tk):
                 "history": self.conversation_history,
                 "created": datetime.now().isoformat(),
                 "local_descriptions": self.local_descriptions,
-                "memory_summaries": self.memory_summaries
+                "memory_summaries": self.memory_summaries,
+                "associative_memory": self.associative_memory,
+                "memory_turn_index": self.memory_turn_index,
+                "assoc_turn_changes": self.assoc_turn_changes,
             }
         else:
             session_data["profile"] = self.current_profile.to_dict()
             session_data["history"] = self.conversation_history
             session_data["local_descriptions"] = self.local_descriptions
             session_data["memory_summaries"] = self.memory_summaries
+            session_data["associative_memory"] = self.associative_memory
+            session_data["memory_turn_index"] = self.memory_turn_index
+            session_data["assoc_turn_changes"] = self.assoc_turn_changes
         session_data["last_used"] = datetime.now().isoformat()
-        session_data["associative_memory"] = self.associative_memory
         self.storage.save_session(self.current_session_id, session_data)
 
     def _load_last_session(self):
@@ -980,15 +969,6 @@ class MainApp(tk.Tk):
     def _handle_save_current_session(self, data=None):
         self._save_current_session_safe()
 
-    def update_associative_memory(self, object_id: str, change_description: str):
-        if object_id not in self.associative_memory:
-            self.associative_memory[object_id] = []
-        memory_list = self.associative_memory[object_id]
-        memory_list.append(change_description)
-        if len(memory_list) > self.max_associative_memory_entries:
-            self.associative_memory[object_id] = memory_list[-self.max_associative_memory_entries:]
-        self._save_current_session_safe()
-
     def get_associative_memory_for_object(self, object_id: str) -> str:
         changes = self.associative_memory.get(object_id, [])
         if not changes:
@@ -998,6 +978,8 @@ class MainApp(tk.Tk):
     def _handle_clear_chat(self, data=None):
         if messagebox.askyesno("Очистить чат", "Вся история сообщений будет удалена без возможности восстановления. Продолжить?"):
             self.associative_memory = {}
+            self.memory_turn_index = []
+            self.assoc_turn_changes = []
             if self.is_generating:
                 self.stop_generation_flag = True
             self.conversation_history = []
@@ -1011,7 +993,7 @@ class MainApp(tk.Tk):
             self.center_panel.display_message("Чат очищен.\n", "system")
             self.center_panel.update_translation_button_state()
             self.center_panel.update_token_count(0, 0)
-            self._log_debug("MEMORY_CLEARED", "All memory summaries cleared")
+            self._log_debug("MEMORY_CLEARED", "All memory cleared")
 
     def _handle_delete_last_user_message(self, data=None):
         if self.is_generating:
@@ -1027,7 +1009,26 @@ class MainApp(tk.Tk):
         if last_user_index == -1:
             messagebox.showinfo("Удаление", "Нет сообщений пользователя для удаления.")
             return
-        self.conversation_history = self.conversation_history[:last_user_index]
+        if last_user_index + 1 < len(self.conversation_history) and self.conversation_history[last_user_index+1]["role"] == "assistant":
+            assistant_index = last_user_index + 1
+            turn_index = (len(self.memory_turn_index) - 1) if self.memory_turn_index else -1
+            if turn_index >= 0:
+                num_summaries = self.memory_turn_index.pop()
+                for _ in range(num_summaries):
+                    if self.memory_summaries:
+                        self.memory_summaries.pop()
+                changes = self.assoc_turn_changes.pop() if self.assoc_turn_changes else []
+                for entry in changes:
+                    obj_id = entry["object_id"]
+                    change = entry["change"]
+                    if obj_id in self.associative_memory:
+                        if change in self.associative_memory[obj_id]:
+                            self.associative_memory[obj_id].remove(change)
+                        if not self.associative_memory[obj_id]:
+                            del self.associative_memory[obj_id]
+            self.conversation_history = self.conversation_history[:last_user_index]
+        else:
+            self.conversation_history = self.conversation_history[:last_user_index]
         self._sync_last_user_message()
         self.last_original_response = None
         self.last_translated_response = None
@@ -1038,11 +1039,13 @@ class MainApp(tk.Tk):
             tag = "user" if msg["role"] == "user" else "assistant"
             self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
         self.center_panel.update_translation_button_state()
-        messagebox.showinfo("Удаление", "Последнее сообщение пользователя и ответы на него удалены.")
+        messagebox.showinfo("Удаление", "Последнее сообщение пользователя и связанные с ним данные удалены.")
 
     def _handle_new_session(self, data=None):
         def do_new():
             self.associative_memory = {}
+            self.memory_turn_index = []
+            self.assoc_turn_changes = []
             if self.current_session_id:
                 self._save_current_session_safe()
             session_id = str(uuid.uuid4())
@@ -1060,7 +1063,11 @@ class MainApp(tk.Tk):
                 "history": [],
                 "created": datetime.now().isoformat(),
                 "last_used": datetime.now().isoformat(),
-                "local_descriptions": {}
+                "local_descriptions": {},
+                "memory_summaries": [],
+                "associative_memory": {},
+                "memory_turn_index": [],
+                "assoc_turn_changes": []
             }
             self.storage.save_session(session_id, session_data)
             self.current_session_id = session_id
@@ -1103,9 +1110,15 @@ class MainApp(tk.Tk):
             self.conversation_history = session_data.get("history", [])
             self.local_descriptions = session_data.get("local_descriptions", {})
             self.memory_summaries = session_data.get("memory_summaries", [])
-            self._log_debug("MEMORY_LOADED", f"Loaded {len(self.memory_summaries)} summaries: {self.memory_summaries}")
-            if self.memory_summaries:
-                self.center_panel.display_system_message(f"🧠 Загружено {len(self.memory_summaries)} кратких резюме из памяти.\n")
+            self.associative_memory = session_data.get("associative_memory", {})
+            self.memory_turn_index = session_data.get("memory_turn_index", [])
+            self.assoc_turn_changes = session_data.get("assoc_turn_changes", [])
+            # Ограничиваем ассоциативную память по max_associative_memory_entries
+            if self.max_associative_memory_entries > 0:
+                for obj_id in list(self.associative_memory.keys()):
+                    if len(self.associative_memory[obj_id]) > self.max_associative_memory_entries:
+                        self.associative_memory[obj_id] = self.associative_memory[obj_id][-self.max_associative_memory_entries:]
+            self._log_debug("MEMORY_LOADED", f"Loaded {len(self.memory_summaries)} summaries, turn index length {len(self.memory_turn_index)}")
             self._sync_last_user_message()
             self.last_original_response = None
             self.last_translated_response = None
@@ -1181,10 +1194,22 @@ class MainApp(tk.Tk):
             return
         if self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
             self.conversation_history.pop()
+            if self.memory_turn_index:
+                num_summaries = self.memory_turn_index.pop()
+                for _ in range(num_summaries):
+                    if self.memory_summaries:
+                        self.memory_summaries.pop()
+            if self.assoc_turn_changes:
+                changes = self.assoc_turn_changes.pop()
+                for entry in changes:
+                    obj_id = entry["object_id"]
+                    change = entry["change"]
+                    if obj_id in self.associative_memory:
+                        if change in self.associative_memory[obj_id]:
+                            self.associative_memory[obj_id].remove(change)
+                        if not self.associative_memory[obj_id]:
+                            del self.associative_memory[obj_id]
             self._save_current_session_safe()
-        self._rollback_last_memory()
-        changed_objects = getattr(self.stage_processor, 'last_changed_objects', None)
-        self._rollback_associative_memory(changed_objects)
         self.last_original_response = None
         self.last_translated_response = None
         self.center_panel.clear_chat()
@@ -1230,11 +1255,13 @@ class MainApp(tk.Tk):
             self.last_original_response = None
             self.last_translated_response = None
             self.memory_summaries = []
+            self.memory_turn_index = []
+            self.assoc_turn_changes = []
+            self.associative_memory = {}
             self.local_descriptions = {}
             self.center_panel.update_translation_button_state()
             self._start_debug_log("SYSTEM: Начнем игру")
-            self.current_dice_sequences = self.generate_dice_sequences()
-            self.dice_indices = [0, 0, 0]
+            # FIX: убрана генерация последовательностей кубиков
             start_message = "Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит."
             self._start_generation(start_message)
 
@@ -1285,6 +1312,7 @@ class MainApp(tk.Tk):
         self.center_panel.clear_temp_response()
         self.center_panel.display_message(f"\nАссистент: {final_text}\n\n", "assistant")
         self.conversation_history.append({"role": "assistant", "content": final_text})
+        self._finalize_generation_memory_turn()
         self._save_current_session_safe()
         self._finish_direct_chat()
 
@@ -1300,6 +1328,66 @@ class MainApp(tk.Tk):
     def _send_model_request(self, messages: List[Dict], callback, extra=None,
                             stage_name: str = None, use_temp: bool = False,
                             show_in_thinking: bool = False):
+        """
+        Отправляет запрос к LM Studio (без tools).
+        Поддерживает вставку системных промтов из конфига, директив narrator: и history:auto.
+        """
+        # ---------- 1. Вставка дополнительных системных сообщений из конфига этапа ----------
+        if stage_name and stage_name != "direct_chat" and stage_name in self.stage_prompts_config:
+            config = self.stage_prompts_config.get(stage_name, [])
+            # Находим индекс первого system сообщения (если есть)
+            first_system_idx = None
+            for i, msg in enumerate(messages):
+                if msg.get("role") == "system":
+                    first_system_idx = i
+                    break
+            # Позиция для вставки – после всех существующих system сообщений
+            insert_pos = first_system_idx + 1 if first_system_idx is not None else 0
+
+            for entry in config:
+                if entry == "history:auto":
+                    # 2.1 Краткая память (summary)
+                    if self.enable_memory_summary and self.memory_summaries:
+                        recent = self.memory_summaries[-self.max_memory_summaries:] if self.max_memory_summaries > 0 else []
+                        if recent:
+                            mem_text = "Краткая история предыдущих событий (справочно):\n" + "\n".join(f"- {s}" for s in recent)
+                            messages.insert(insert_pos, {"role": "system", "content": mem_text})
+                            insert_pos += 1
+                    # 2.2 Ассоциативная память
+                    if self.enable_associative_memory and self.associative_memory:
+                        assoc_lines = []
+                        for oid, changes in self.associative_memory.items():
+                            obj = self._get_object_by_id(oid)
+                            name = obj.name if obj else oid
+                            recent_changes = changes[-self.max_associative_memory_entries:] if self.max_associative_memory_entries > 0 else changes
+                            if recent_changes:
+                                assoc_lines.append(f"{name} ({oid}): " + "; ".join(recent_changes))
+                        if assoc_lines:
+                            assoc_text = "Ассоциативная память (изменения объектов):\n" + "\n".join(assoc_lines)
+                            messages.insert(insert_pos, {"role": "system", "content": assoc_text})
+                            insert_pos += 1
+                    # 2.3 История чата
+                    if self.max_history_messages > 0:
+                        history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
+                        history = history[-self.max_history_messages:]
+                        for hmsg in reversed(history):
+                            messages.insert(insert_pos, {"role": hmsg["role"], "content": hmsg["content"]})
+                            # insert_pos не увеличиваем – каждое новое вставляется перед предыдущим
+
+                elif entry.startswith("narrator:"):
+                    narr_id = entry[9:]
+                    narr = self.narrators.get(narr_id)
+                    if narr and narr.description:
+                        messages.insert(insert_pos, {"role": "system", "content": f"Ты — рассказчик. Стиль и правила:\n{narr.description}"})
+                        insert_pos += 1
+                else:
+                    # Обычный системный промт
+                    prompt_content = self.prompt_manager.get_prompt_content(entry)
+                    if prompt_content:
+                        messages.insert(insert_pos, {"role": "system", "content": prompt_content})
+                        insert_pos += 1
+
+        # ---------- 3. Выбор модели и параметров ----------
         if self.use_two_models:
             model = self.primary_model
             temp = self.primary_temperature
@@ -1309,6 +1397,7 @@ class MainApp(tk.Tk):
             temp = self.settings.get("temperature", 0.7)
             max_tok = self.settings.get("max_tokens", 4096)
 
+        # ---------- 4. Логирование полного промта ----------
         full_prompt_lines = []
         full_prompt_lines.append(f"=== МОДЕЛЬ: {model} ===")
         full_prompt_lines.append(f"Температура: {temp}, Max tokens: {max_tok}\n")
@@ -1323,6 +1412,7 @@ class MainApp(tk.Tk):
         self.center_panel.log_system_prompt(full_prompt, stage_name)
         self._log_debug("SEND_MODEL_REQUEST", full_prompt)
 
+        # ---------- 5. Стриминг и обработка ответа ----------
         def stream_and_process():
             full_content = ""
             reasoning_buffer = ""
@@ -1367,52 +1457,78 @@ class MainApp(tk.Tk):
                 self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
                 return
 
-            # Вызываем callback с одним аргументом – текстом ответа
             self.after(0, lambda: callback(full_content, extra))
 
         threading.Thread(target=stream_and_process, daemon=True).start()
 
-    # ---------- Метод построения контекста ----------
+    # ---------- Метод построения контекста (исправлен порядок: main_prompt первым) ----------
     def _build_context_messages(self, stage_name: str, main_prompt: str = "", extra_prompts: List[str] = None) -> List[Dict[str, str]]:
+        """Строит список сообщений для модели, включая системные промты, историю и краткую память.
+        Если в конфиге этапа есть 'history:auto', добавляются три блока (краткая память,
+        ассоциативная память, история чата) с использованием глобальных настроек."""
         messages = []
 
-        if self.enable_memory_summary and self.memory_summaries:
-            memory_text = (
-                "Краткая история предыдущих событий (справочно, не заменяет инструкции ниже):\n"
-                + "\n".join(f"- {s}" for s in self.memory_summaries)
-            )
-            messages.append({"role": "system", "content": memory_text})
+        # 1. Основной системный промт (если есть) – всегда первым
+        if main_prompt:
+            messages.append({"role": "system", "content": main_prompt})
 
+        # 2. Обработка конфигурации этапа
         config = self.stage_prompts_config.get(stage_name, [])
-        history_limit = None
+        history_added = False  # флаг, чтобы добавить блоки истории в нужном месте
 
         for entry in config:
-            if entry.startswith("history:"):
-                parts = entry.split(":", 1)
-                if len(parts) > 1 and parts[1].isdigit():
-                    history_limit = int(parts[1])
-                else:
-                    history_limit = 0
-            elif entry.startswith("narrator:"):
+            if entry == "history:auto":
+                # Вместо добавления одной записи мы добавим три блока (краткая память, ассоциативная, история чата)
+                # Но сделаем это после обработки всех остальных записей? Чтобы блоки истории были после всех системных промтов?
+                # Поскольку порядок важен, мы запомним, что нужно добавить историю, и добавим её в конце списка system-сообщений.
+                history_added = True
+                continue
+
+            if entry.startswith("narrator:"):
                 narr_id = entry[9:]
                 narr = self.narrators.get(narr_id)
                 if narr:
                     messages.append({"role": "system", "content": f"Ты — рассказчик. Твой стиль и манера повествования:\n{narr.description}"})
             else:
+                # Обычный системный промт
                 content = self.prompt_manager.get_prompt_content(entry)
                 if content:
                     messages.append({"role": "system", "content": content})
 
-        if history_limit is None:
-            history_limit = self.max_history_messages if self.max_history_messages > 0 else 0
-        if history_limit > 0:
-            history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
-            history = history[-history_limit:]
-            for msg in history:
-                messages.append({"role": msg["role"], "content": msg["content"]})
+        # 3. Добавление блоков истории, если требуется
+        if history_added:
+            # 3.1 Краткая память (summary)
+            if self.enable_memory_summary and self.memory_summaries:
+                recent_summaries = self.memory_summaries[-self.max_memory_summaries:] if self.max_memory_summaries > 0 else []
+                if recent_summaries:
+                    memory_text = (
+                        "Краткая история предыдущих событий (справочно, не заменяет инструкции ниже):\n"
+                        + "\n".join(f"- {s}" for s in recent_summaries)
+                    )
+                    messages.append({"role": "system", "content": memory_text})
 
-        if main_prompt:
-            messages.append({"role": "system", "content": main_prompt})
+            # 3.2 Ассоциативная память (по объектам)
+            if self.enable_associative_memory and self.associative_memory:
+                assoc_lines = []
+                for obj_id, changes in self.associative_memory.items():
+                    obj = self._get_object_by_id(obj_id)
+                    obj_name = obj.name if obj else obj_id
+                    # Берём последние max_associative_memory_entries записей
+                    recent_changes = changes[-self.max_associative_memory_entries:] if self.max_associative_memory_entries > 0 else changes
+                    if recent_changes:
+                        assoc_lines.append(f"{obj_name} ({obj_id}): " + "; ".join(recent_changes))
+                if assoc_lines:
+                    assoc_text = "Ассоциативная память (изменения в объектах):\n" + "\n".join(assoc_lines)
+                    messages.append({"role": "system", "content": assoc_text})
+
+            # 3.3 История чата (диалог)
+            if self.max_history_messages > 0:
+                history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
+                history = history[-self.max_history_messages:]
+                for msg in history:
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+
+        # 4. Дополнительные промты (если переданы)
         if extra_prompts:
             for p in extra_prompts:
                 messages.append({"role": "system", "content": p})
@@ -1519,16 +1635,21 @@ class MainApp(tk.Tk):
             temperature=self.settings.get("temperature", 0.7)
         )
         self.max_associative_memory_entries = self.settings.get("max_associative_memory_entries", 5)
+        self.enable_associative_memory = self.settings.get("enable_associative_memory", True)
         if self.center_panel:
             self.center_panel.update_translation_button_state()
         self.enable_memory_summary = self.settings.get("enable_memory_summary", False)
         self.max_memory_summaries = self.settings.get("max_memory_summaries", 5)
-        if len(self.memory_summaries) > self.max_memory_summaries:
-            self.memory_summaries = self.memory_summaries[-self.max_memory_summaries:]
-            self._save_current_session_safe()
-        self._log_debug("MEMORY_TRIMMED", f"New max size {self.max_memory_summaries}, summaries: {self.memory_summaries}")
-        self.show_thinking = self.settings.get("show_thinking", True)
-        self.enabled_stages = self.settings.get("enabled_stages", self.enabled_stages)
+        self._log_debug("MEMORY_TRIMMED", f"New max size {self.max_memory_summaries}")
+        # FIX: удалено self.show_thinking
+
+        # --- Обновление стадий и лимитов повторных попыток ---
+        all_stages = StageProcessor.ALL_STAGES
+        saved_enabled = self.settings.get("enabled_stages", {})
+        self.enabled_stages = {stage: saved_enabled.get(stage, True) for stage in all_stages}
+        saved_retries = self.settings.get("stage_retry_limits", {})
+        self.stage_retry_limits = {stage: saved_retries.get(stage, 2) for stage in all_stages}
+
         messagebox.showinfo("Настройки", "Настройки сохранены и применены.")
 
     def _handle_update_profile(self, data):
@@ -1743,50 +1864,17 @@ class MainApp(tk.Tk):
                 self.after(0, lambda: self.center_panel.display_message(f"\n[Translation error: {e}]\n", "error"))
         threading.Thread(target=translate_stream, daemon=True).start()
 
-    def _rollback_last_memory(self):
-        if self.memory_summaries:
-            removed = self.memory_summaries.pop()
-            self.center_panel.display_message(f"🧠 **Удалена запись краткой памяти:**\n  • {removed}\n", "system")
-            self._log_debug("MEMORY_ROLLBACK", f"Removed summary: {removed}")
-            self._save_current_session_safe()
-
-    def _rollback_associative_memory(self, object_ids: List[str] = None):
-        removed_items = []
-        if object_ids is None:
-            for obj_id in list(self.associative_memory.keys()):
-                if self.associative_memory[obj_id]:
-                    removed = self.associative_memory[obj_id].pop()
-                    obj = self._get_object_by_id(obj_id)
-                    obj_name = obj.name if obj else obj_id
-                    removed_items.append(f"{obj_name} ({obj_id}): {removed}")
-                    if not self.associative_memory[obj_id]:
-                        del self.associative_memory[obj_id]
-        else:
-            for obj_id in object_ids:
-                if obj_id in self.associative_memory and self.associative_memory[obj_id]:
-                    removed = self.associative_memory[obj_id].pop()
-                    obj = self._get_object_by_id(obj_id)
-                    obj_name = obj.name if obj else obj_id
-                    removed_items.append(f"{obj_name} ({obj_id}): {removed}")
-                    if not self.associative_memory[obj_id]:
-                        del self.associative_memory[obj_id]
-        if removed_items:
-            self.center_panel.display_message("🔗 **Удалены записи ассоциативной памяти:**\n", "system")
-            for item in removed_items:
-                self.center_panel.display_message(f"  • {item}\n", "system")
-        self._save_current_session_safe()
-
-# ---------- SettingsDialog (без изменений) ----------
+# ---------- SettingsDialog (исправлен: убраны кубики и show_thinking, добавлена ассоциативная память, исправлен список этапов) ----------
 class SettingsDialog:
     def __init__(self, parent, current_settings):
         self.top = tk.Toplevel(parent)
         self.top.title("Настройки")
-        self.top.geometry("700x800")
+        self.top.geometry("750x850")
         self.top.transient(parent)
         self.top.grab_set()
         parent.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (700 // 2)
-        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (800 // 2)
+        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (750 // 2)
+        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (850 // 2)
         self.top.geometry(f"+{x}+{y}")
         self.result = None
         self.parent = parent
@@ -1800,13 +1888,17 @@ class SettingsDialog:
         main_canvas.create_window((0, 0), window=main_frame, anchor="nw")
         main_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
 
+        # --- Общие настройки ---
         ttk.Label(main_frame, text="API URL:").grid(row=0, column=0, sticky="w", pady=5)
         self.api_url = ttk.Entry(main_frame, width=50)
         self.api_url.insert(0, current_settings.get("api_url", "http://localhost:1234/v1"))
         self.api_url.grid(row=0, column=1, sticky="ew", pady=5)
         add_context_menu(self.api_url)
+
         self.use_two_models_var = tk.BooleanVar(value=current_settings.get("use_two_models", False))
         ttk.Checkbutton(main_frame, text="Использовать две модели", variable=self.use_two_models_var, command=self._toggle_two_models).grid(row=1, column=0, columnspan=2, sticky="w", pady=5)
+
+        # --- Одиночный режим ---
         self.single_frame = ttk.LabelFrame(main_frame, text="Одиночный режим")
         self.single_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
         ttk.Label(self.single_frame, text="Модель:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
@@ -1824,6 +1916,8 @@ class SettingsDialog:
         self.single_max_tokens.insert(0, str(current_settings.get("max_tokens", 4096)))
         self.single_max_tokens.grid(row=2, column=1, sticky="w", padx=5, pady=2)
         self.single_frame.columnconfigure(1, weight=1)
+
+        # --- Двухмодельный режим ---
         self.dual_frame = ttk.LabelFrame(main_frame, text="Двухмодельный режим")
         self.dual_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
         ttk.Label(self.dual_frame, text="Основная модель:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
@@ -1855,69 +1949,92 @@ class SettingsDialog:
         self.translator_max_tokens.insert(0, str(current_settings.get("translator_max_tokens", 4096)))
         self.translator_max_tokens.grid(row=5, column=1, sticky="w", padx=5, pady=2)
         self.dual_frame.columnconfigure(1, weight=1)
+
         refresh_btn = ttk.Button(main_frame, text="Обновить список моделей", command=self._refresh_models_list)
         refresh_btn.grid(row=3, column=0, columnspan=2, pady=5)
+
         self.enable_assistant_translation_var = tk.BooleanVar(value=current_settings.get("enable_assistant_translation", False))
         self.translation_cb = ttk.Checkbutton(main_frame, text="Переводить ответы ассистента", variable=self.enable_assistant_translation_var)
         self.translation_cb.grid(row=4, column=0, columnspan=2, sticky="w", pady=5)
+
         ttk.Label(main_frame, text="Max History Messages:").grid(row=5, column=0, sticky="w", pady=5)
         self.max_history = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
         self.max_history.delete(0, tk.END)
         self.max_history.insert(0, str(current_settings.get("max_history_messages", 10)))
         self.max_history.grid(row=5, column=1, sticky="w", pady=5)
-        ttk.Label(main_frame, text="Количество d20:").grid(row=6, column=0, sticky="w", pady=5)
-        self.d20_count = ttk.Spinbox(main_frame, from_=0, to=100, width=10)
-        self.d20_count.delete(0, tk.END)
-        self.d20_count.insert(0, str(current_settings.get("dice_d20_count", 10)))
-        self.d20_count.grid(row=6, column=1, sticky="w", pady=5)
-        ttk.Label(main_frame, text="Количество d100:").grid(row=7, column=0, sticky="w", pady=5)
-        self.d100_count = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
-        self.d100_count.delete(0, tk.END)
-        self.d100_count.insert(0, str(current_settings.get("dice_d100_count", 10)))
-        self.d100_count.grid(row=7, column=1, sticky="w", pady=5)
-        ttk.Label(main_frame, text="Количество d6:").grid(row=8, column=0, sticky="w", pady=5)
-        self.d6_count = ttk.Spinbox(main_frame, from_=0, to=200, width=10)
-        self.d6_count.delete(0, tk.END)
-        self.d6_count.insert(0, str(current_settings.get("dice_d6_count", 100)))
-        self.d6_count.grid(row=8, column=1, sticky="w", pady=5)
+
+        # FIX: удалены поля количества кубиков
+
+        # --- Память ---
         self.enable_memory_var = tk.BooleanVar(value=current_settings.get("enable_memory_summary", False))
-        ttk.Checkbutton(main_frame, text="Включить краткую память (summary)", variable=self.enable_memory_var).grid(row=9, column=0, columnspan=2, sticky="w", pady=5)
-        ttk.Label(main_frame, text="Максимум резюме в памяти:").grid(row=10, column=0, sticky="w", pady=5)
+        ttk.Checkbutton(main_frame, text="Включить краткую память (summary)", variable=self.enable_memory_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text="Максимум резюме в памяти:").grid(row=7, column=0, sticky="w", pady=5)
         self.max_memory_summaries = ttk.Spinbox(main_frame, from_=1, to=20, width=10)
         self.max_memory_summaries.delete(0, tk.END)
         self.max_memory_summaries.insert(0, str(current_settings.get("max_memory_summaries", 5)))
-        self.max_memory_summaries.grid(row=10, column=1, sticky="w", pady=5)
-        self.show_thinking_var = tk.BooleanVar(value=current_settings.get("show_thinking", True))
-        ttk.Checkbutton(main_frame, text="Показывать мыслительный процесс (reasoning)", variable=self.show_thinking_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=5)
-        ttk.Label(main_frame, text="Макс. записей ассоциативной памяти на объект:").grid(row=12, column=0, sticky="w", pady=5)
+        self.max_memory_summaries.grid(row=7, column=1, sticky="w", pady=5)
+
+        # FIX: удалён чекбокс show_thinking
+
+        # FIX: добавлена настройка ассоциативной памяти
+        self.enable_assoc_memory_var = tk.BooleanVar(value=current_settings.get("enable_associative_memory", True))
+        ttk.Checkbutton(main_frame, text="Включить ассоциативную память", variable=self.enable_assoc_memory_var).grid(row=8, column=0, columnspan=2, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text="Макс. записей ассоциативной памяти на объект:").grid(row=9, column=0, sticky="w", pady=5)
         self.max_assoc_entries = ttk.Spinbox(main_frame, from_=1, to=20, width=10)
         self.max_assoc_entries.delete(0, tk.END)
         self.max_assoc_entries.insert(0, str(current_settings.get("max_associative_memory_entries", 5)))
-        self.max_assoc_entries.grid(row=12, column=1, sticky="w", pady=5)
-        stages_frame = ttk.LabelFrame(main_frame, text="Включение/отключение этапов генерации")
-        stages_frame.grid(row=13, column=0, columnspan=2, sticky="ew", pady=10)
-        self.stage_vars = {}
-        stage_names = [
-            ("stage1_request_descriptions", "Этап 1: Определение объектов сцены"),
-            ("stage1_validate_scene", "Этап 2: Валидация сцены"),
-            ("stage1_truth_check", "Этап 3: Проверка правдивости"),
-            ("stage1_player_action", "Этап 4: Действие игрока (бросок d20)"),
-            ("stage1_random_event", "Этап 5: Случайное событие (бросок d100)"),
-            ("stage2_npc_action", "Этап 7: Обработка NPC"),
-            ("stage4_summary", "Этап 9: Краткая выжимка"),
-            ("stage10_associative_memory", "Этап 10: Ассоциативная память"),
+        self.max_assoc_entries.grid(row=9, column=1, sticky="w", pady=5)
+
+        # --- Таблица стадий: чекбокс + поле повторов (исправлен порядок) ---
+        stages_frame = ttk.LabelFrame(main_frame, text="Включение/отключение этапов генерации и количество повторных попыток")
+        stages_frame.grid(row=10, column=0, columnspan=2, sticky="ew", pady=10)
+
+        # FIX: список стадий в правильном порядке и с правильной нумерацией
+        stage_list = [
+            ("stage1_request_descriptions", "1.1 Запрос описаний объектов"),
+            ("stage1_create_scene", "1.2 Создание сцены"),
+            ("stage1_truth_check", "2. Проверка правдивости"),
+            ("stage1_player_action", "3. Действие игрока (d20)"),
+            ("stage1_random_event_determine", "4. Определение случайного события (d100)"),
+            ("stage1_random_event_request_objects", "5.1 Запрос объектов для события"),
+            ("stage1_random_event_details", "5.2 Описание события (d20)"),
+            ("stage2_npc_action", "6. Обработка NPC"),
+            ("stage3_final", "7. Финальный рассказ"),
+            ("stage11_validation", "8. Валидация результата"),
+            ("stage4_summary", "9. Краткая память"),
+            ("stage10_associative_memory", "10. Ассоциативная память"),
         ]
-        for i, (key, label) in enumerate(stage_names):
-            var = tk.BooleanVar(value=current_settings.get("enabled_stages", {}).get(key, True))
-            self.stage_vars[key] = var
-            cb = ttk.Checkbutton(stages_frame, text=label, variable=var)
-            cb.grid(row=i, column=0, sticky="w", padx=5, pady=2)
+
+        self.stage_vars = {}
+        self.retry_vars = {}
+
+        ttk.Label(stages_frame, text="Стадия", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(stages_frame, text="Включена", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(stages_frame, text="Повторы (0-10)", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=5, pady=2)
+
+        for i, (key, label) in enumerate(stage_list, start=1):
+            ttk.Label(stages_frame, text=label).grid(row=i, column=0, sticky="w", padx=5, pady=2)
+            var_enabled = tk.BooleanVar(value=current_settings.get("enabled_stages", {}).get(key, True))
+            self.stage_vars[key] = var_enabled
+            cb = ttk.Checkbutton(stages_frame, variable=var_enabled)
+            cb.grid(row=i, column=1, padx=5, pady=2)
+            var_retry = tk.StringVar(value=str(current_settings.get("stage_retry_limits", {}).get(key, 2)))
+            self.retry_vars[key] = var_retry
+            spin = ttk.Spinbox(stages_frame, from_=0, to=10, width=5, textvariable=var_retry)
+            spin.grid(row=i, column=2, padx=5, pady=2)
+
         stages_frame.columnconfigure(0, weight=1)
+
+        # --- Кнопки ---
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=14, column=0, columnspan=2, pady=20)
+        btn_frame.grid(row=11, column=0, columnspan=2, pady=20)
         ttk.Button(btn_frame, text="Сохранить", command=self._save).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Отмена", command=self.top.destroy).pack(side=tk.LEFT, padx=5)
+
         main_frame.columnconfigure(1, weight=1)
+
         self._refresh_models_list()
         self._toggle_two_models()
 
@@ -1943,8 +2060,6 @@ class SettingsDialog:
                     for item in data["models"]:
                         if "id" in item:
                             models.append(item["id"])
-                        elif "key" in item:
-                            models.append(item["key"])
                 seen = set()
                 unique = []
                 for m in models:
@@ -1965,8 +2080,6 @@ class SettingsDialog:
             self.primary_model_combo.set(models[0] if models else "local-model")
         if self.translator_model_combo.get() not in models:
             self.translator_model_combo.set(models[0] if models else "local-model")
-        model_count = len(models) - 1
-        messagebox.showinfo("Список моделей", f"Найдено {model_count} загруженных моделей.\n\n" + "\n".join(models))
 
     def _toggle_two_models(self):
         if self.use_two_models_var.get():
@@ -1981,13 +2094,11 @@ class SettingsDialog:
     def _save(self):
         use_two = self.use_two_models_var.get()
         enabled_stages = {key: var.get() for key, var in self.stage_vars.items()}
+        stage_retry_limits = {key: int(var.get()) for key, var in self.retry_vars.items()}
         self.result = {
             "api_url": self.api_url.get().strip(),
             "model_name": self.model_name_combo.get(),
             "max_history_messages": int(self.max_history.get()),
-            "dice_d20_count": int(self.d20_count.get()),
-            "dice_d100_count": int(self.d100_count.get()),
-            "dice_d6_count": int(self.d6_count.get()),
             "use_two_models": use_two,
             "primary_model": self.primary_model_combo.get(),
             "translator_model": self.translator_model_combo.get(),
@@ -2000,9 +2111,10 @@ class SettingsDialog:
             "max_tokens": int(self.single_max_tokens.get()),
             "enable_memory_summary": self.enable_memory_var.get(),
             "max_memory_summaries": int(self.max_memory_summaries.get()),
-            "show_thinking": self.show_thinking_var.get(),
+            "enable_associative_memory": self.enable_assoc_memory_var.get(),
             "max_associative_memory_entries": int(self.max_assoc_entries.get()),
             "enabled_stages": enabled_stages,
+            "stage_retry_limits": stage_retry_limits,
         }
         self.top.destroy()
 

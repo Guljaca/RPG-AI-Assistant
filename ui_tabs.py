@@ -657,28 +657,28 @@ class TranslatorPromptsTab(ttk.Frame):
             return
         self.app.update("delete_prompt", {"name": self.current_prompt_name})
 
-# ---------- Вкладка "Этапы" (порядок системных сообщений) ----------
-# ---------- Вкладка "Этапы" (с русскими названиями и тултипами) ----------
+# ---------- Вкладка "Этапы" (исправленная: история добавляется без выбора количества) ----------
 class StagePromptsTab(ttk.Frame):
-    # Соответствие: отображаемое имя → техническое имя (ключ в конфиге)
+    # Полный список стадий, синхронизированный с StageProcessor.ALL_STAGES
     STAGE_MAPPING = [
-        ("0. Сообщение игрока", "stage0_user_message"),
-        ("1. Запрос описаний", "stage1_request_descriptions"),
-        ("2. Валидация сцены", "stage1_validate_scene"),
-        ("3. Проверка правдивости", "stage1_truth_check"),
-        ("4. Действие игрока (d20)", "stage1_player_action"),
-        ("5. Случайное событие (d100)", "stage1_random_event"),
-        ("5.1. Запрос объектов для события", "stage1_random_event_continue"),
-        ("5.2. Проверка события", "stage1_validate_random_event"),
-        ("7. Планы NPC", "stage2_npc_action"),
-        ("8. Финальный рассказ", "stage3_final"),
-        ("9. Краткая выжимка", "stage4_summary"),
+        ("1.1 Запрос описаний объектов", "stage1_request_descriptions"),
+        ("1.2 Создание сцены", "stage1_create_scene"),
+        ("2. Проверка правдивости", "stage1_truth_check"),
+        ("3. Действие игрока (d20)", "stage1_player_action"),
+        ("4. Определение случайного события (d100)", "stage1_random_event_determine"),
+        ("5.1 Запрос объектов для события", "stage1_random_event_request_objects"),
+        ("5.2 Описание события (d20)", "stage1_random_event_details"),
+        ("6. Обработка NPC", "stage2_npc_action"),
+        ("7. Финальный рассказ", "stage3_final"),
+        ("8. Валидация результата", "stage11_validation"),
+        ("9. Краткая память", "stage4_summary"),
+        ("10. Ассоциативная память", "stage10_associative_memory"),
     ]
 
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.current_stage = None          # хранит техническое имя выбранного этапа
+        self.current_stage = None
         self._build_ui()
         self.refresh()
 
@@ -707,7 +707,6 @@ class StagePromptsTab(ttk.Frame):
         left_frame.grid_columnconfigure(0, weight=1)
 
         self.stage_listbox = tk.Listbox(left_frame, height=12, font=("Arial", 10))
-        # Вставляем отображаемые имена
         for display_name, _ in self.STAGE_MAPPING:
             self.stage_listbox.insert(tk.END, display_name)
         self.stage_listbox.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
@@ -716,7 +715,7 @@ class StagePromptsTab(ttk.Frame):
         self.stage_listbox.configure(yscrollcommand=stage_scrollbar.set)
         self.stage_listbox.bind("<<ListboxSelect>>", self._on_stage_select)
 
-        # --- Tooltip для списка этапов ---
+        # Tooltip для списка этапов
         self._setup_tooltips()
 
         right_frame = ttk.LabelFrame(main_row, text="Системные промты для выбранного этапа (порядок важен)")
@@ -750,7 +749,6 @@ class StagePromptsTab(ttk.Frame):
         ttk.Button(btn_frame, text="💾 Сохранить", command=self._save_config).grid(row=3, column=1, padx=3, pady=2, sticky="ew")
 
     def _setup_tooltips(self):
-        """Добавляет всплывающие подсказки для списка этапов."""
         self.tooltip_window = None
         self.tooltip_item = None
 
@@ -795,7 +793,6 @@ class StagePromptsTab(ttk.Frame):
         if not selection:
             return
         idx = selection[0]
-        # По индексу получаем техническое имя
         self.current_stage = self.STAGE_MAPPING[idx][1]
         self._refresh_prompts_list()
 
@@ -913,44 +910,24 @@ class StagePromptsTab(ttk.Frame):
     def refresh(self):
         self._refresh_prompts_list()
 
+    # ========== ИСПРАВЛЕННЫЙ МЕТОД (без диалога выбора количества) ==========
     def _add_history(self):
         if not self.current_stage:
             messagebox.showwarning("Ошибка", "Сначала выберите этап")
             return
-
-        # Диалог выбора количества сообщений
-        dialog = tk.Toplevel(self)
-        dialog.title("Добавить историю чата")
-        dialog.geometry("320x150")
-        dialog.transient(self)
-        dialog.grab_set()
-
-        ttk.Label(dialog, text="Сколько последних сообщений добавить?\n(0 = не добавлять, 1-50 = число сообщений)").pack(pady=10)
-        spin = ttk.Spinbox(dialog, from_=0, to=50, width=10)
-        spin.set("5")
-        spin.pack(pady=5)
-
-        def on_ok():
-            try:
-                count = int(spin.get())
-            except:
-                count = 0
-            if count < 0:
-                count = 0
-            entry = f"history:{count}"
-            current = self.app.stage_prompts_config.get(self.current_stage, [])
-            sel = self.prompts_listbox.curselection()
-            idx = sel[0] if sel else len(current)
-            current.insert(idx, entry)
-            self.app.stage_prompts_config[self.current_stage] = current
-            self._refresh_prompts_list()
-            if sel:
-                self.prompts_listbox.selection_set(idx)
-            self.app.save_stage_prompts_config()
-            dialog.destroy()
-
-        ttk.Button(dialog, text="ОК", command=on_ok).pack(pady=10)
-        dialog.bind("<Return>", lambda e: on_ok())
+        current = self.app.stage_prompts_config.get(self.current_stage, [])
+        if "history:auto" in current:
+            messagebox.showinfo("История", "История уже добавлена для этого этапа.")
+            return
+        sel = self.prompts_listbox.curselection()
+        insert_idx = sel[0] if sel else len(current)
+        current.insert(insert_idx, "history:auto")
+        self.app.stage_prompts_config[self.current_stage] = current
+        self._refresh_prompts_list()
+        if sel:
+            self.prompts_listbox.selection_set(insert_idx)
+        self.app.save_stage_prompts_config()
+        messagebox.showinfo("История", "Метка истории добавлена. Количество сообщений, кратких резюме и записей ассоциативной памяти будут взяты из глобальных настроек.")
 
     def _refresh_prompts_list(self):
         self.prompts_listbox.delete(0, tk.END)
@@ -962,13 +939,8 @@ class StagePromptsTab(ttk.Frame):
                 narr_id = entry[9:]
                 narr = self.app.narrators.get(narr_id)
                 display = f"📖 {narr.name if narr else narr_id}"
-            elif entry.startswith("history:"):
-                parts = entry.split(":", 1)
-                count = parts[1] if len(parts) > 1 else "0"
-                if count == "0":
-                    display = "📜 История (отключена)"
-                else:
-                    display = f"📜 История ({count} последних сообщ.)"
+            elif entry == "history:auto":
+                display = "📜 История (из глобальных настроек)"
             else:
                 display = f"💬 {entry}"
             self.prompts_listbox.insert(tk.END, display)
