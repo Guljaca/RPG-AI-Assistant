@@ -1328,32 +1328,24 @@ class MainApp(tk.Tk):
     def _send_model_request(self, messages: List[Dict], callback, extra=None,
                             stage_name: str = None, use_temp: bool = False,
                             show_in_thinking: bool = False):
-        """
-        Отправляет запрос к LM Studio (без tools).
-        Поддерживает вставку системных промтов из конфига, директив narrator: и history:auto.
-        """
         # ---------- 1. Вставка дополнительных системных сообщений из конфига этапа ----------
         if stage_name and stage_name != "direct_chat" and stage_name in self.stage_prompts_config:
             config = self.stage_prompts_config.get(stage_name, [])
-            # Находим индекс первого system сообщения (если есть)
             first_system_idx = None
             for i, msg in enumerate(messages):
                 if msg.get("role") == "system":
                     first_system_idx = i
                     break
-            # Позиция для вставки – после всех существующих system сообщений
             insert_pos = first_system_idx + 1 if first_system_idx is not None else 0
 
             for entry in config:
                 if entry == "history:auto":
-                    # 2.1 Краткая память (summary)
                     if self.enable_memory_summary and self.memory_summaries:
                         recent = self.memory_summaries[-self.max_memory_summaries:] if self.max_memory_summaries > 0 else []
                         if recent:
                             mem_text = "Краткая история предыдущих событий (справочно):\n" + "\n".join(f"- {s}" for s in recent)
                             messages.insert(insert_pos, {"role": "system", "content": mem_text})
                             insert_pos += 1
-                    # 2.2 Ассоциативная память
                     if self.enable_associative_memory and self.associative_memory:
                         assoc_lines = []
                         for oid, changes in self.associative_memory.items():
@@ -1366,14 +1358,11 @@ class MainApp(tk.Tk):
                             assoc_text = "Ассоциативная память (изменения объектов):\n" + "\n".join(assoc_lines)
                             messages.insert(insert_pos, {"role": "system", "content": assoc_text})
                             insert_pos += 1
-                    # 2.3 История чата
                     if self.max_history_messages > 0:
                         history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
                         history = history[-self.max_history_messages:]
                         for hmsg in reversed(history):
                             messages.insert(insert_pos, {"role": hmsg["role"], "content": hmsg["content"]})
-                            # insert_pos не увеличиваем – каждое новое вставляется перед предыдущим
-
                 elif entry.startswith("narrator:"):
                     narr_id = entry[9:]
                     narr = self.narrators.get(narr_id)
@@ -1381,13 +1370,12 @@ class MainApp(tk.Tk):
                         messages.insert(insert_pos, {"role": "system", "content": f"Ты — рассказчик. Стиль и правила:\n{narr.description}"})
                         insert_pos += 1
                 else:
-                    # Обычный системный промт
                     prompt_content = self.prompt_manager.get_prompt_content(entry)
                     if prompt_content:
                         messages.insert(insert_pos, {"role": "system", "content": prompt_content})
                         insert_pos += 1
 
-        # ---------- 3. Выбор модели и параметров ----------
+        # ---------- 2. Выбор модели и параметров ----------
         if self.use_two_models:
             model = self.primary_model
             temp = self.primary_temperature
@@ -1397,7 +1385,7 @@ class MainApp(tk.Tk):
             temp = self.settings.get("temperature", 0.7)
             max_tok = self.settings.get("max_tokens", 4096)
 
-        # ---------- 4. Логирование полного промта ----------
+        # ---------- 3. Логирование полного промта ----------
         full_prompt_lines = []
         full_prompt_lines.append(f"=== МОДЕЛЬ: {model} ===")
         full_prompt_lines.append(f"Температура: {temp}, Max tokens: {max_tok}\n")
@@ -1412,7 +1400,7 @@ class MainApp(tk.Tk):
         self.center_panel.log_system_prompt(full_prompt, stage_name)
         self._log_debug("SEND_MODEL_REQUEST", full_prompt)
 
-        # ---------- 5. Стриминг и обработка ответа ----------
+        # ---------- 4. Стриминг и обработка ответа ----------
         def stream_and_process():
             full_content = ""
             reasoning_buffer = ""

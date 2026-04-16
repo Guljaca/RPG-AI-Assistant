@@ -1276,6 +1276,18 @@ class StageProcessor:
             dice_results=dice_summary,
             dice_rules=dice_rules
         )
+
+        # ДОБАВЛЕНИЕ: если нет активных NPC и не произошло события – форсируем развитие сцены
+        if not self.stage_data.get("npc_actions") and not self.stage_data.get("event_occurred"):
+            extra_instruction = (
+                "\n\n**ВАЖНО:** В этой сцене нет активных NPC и не произошло случайного события. "
+                "Ты ОБЯЗАН продвинуть сюжет: опиши, как проходит 5-10 минут, или добавь внешнее изменение "
+                "(звук, скрип, чей-то голос), или заставь NPC (если он есть) совершить простое действие. "
+                "Не оставляй сцену замороженной."
+            )
+            prompt += extra_instruction
+            self._display_system("⚠️ Сцена статична – добавлена инструкция принудительного развития.\n")
+
         messages = [{"role": "user", "content": prompt}]
         self.main_app.center_panel.start_temp_response()
         self._send_request(
@@ -1292,6 +1304,9 @@ class StageProcessor:
         self._log_full_response("stage3_final", content)
 
         final = content.strip() if content else ""
+        # --- ИСПРАВЛЕНИЕ ЭКРАНИРОВАННЫХ ПЕРЕНОСОВ ---
+        final = final.replace('\\n', '\n')
+        # -------------------------------------------
         if not final:
             limit = self._get_retry_limit("stage3_final")
             if retry_count < limit:
@@ -1322,7 +1337,7 @@ class StageProcessor:
         self.stage_data["final_response"] = final
         self.main_app.center_panel.clear_temp_response()
         self._stage11_validation()
-
+        
     # --------------------------------------------------------------------------
     # СТАДИЯ 8: валидация финального ответа
     # --------------------------------------------------------------------------
@@ -1436,6 +1451,7 @@ class StageProcessor:
                     break
 
         if corrected is not None and isinstance(corrected, str) and corrected.strip():
+            corrected = corrected.replace('\\n', '\n')
             # --- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА НА ЗАПРЕЩЁННЫЕ ФРАЗЫ ---
             import re
             forbidden = [r'ты можешь', r'можешь выбрать', r'ты видишь', r'ты чувствуешь', r'ты лежишь']
