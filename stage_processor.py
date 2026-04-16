@@ -418,12 +418,20 @@ class StageProcessor:
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
+        # Получаем лимиты из настроек
+        max_locs = self.main_app.max_locations_per_scene
+        max_chars = self.main_app.max_characters_per_scene
+        max_items = self.main_app.max_items_per_scene
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_request_descriptions")
         if not prompt_template:
             raise RuntimeError("Промт 'stage1_request_descriptions' не загружен. Проверьте файлы промтов.")
         main_prompt = prompt_template.format(
             user_message=self.stage_data["user_message"],
-            available_objects=available
+            available_objects=available,
+            max_locations=max_locs,
+            max_characters=max_chars,
+            max_items=max_items
         )
         main_prompt += "\n\n⚠️ Ты должен ответить ТОЛЬКО вызовом send_object_info с массивом ID объектов. Пример: send_object_info(['l1','c2','c3']). Никакого другого текста."
 
@@ -964,6 +972,10 @@ class StageProcessor:
         player_action = self.stage_data["player_action_desc"]
         event_dice = self.stage_data["event_occurrence_dice"]
 
+        max_locs = self.main_app.max_locations_per_scene
+        max_chars = self.main_app.max_characters_per_scene
+        max_items = self.main_app.max_items_per_scene
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_request_objects")
         if not prompt_template:
             raise RuntimeError("Промт 'stage1_random_event_request_objects' не загружен.")
@@ -971,7 +983,10 @@ class StageProcessor:
             event_dice=event_dice,
             descriptions=descriptions_text,
             player_action=player_action,
-            available_objects=available
+            available_objects=available,
+            max_locations=max_locs,
+            max_characters=max_chars,
+            max_items=max_items
         )
         main_prompt += "\n\n⚠️ Если не хватает объектов, вызови send_object_info с массивом ID. Если хватает, ответь 'OK'."
 
@@ -1421,28 +1436,44 @@ class StageProcessor:
 
     def _after_stage11_validation(self, content, extra):
         retry_count = extra.get("retry_count", 0)
+        max_retries = self._get_retry_limit("stage11_validation")  # обычно 2-3
         self._log_full_response("stage11_validation", content)
 
         corrected = None
 
+        # Попытка распарсить корректный вызов validate_response
         tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["validate_response"])
         if tool_calls:
             call = tool_calls[-1]
             try:
                 args = json.loads(call["function"]["arguments"])
-                if isinstance(args, list) and len(args) == 1:
-                    if isinstance(args[0], list) and len(args[0]) == 1:
-                        corrected = args[0][0]
-                    elif isinstance(args[0], str):
-                        corrected = args[0]
+                # Ожидаемый формат: validate_response(["текст"])  -> args = ["текст"]
+                # Ошибочный формат: validate_response(["строка1", "строка2"], []) -> args = (["строка1","строка2"], [])
+                # Нормализуем:
+                if isinstance(args, list) and len(args) == 1 and isinstance(args[0], str):
+                    corrected = args[0]
+                elif isinstance(args, list) and len(args) == 1 and isinstance(args[0], list) and len(args[0]) == 1:
+                    # случай: [["текст"]]
+                    corrected = args[0][0] if args[0] else ""
+                elif isinstance(args, tuple) and len(args) == 2 and args[1] == []:
+                    # ошибочный формат: (["строка1", "строка2"], [])
+                    if isinstance(args[0], list) and args[0]:
+                        # склеиваем строки через \n
+                        corrected = "\n".join(args[0])
+                elif isinstance(args, list) and len(args) > 1 and all(isinstance(x, str) for x in args):
+                    # ошибочный формат: ["строка1", "строка2"] (без второго списка)
+                    corrected = "\n".join(args)
+                else:
+                    self._log_debug("VALIDATION_WRONG_FORMAT", f"Неизвестный формат args: {args}")
             except Exception as e:
                 self._log_debug("ERROR", f"validate_response parse error: {e}")
 
+        # Если не удалось получить corrected из вызова, пробуем извлечь из текста по паттернам
         if corrected is None and content:
             patterns = [
-                r"Исправленный текст:\s*(.+?)(?=\n\n|\Z)",
-                r"Исправленный ответ:\s*(.+?)(?=\n\n|\Z)",
-                r"validate_response\(\s*\[\s*\"(.+?)\"\s*\]\s*\)"
+                r'validate_response\(\s*\[\s*"(.+?)"\s*\]\s*\)',
+                r'Исправленный текст:\s*(.+?)(?=\n\n|\Z)',
+                r'Исправленный ответ:\s*(.+?)(?=\n\n|\Z)',
             ]
             for pat in patterns:
                 match = re.search(pat, content, re.DOTALL | re.IGNORECASE)
@@ -1450,9 +1481,16 @@ class StageProcessor:
                     corrected = match.group(1).strip()
                     break
 
-        if corrected is not None and isinstance(corrected, str) and corrected.strip():
+        # Если corrected получен и не пуст (или пустая строка — означает "без изменений")
+        if corrected is not None and isinstance(corrected, str):
+            # Пустая строка -> валидация пройдена, без изменений
+            if corrected.strip() == "":
+                self._display_system("✅ Валидация пройдена, ответ корректен.\n")
+                self._stage4_summary()
+                return
+
+            # Применяем минимальные исправления
             corrected = corrected.replace('\\n', '\n')
-            # --- ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА НА ЗАПРЕЩЁННЫЕ ФРАЗЫ ---
             import re
             forbidden = [r'ты можешь', r'можешь выбрать', r'ты видишь', r'ты чувствуешь', r'ты лежишь']
             if any(re.search(p, corrected, re.IGNORECASE) for p in forbidden):
@@ -1460,15 +1498,22 @@ class StageProcessor:
                 for p in forbidden:
                     corrected = re.sub(p, '', corrected, flags=re.IGNORECASE)
                 corrected = re.sub(r'\s+', ' ', corrected).strip()
-
             corrected = corrected.replace('\n\n', '\n')
             corrected = '\n'.join(line.strip() for line in corrected.split('\n'))
             self.stage_data["final_response"] = corrected.strip()
             self._display_system("✅ Ответ исправлен по результатам валидации.\n")
-        else:
-            self._display_system("✅ Валидация пройдена, ответ корректен.\n")
+            self._stage4_summary()
+            return
 
-        self._stage4_summary()
+        # Если corrected не получен или пуст (и при этом не пустая строка-признак)
+        if retry_count < max_retries:
+            self._display_error(f"⚠️ Валидатор вернул некорректный формат. Повтор ({retry_count+1}/{max_retries})...\n")
+            self._stage11_validation(retry_count + 1)
+            return
+        else:
+            self._display_system("⚠️ Не удалось получить корректный ответ валидатора после всех попыток. Пропускаем валидацию.\n")
+            self._stage4_summary()
+
     # --------------------------------------------------------------------------
     # СТАДИЯ 9: краткая память (summary)
     # --------------------------------------------------------------------------

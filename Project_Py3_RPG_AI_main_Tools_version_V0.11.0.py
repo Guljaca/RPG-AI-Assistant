@@ -492,21 +492,21 @@ class MainApp(tk.Tk):
         self.current_profile: GameProfile = GameProfile(name="Default")
         self.conversation_history: List[Dict] = []
         self.last_user_message: str = ""
-        self.max_history_messages: int = self.settings.get("max_history_messages", 10)
+        # Глобальные настройки по умолчанию (будут переопределены из stage_memory_config)
+        self.max_history_messages = 10
+        self.max_memory_summaries = 5
 
         self.local_descriptions: Dict[str, str] = {}
 
         self.last_original_response: Optional[str] = None
         self.last_translated_response: Optional[str] = None
 
-        self.enable_memory_summary = self.settings.get("enable_memory_summary", False)
-        self.max_memory_summaries = self.settings.get("max_memory_summaries", 5)
+        self.enable_memory_summary = True   # теперь управляется через stage_memory_config, но оставляем для совместимости
         self.memory_summaries: List[str] = []
         self.associative_memory: Dict[str, List[str]] = {}
         self.max_associative_memory_entries = self.settings.get("max_associative_memory_entries", 5)
-        self.enable_associative_memory = self.settings.get("enable_associative_memory", True)  # FIX: новый флаг
+        self.enable_associative_memory = self.settings.get("enable_associative_memory", True)
 
-        # Новые поля для отслеживания памяти по ходам
         self.memory_turn_index: List[int] = []
         self.assoc_turn_changes: List[List[Dict]] = []
 
@@ -514,8 +514,6 @@ class MainApp(tk.Tk):
 
         self.is_generating = False
         self.stop_generation_flag = False
-
-        # FIX: удалены поля current_dice_sequences, dice_indices – кубики теперь в StageProcessor
 
         # --- Инициализация StageProcessor ---
         self.stage_processor = StageProcessor(self)
@@ -531,7 +529,9 @@ class MainApp(tk.Tk):
         self.translator_temperature = self.settings.get("translator_temperature", 0.3)
         self.translator_max_tokens = self.settings.get("translator_max_tokens", 4096)
 
-        # FIX: удалён self.show_thinking
+        self.max_locations_per_scene = self.settings.get("max_locations_per_scene", 5)
+        self.max_characters_per_scene = self.settings.get("max_characters_per_scene", 10)
+        self.max_items_per_scene = self.settings.get("max_items_per_scene", 20)
 
         self.lm_client.set_default_params(
             max_tokens=self.settings.get("max_tokens", 4096),
@@ -550,6 +550,17 @@ class MainApp(tk.Tk):
         self.enabled_stages = {stage: saved_enabled.get(stage, True) for stage in all_stages}
         saved_retries = self.settings.get("stage_retry_limits", {})
         self.stage_retry_limits = {stage: saved_retries.get(stage, 2) for stage in all_stages}
+
+        # --- НОВАЯ СТРУКТУРА: настройки памяти для каждой стадии ---
+        saved_memory_config = self.settings.get("stage_memory_config", {})
+        self.stage_memory_config = {}
+        for stage in all_stages:
+            default = {"max_history": 10, "max_summaries": 5}
+            if stage in saved_memory_config:
+                cfg = saved_memory_config[stage]
+                default["max_history"] = cfg.get("max_history", 10)
+                default["max_summaries"] = cfg.get("max_summaries", 5)
+            self.stage_memory_config[stage] = default
 
         # Для отслеживания добавленной памяти
         self.current_generation_added_summaries = []
@@ -724,6 +735,55 @@ class MainApp(tk.Tk):
         else:
             return f"Описание: {global_desc}"
 
+    # ========== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ РАБОТЫ С ПРОФИЛЕМ ==========
+    def _add_to_profile_if_not_exists(self, obj_type: str, obj_id: str):
+        """Добавляет ID объекта в соответствующий список enabled_* текущего профиля, если его там ещё нет."""
+        if obj_type == "narrators":
+            enabled_list = self.current_profile.enabled_narrators
+            if obj_id not in enabled_list:
+                enabled_list.append(obj_id)
+        elif obj_type == "characters":
+            enabled_list = self.current_profile.enabled_characters
+            if obj_id not in enabled_list:
+                enabled_list.append(obj_id)
+        elif obj_type == "locations":
+            enabled_list = self.current_profile.enabled_locations
+            if obj_id not in enabled_list:
+                enabled_list.append(obj_id)
+        elif obj_type == "items":
+            enabled_list = self.current_profile.enabled_items
+            if obj_id not in enabled_list:
+                enabled_list.append(obj_id)
+        else:
+            return
+        # Сохраняем профиль и сессию, чтобы изменения не потерялись
+        self.storage.save_profile(self.current_profile)
+        self._save_current_session_safe()
+
+    def _remove_from_profile(self, obj_type: str, obj_id: str):
+        """Удаляет ID объекта из соответствующего списка enabled_* текущего профиля."""
+        if obj_type == "narrators":
+            enabled_list = self.current_profile.enabled_narrators
+            if obj_id in enabled_list:
+                enabled_list.remove(obj_id)
+        elif obj_type == "characters":
+            enabled_list = self.current_profile.enabled_characters
+            if obj_id in enabled_list:
+                enabled_list.remove(obj_id)
+        elif obj_type == "locations":
+            enabled_list = self.current_profile.enabled_locations
+            if obj_id in enabled_list:
+                enabled_list.remove(obj_id)
+        elif obj_type == "items":
+            enabled_list = self.current_profile.enabled_items
+            if obj_id in enabled_list:
+                enabled_list.remove(obj_id)
+        else:
+            return
+        self.storage.save_profile(self.current_profile)
+        self._save_current_session_safe()
+
+    # ========== ОБРАБОТЧИКИ ОБЪЕКТОВ (С ИСПРАВЛЕНИЯМИ) ==========
     def _handle_update_object(self, obj_type: str, data: dict):
         obj_id = data.get("id")
         name = data.get("name", "").strip()
@@ -745,6 +805,8 @@ class MainApp(tk.Tk):
         if cls is None:
             messagebox.showerror("Ошибка", f"Неизвестный класс для {obj_type}")
             return
+
+        is_new = False
         if obj_id and obj_id in objects_dict:
             obj = objects_dict[obj_id]
             obj.name = name
@@ -754,6 +816,7 @@ class MainApp(tk.Tk):
             self.storage.save_object(obj_type, obj)
             action = "обновлён"
         else:
+            # Создание нового объекта
             kwargs = {"name": name, "description": desc}
             if obj_type == "characters":
                 kwargs["is_player"] = data.get("is_player", False)
@@ -761,10 +824,62 @@ class MainApp(tk.Tk):
             self.storage.save_object(obj_type, obj)
             objects_dict[obj.id] = obj
             action = "создан"
+            is_new = True
+            # автоматически добавляем новый объект в текущий профиль
+            self._add_to_profile_if_not_exists(obj_type, obj.id)
+
         self._refresh_all_ui()
         self._save_current_session_safe()
         messagebox.showinfo("Успех", f"{cls.__name__} '{name}' {action} (ID: {obj.id}).")
 
+    def _handle_create_object(self, obj_type: str, data: dict):
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+        if not name:
+            messagebox.showwarning("Ошибка", "Название не может быть пустым.")
+            return
+        cls_map = {
+            "narrators": Narrator,
+            "characters": Character,
+            "locations": Location,
+            "items": Item
+        }
+        cls = cls_map.get(obj_type)
+        if not cls:
+            return
+        kwargs = {"name": name, "description": description}
+        if obj_type == "characters":
+            kwargs["is_player"] = data.get("is_player", False)
+        obj = cls(**kwargs)
+        self.storage.save_object(obj_type, obj)
+        objects_dict = getattr(self, obj_type)
+        objects_dict[obj.id] = obj
+        # автоматически добавляем новый объект в текущий профиль
+        self._add_to_profile_if_not_exists(obj_type, obj.id)
+        self._refresh_all_ui()
+        self._save_current_session_safe()
+        messagebox.showinfo("Создано", f"{cls.__name__} '{name}' создан (ID: {obj.id}).")
+
+    def _handle_delete_object(self, obj_type: str, obj_id: str):
+        if not obj_id:
+            return
+        objects_dict = getattr(self, obj_type)
+        obj = objects_dict.get(obj_id)
+        if not obj:
+            return
+        if not messagebox.askyesno("Удаление", f"Удалить {obj_type[:-1]} '{obj.name}'?"):
+            return
+        self.storage.delete_object(obj_type, obj_id)
+        del objects_dict[obj_id]
+        # удаляем объект из текущего профиля, если он там был
+        self._remove_from_profile(obj_type, obj_id)
+        self._refresh_all_ui()
+        self._save_current_session_safe()
+        if obj_type == "narrators":
+            self._cleanup_stage_prompts_narrators()
+        messagebox.showinfo("Удалено", f"{obj_type[:-1].capitalize()} '{obj.name}' удалён.")
+
+    # ---------- Остальные методы без изменений (кроме вызова _refresh_all_ui) ----------
     def _cleanup_old_logs(self):
         if not os.path.exists(self.logs_dir):
             return
@@ -834,7 +949,6 @@ class MainApp(tk.Tk):
             "api_url": "http://localhost:1234/v1",
             "model_name": "",
             "max_history_messages": 10,
-            # FIX: убраны dice_d20_count, dice_d100_count, dice_d6_count, show_thinking
             "use_two_models": False,
             "primary_model": "",
             "translator_model": "",
@@ -848,8 +962,8 @@ class MainApp(tk.Tk):
             "stage_prompts_config": {},
             "enable_memory_summary": True,
             "max_memory_summaries": 5,
-            "enable_associative_memory": True,          # FIX: новый флаг
-            "max_associative_memory_entries": 5,        # FIX: уже было
+            "enable_associative_memory": True,
+            "max_associative_memory_entries": 5,
             "enabled_stages": {
                 "stage1_request_descriptions": True,
                 "stage1_create_scene": True,
@@ -863,7 +977,8 @@ class MainApp(tk.Tk):
                 "stage11_validation": True,
                 "stage4_summary": True,
                 "stage10_associative_memory": True,
-            }
+            },
+            "stage_memory_config": {}  # будет заполнено позже
         }
         if os.path.exists(self.settings_file):
             with open(self.settings_file, "r") as f:
@@ -896,8 +1011,6 @@ class MainApp(tk.Tk):
     def save_settings(self):
         with open(self.settings_file, "w") as f:
             json.dump(self.settings, f, indent=2)
-
-    # FIX: удалены методы generate_dice_sequences и get_next_dice_value
 
     def _safe_stop_generation(self, callback=None):
         if self.is_generating:
@@ -1261,7 +1374,6 @@ class MainApp(tk.Tk):
             self.local_descriptions = {}
             self.center_panel.update_translation_button_state()
             self._start_debug_log("SYSTEM: Начнем игру")
-            # FIX: убрана генерация последовательностей кубиков
             start_message = "Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит."
             self._start_generation(start_message)
 
@@ -1340,29 +1452,30 @@ class MainApp(tk.Tk):
 
             for entry in config:
                 if entry == "history:auto":
-                    if self.enable_memory_summary and self.memory_summaries:
-                        recent = self.memory_summaries[-self.max_memory_summaries:] if self.max_memory_summaries > 0 else []
-                        if recent:
-                            mem_text = "Краткая история предыдущих событий (справочно):\n" + "\n".join(f"- {s}" for s in recent)
-                            messages.insert(insert_pos, {"role": "system", "content": mem_text})
-                            insert_pos += 1
-                    if self.enable_associative_memory and self.associative_memory:
-                        assoc_lines = []
-                        for oid, changes in self.associative_memory.items():
-                            obj = self._get_object_by_id(oid)
-                            name = obj.name if obj else oid
-                            recent_changes = changes[-self.max_associative_memory_entries:] if self.max_associative_memory_entries > 0 else changes
-                            if recent_changes:
-                                assoc_lines.append(f"{name} ({oid}): " + "; ".join(recent_changes))
-                        if assoc_lines:
-                            assoc_text = "Ассоциативная память (изменения объектов):\n" + "\n".join(assoc_lines)
-                            messages.insert(insert_pos, {"role": "system", "content": assoc_text})
-                            insert_pos += 1
-                    if self.max_history_messages > 0:
+                    # Получаем настройки памяти для этой стадии
+                    mem_cfg = self.stage_memory_config.get(stage_name, {"max_history": 10, "max_summaries": 5})
+                    max_history = mem_cfg.get("max_history", 10)
+                    max_summaries = mem_cfg.get("max_summaries", 5)
+
+                    # 1) Добавляем историю диалога (последние max_history сообщений)
+                    if max_history > 0 and self.conversation_history:
+                        # Берём только сообщения user/assistant
                         history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
-                        history = history[-self.max_history_messages:]
-                        for hmsg in reversed(history):
+                        # Берём последние max_history
+                        history = history[-max_history:]
+                        for hmsg in history:
                             messages.insert(insert_pos, {"role": hmsg["role"], "content": hmsg["content"]})
+                            insert_pos += 1
+
+                    # 2) Добавляем краткие резюме (последние max_summaries)
+                    if max_summaries > 0 and self.memory_summaries:
+                        # Берём последние max_summaries резюме
+                        recent_summaries = self.memory_summaries[-max_summaries:]
+                        if recent_summaries:
+                            summary_text = "Краткая история предыдущих событий (справочно):\n" + "\n".join(f"- {s}" for s in recent_summaries)
+                            messages.insert(insert_pos, {"role": "system", "content": summary_text})
+                            insert_pos += 1
+
                 elif entry.startswith("narrator:"):
                     narr_id = entry[9:]
                     narr = self.narrators.get(narr_id)
@@ -1449,78 +1562,17 @@ class MainApp(tk.Tk):
 
         threading.Thread(target=stream_and_process, daemon=True).start()
 
-    # ---------- Метод построения контекста (исправлен порядок: main_prompt первым) ----------
+    # ---------- Метод построения контекста (исправлен: убрана старая логика history:auto) ----------
     def _build_context_messages(self, stage_name: str, main_prompt: str = "", extra_prompts: List[str] = None) -> List[Dict[str, str]]:
-        """Строит список сообщений для модели, включая системные промты, историю и краткую память.
-        Если в конфиге этапа есть 'history:auto', добавляются три блока (краткая память,
-        ассоциативная память, история чата) с использованием глобальных настроек."""
+        """Строит список сообщений для модели, включая системные промты, но БЕЗ истории и резюме.
+        Теперь история и резюме добавляются только в _send_model_request при встрече 'history:auto'."""
         messages = []
-
-        # 1. Основной системный промт (если есть) – всегда первым
         if main_prompt:
             messages.append({"role": "system", "content": main_prompt})
-
-        # 2. Обработка конфигурации этапа
-        config = self.stage_prompts_config.get(stage_name, [])
-        history_added = False  # флаг, чтобы добавить блоки истории в нужном месте
-
-        for entry in config:
-            if entry == "history:auto":
-                # Вместо добавления одной записи мы добавим три блока (краткая память, ассоциативная, история чата)
-                # Но сделаем это после обработки всех остальных записей? Чтобы блоки истории были после всех системных промтов?
-                # Поскольку порядок важен, мы запомним, что нужно добавить историю, и добавим её в конце списка system-сообщений.
-                history_added = True
-                continue
-
-            if entry.startswith("narrator:"):
-                narr_id = entry[9:]
-                narr = self.narrators.get(narr_id)
-                if narr:
-                    messages.append({"role": "system", "content": f"Ты — рассказчик. Твой стиль и манера повествования:\n{narr.description}"})
-            else:
-                # Обычный системный промт
-                content = self.prompt_manager.get_prompt_content(entry)
-                if content:
-                    messages.append({"role": "system", "content": content})
-
-        # 3. Добавление блоков истории, если требуется
-        if history_added:
-            # 3.1 Краткая память (summary)
-            if self.enable_memory_summary and self.memory_summaries:
-                recent_summaries = self.memory_summaries[-self.max_memory_summaries:] if self.max_memory_summaries > 0 else []
-                if recent_summaries:
-                    memory_text = (
-                        "Краткая история предыдущих событий (справочно, не заменяет инструкции ниже):\n"
-                        + "\n".join(f"- {s}" for s in recent_summaries)
-                    )
-                    messages.append({"role": "system", "content": memory_text})
-
-            # 3.2 Ассоциативная память (по объектам)
-            if self.enable_associative_memory and self.associative_memory:
-                assoc_lines = []
-                for obj_id, changes in self.associative_memory.items():
-                    obj = self._get_object_by_id(obj_id)
-                    obj_name = obj.name if obj else obj_id
-                    # Берём последние max_associative_memory_entries записей
-                    recent_changes = changes[-self.max_associative_memory_entries:] if self.max_associative_memory_entries > 0 else changes
-                    if recent_changes:
-                        assoc_lines.append(f"{obj_name} ({obj_id}): " + "; ".join(recent_changes))
-                if assoc_lines:
-                    assoc_text = "Ассоциативная память (изменения в объектах):\n" + "\n".join(assoc_lines)
-                    messages.append({"role": "system", "content": assoc_text})
-
-            # 3.3 История чата (диалог)
-            if self.max_history_messages > 0:
-                history = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
-                history = history[-self.max_history_messages:]
-                for msg in history:
-                    messages.append({"role": msg["role"], "content": msg["content"]})
-
-        # 4. Дополнительные промты (если переданы)
+        # Дополнительные промты (если переданы)
         if extra_prompts:
             for p in extra_prompts:
                 messages.append({"role": "system", "content": p})
-
         return messages
 
     def _load_all_data(self):
@@ -1550,53 +1602,6 @@ class MainApp(tk.Tk):
         else:
             return f"Описание: {global_desc}"
 
-    def _handle_create_object(self, obj_type: str, data: dict):
-        name = data.get("name", "").strip()
-        description = data.get("description", "").strip()
-        if not name:
-            messagebox.showwarning("Ошибка", "Название не может быть пустым.")
-            return
-        cls_map = {
-            "narrators": Narrator,
-            "characters": Character,
-            "locations": Location,
-            "items": Item
-        }
-        cls = cls_map.get(obj_type)
-        if not cls:
-            return
-        kwargs = {"name": name, "description": description}
-        if obj_type == "characters":
-            kwargs["is_player"] = data.get("is_player", False)
-        obj = cls(**kwargs)
-        self.storage.save_object(obj_type, obj)
-        objects_dict = getattr(self, obj_type)
-        objects_dict[obj.id] = obj
-        self._refresh_all_ui()
-        self._save_current_session_safe()
-        messagebox.showinfo("Создано", f"{cls.__name__} '{name}' создан (ID: {obj.id}).")
-
-    def _handle_delete_object(self, obj_type: str, obj_id: str):
-        if not obj_id:
-            return
-        objects_dict = getattr(self, obj_type)
-        obj = objects_dict.get(obj_id)
-        if not obj:
-            return
-        if not messagebox.askyesno("Удаление", f"Удалить {obj_type[:-1]} '{obj.name}'?"):
-            return
-        self.storage.delete_object(obj_type, obj_id)
-        del objects_dict[obj_id]
-        profile_attr = f"enabled_{obj_type}"
-        enabled_list = getattr(self.current_profile, profile_attr, [])
-        if obj_id in enabled_list:
-            enabled_list.remove(obj_id)
-        self._refresh_all_ui()
-        self._save_current_session_safe()
-        if obj_type == "narrators":
-            self._cleanup_stage_prompts_narrators()
-        messagebox.showinfo("Удалено", f"{obj_type[:-1].capitalize()} '{obj.name}' удалён.")
-
     def _handle_refresh_ui(self, data=None):
         self._refresh_all_ui()
         if self.center_panel:
@@ -1607,36 +1612,54 @@ class MainApp(tk.Tk):
             return
         self.settings.update(data)
         self.save_settings()
-        self.max_history_messages = self.settings.get("max_history_messages", 10)
-        self.use_two_models = self.settings.get("use_two_models", False)
-        self.primary_model = self.settings.get("primary_model", "local-model")
-        self.translator_model = self.settings.get("translator_model", "local-model")
-        self.enable_assistant_translation = self.settings.get("enable_assistant_translation", False)
-        self.model_name = self.settings.get("model_name", "local-model")
-        self.primary_temperature = self.settings.get("primary_temperature", 0.7)
-        self.primary_max_tokens = self.settings.get("primary_max_tokens", 4096)
-        self.translator_temperature = self.settings.get("translator_temperature", 0.3)
-        self.translator_max_tokens = self.settings.get("translator_max_tokens", 4096)
-        self.lm_client.base_url = self.settings.get("api_url", "http://localhost:1234/v1")
+        # Обновляем глобальные переменные (некоторые остались для совместимости)
+        self.max_history_messages = data.get("max_history_messages", 10)
+        self.max_memory_summaries = data.get("max_memory_summaries", 5)
+        self.use_two_models = data.get("use_two_models", False)
+        self.primary_model = data.get("primary_model", "local-model")
+        self.translator_model = data.get("translator_model", "local-model")
+        self.enable_assistant_translation = data.get("enable_assistant_translation", False)
+        self.model_name = data.get("model_name", "local-model")
+        self.primary_temperature = data.get("primary_temperature", 0.7)
+        self.primary_max_tokens = data.get("primary_max_tokens", 4096)
+        self.translator_temperature = data.get("translator_temperature", 0.3)
+        self.translator_max_tokens = data.get("translator_max_tokens", 4096)
+        self.lm_client.base_url = data.get("api_url", "http://localhost:1234/v1")
         self.lm_client.set_default_params(
-            max_tokens=self.settings.get("max_tokens", 4096),
-            temperature=self.settings.get("temperature", 0.7)
+            max_tokens=data.get("max_tokens", 4096),
+            temperature=data.get("temperature", 0.7)
         )
-        self.max_associative_memory_entries = self.settings.get("max_associative_memory_entries", 5)
-        self.enable_associative_memory = self.settings.get("enable_associative_memory", True)
+        self.max_associative_memory_entries = data.get("max_associative_memory_entries", 5)
+        self.enable_associative_memory = data.get("enable_associative_memory", True)
         if self.center_panel:
             self.center_panel.update_translation_button_state()
-        self.enable_memory_summary = self.settings.get("enable_memory_summary", False)
-        self.max_memory_summaries = self.settings.get("max_memory_summaries", 5)
-        self._log_debug("MEMORY_TRIMMED", f"New max size {self.max_memory_summaries}")
-        # FIX: удалено self.show_thinking
+        self.enable_memory_summary = data.get("enable_memory_summary", False)
+        self.max_memory_summaries = data.get("max_memory_summaries", 5)
+
+        # Добавленные лимиты для объектов на сцене
+        self.max_locations_per_scene = data.get("max_locations_per_scene", 5)
+        self.max_characters_per_scene = data.get("max_characters_per_scene", 10)
+        self.max_items_per_scene = data.get("max_items_per_scene", 20)
 
         # --- Обновление стадий и лимитов повторных попыток ---
         all_stages = StageProcessor.ALL_STAGES
-        saved_enabled = self.settings.get("enabled_stages", {})
+        saved_enabled = data.get("enabled_stages", {})
         self.enabled_stages = {stage: saved_enabled.get(stage, True) for stage in all_stages}
-        saved_retries = self.settings.get("stage_retry_limits", {})
+        saved_retries = data.get("stage_retry_limits", {})
         self.stage_retry_limits = {stage: saved_retries.get(stage, 2) for stage in all_stages}
+
+        # --- Обновление настроек памяти для стадий ---
+        saved_mem_config = data.get("stage_memory_config", {})
+        for stage in all_stages:
+            if stage in saved_mem_config:
+                cfg = saved_mem_config[stage]
+                self.stage_memory_config[stage] = {
+                    "max_history": cfg.get("max_history", 10),
+                    "max_summaries": cfg.get("max_summaries", 5)
+                }
+            else:
+                # оставляем текущие значения
+                pass
 
         messagebox.showinfo("Настройки", "Настройки сохранены и применены.")
 
@@ -1792,7 +1815,7 @@ class MainApp(tk.Tk):
         settings_menu.add_command(label="Параметры API", command=self._open_settings_dialog)
 
     def _open_settings_dialog(self):
-        dialog = SettingsDialog(self, self.settings)
+        dialog = SettingsDialog(self, self.settings, self.stage_memory_config)
         self.wait_window(dialog.top)
         if dialog.result:
             self.update("update_settings", dialog.result)
@@ -1852,20 +1875,21 @@ class MainApp(tk.Tk):
                 self.after(0, lambda: self.center_panel.display_message(f"\n[Translation error: {e}]\n", "error"))
         threading.Thread(target=translate_stream, daemon=True).start()
 
-# ---------- SettingsDialog (исправлен: убраны кубики и show_thinking, добавлена ассоциативная память, исправлен список этапов) ----------
+# ---------- SettingsDialog (исправлен: убраны кубики и show_thinking, добавлена ассоциативная память, добавлены настройки памяти для стадий) ----------
 class SettingsDialog:
-    def __init__(self, parent, current_settings):
+    def __init__(self, parent, current_settings, stage_memory_config):
         self.top = tk.Toplevel(parent)
         self.top.title("Настройки")
-        self.top.geometry("750x850")
+        self.top.geometry("900x1000")  # увеличили высоту
         self.top.transient(parent)
         self.top.grab_set()
         parent.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (750 // 2)
-        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (850 // 2)
+        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (900 // 2)
+        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (1000 // 2)
         self.top.geometry(f"+{x}+{y}")
         self.result = None
         self.parent = parent
+        self.stage_memory_config = stage_memory_config
 
         main_canvas = tk.Canvas(self.top, borderwidth=0)
         scrollbar = ttk.Scrollbar(self.top, orient="vertical", command=main_canvas.yview)
@@ -1876,7 +1900,7 @@ class SettingsDialog:
         main_canvas.create_window((0, 0), window=main_frame, anchor="nw")
         main_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
 
-        # --- Общие настройки ---
+        # --- Общие настройки (как были) ---
         ttk.Label(main_frame, text="API URL:").grid(row=0, column=0, sticky="w", pady=5)
         self.api_url = ttk.Entry(main_frame, width=50)
         self.api_url.insert(0, current_settings.get("api_url", "http://localhost:1234/v1"))
@@ -1945,27 +1969,26 @@ class SettingsDialog:
         self.translation_cb = ttk.Checkbutton(main_frame, text="Переводить ответы ассистента", variable=self.enable_assistant_translation_var)
         self.translation_cb.grid(row=4, column=0, columnspan=2, sticky="w", pady=5)
 
-        ttk.Label(main_frame, text="Max History Messages:").grid(row=5, column=0, sticky="w", pady=5)
-        self.max_history = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
-        self.max_history.delete(0, tk.END)
-        self.max_history.insert(0, str(current_settings.get("max_history_messages", 10)))
-        self.max_history.grid(row=5, column=1, sticky="w", pady=5)
+        # --- Новые настройки: максимальное количество объектов на сцене ---
+        ttk.Label(main_frame, text="Макс. локаций на сцену:").grid(row=5, column=0, sticky="w", pady=5)
+        self.max_locations = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
+        self.max_locations.delete(0, tk.END)
+        self.max_locations.insert(0, str(current_settings.get("max_locations_per_scene", 5)))
+        self.max_locations.grid(row=5, column=1, sticky="w", pady=5)
 
-        # FIX: удалены поля количества кубиков
+        ttk.Label(main_frame, text="Макс. персонажей на сцену:").grid(row=6, column=0, sticky="w", pady=5)
+        self.max_characters = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
+        self.max_characters.delete(0, tk.END)
+        self.max_characters.insert(0, str(current_settings.get("max_characters_per_scene", 10)))
+        self.max_characters.grid(row=6, column=1, sticky="w", pady=5)
 
-        # --- Память ---
-        self.enable_memory_var = tk.BooleanVar(value=current_settings.get("enable_memory_summary", False))
-        ttk.Checkbutton(main_frame, text="Включить краткую память (summary)", variable=self.enable_memory_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=5)
+        ttk.Label(main_frame, text="Макс. предметов на сцену:").grid(row=7, column=0, sticky="w", pady=5)
+        self.max_items = ttk.Spinbox(main_frame, from_=0, to=100, width=10)
+        self.max_items.delete(0, tk.END)
+        self.max_items.insert(0, str(current_settings.get("max_items_per_scene", 20)))
+        self.max_items.grid(row=7, column=1, sticky="w", pady=5)
 
-        ttk.Label(main_frame, text="Максимум резюме в памяти:").grid(row=7, column=0, sticky="w", pady=5)
-        self.max_memory_summaries = ttk.Spinbox(main_frame, from_=1, to=20, width=10)
-        self.max_memory_summaries.delete(0, tk.END)
-        self.max_memory_summaries.insert(0, str(current_settings.get("max_memory_summaries", 5)))
-        self.max_memory_summaries.grid(row=7, column=1, sticky="w", pady=5)
-
-        # FIX: удалён чекбокс show_thinking
-
-        # FIX: добавлена настройка ассоциативной памяти
+        # --- Ассоциативная память (глобальная) ---
         self.enable_assoc_memory_var = tk.BooleanVar(value=current_settings.get("enable_associative_memory", True))
         ttk.Checkbutton(main_frame, text="Включить ассоциативную память", variable=self.enable_assoc_memory_var).grid(row=8, column=0, columnspan=2, sticky="w", pady=5)
 
@@ -1975,11 +1998,17 @@ class SettingsDialog:
         self.max_assoc_entries.insert(0, str(current_settings.get("max_associative_memory_entries", 5)))
         self.max_assoc_entries.grid(row=9, column=1, sticky="w", pady=5)
 
-        # --- Таблица стадий: чекбокс + поле повторов (исправлен порядок) ---
-        stages_frame = ttk.LabelFrame(main_frame, text="Включение/отключение этапов генерации и количество повторных попыток")
+        # --- Таблица стадий (включение/отключение, повторы, настройки памяти) ---
+        stages_frame = ttk.LabelFrame(main_frame, text="Настройки этапов генерации")
         stages_frame.grid(row=10, column=0, columnspan=2, sticky="ew", pady=10)
 
-        # FIX: список стадий в правильном порядке и с правильной нумерацией
+        # Заголовки
+        ttk.Label(stages_frame, text="Стадия", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(stages_frame, text="Вкл", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(stages_frame, text="Повторы", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=5, pady=2)
+        ttk.Label(stages_frame, text="История (сообщ.)", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=5, pady=2)
+        ttk.Label(stages_frame, text="Резюме (шт.)", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=4, padx=5, pady=2)
+
         stage_list = [
             ("stage1_request_descriptions", "1.1 Запрос описаний объектов"),
             ("stage1_create_scene", "1.2 Создание сцены"),
@@ -1997,10 +2026,8 @@ class SettingsDialog:
 
         self.stage_vars = {}
         self.retry_vars = {}
-
-        ttk.Label(stages_frame, text="Стадия", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Label(stages_frame, text="Включена", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=5, pady=2)
-        ttk.Label(stages_frame, text="Повторы (0-10)", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=5, pady=2)
+        self.history_vars = {}
+        self.summary_vars = {}
 
         for i, (key, label) in enumerate(stage_list, start=1):
             ttk.Label(stages_frame, text=label).grid(row=i, column=0, sticky="w", padx=5, pady=2)
@@ -2010,8 +2037,19 @@ class SettingsDialog:
             cb.grid(row=i, column=1, padx=5, pady=2)
             var_retry = tk.StringVar(value=str(current_settings.get("stage_retry_limits", {}).get(key, 2)))
             self.retry_vars[key] = var_retry
-            spin = ttk.Spinbox(stages_frame, from_=0, to=10, width=5, textvariable=var_retry)
-            spin.grid(row=i, column=2, padx=5, pady=2)
+            spin_retry = ttk.Spinbox(stages_frame, from_=0, to=10, width=5, textvariable=var_retry)
+            spin_retry.grid(row=i, column=2, padx=5, pady=2)
+
+            # Настройки памяти для стадии
+            mem_cfg = self.stage_memory_config.get(key, {"max_history": 10, "max_summaries": 5})
+            var_history = tk.StringVar(value=str(mem_cfg.get("max_history", 10)))
+            self.history_vars[key] = var_history
+            spin_history = ttk.Spinbox(stages_frame, from_=0, to=100, width=6, textvariable=var_history)
+            spin_history.grid(row=i, column=3, padx=5, pady=2)
+            var_summary = tk.StringVar(value=str(mem_cfg.get("max_summaries", 5)))
+            self.summary_vars[key] = var_summary
+            spin_summary = ttk.Spinbox(stages_frame, from_=0, to=50, width=6, textvariable=var_summary)
+            spin_summary.grid(row=i, column=4, padx=5, pady=2)
 
         stages_frame.columnconfigure(0, weight=1)
 
@@ -2083,10 +2121,16 @@ class SettingsDialog:
         use_two = self.use_two_models_var.get()
         enabled_stages = {key: var.get() for key, var in self.stage_vars.items()}
         stage_retry_limits = {key: int(var.get()) for key, var in self.retry_vars.items()}
+        stage_memory_config = {}
+        for key in self.history_vars:
+            stage_memory_config[key] = {
+                "max_history": int(self.history_vars[key].get()),
+                "max_summaries": int(self.summary_vars[key].get())
+            }
         self.result = {
             "api_url": self.api_url.get().strip(),
             "model_name": self.model_name_combo.get(),
-            "max_history_messages": int(self.max_history.get()),
+            "max_history_messages": 10,  # не используется, оставлено для совместимости
             "use_two_models": use_two,
             "primary_model": self.primary_model_combo.get(),
             "translator_model": self.translator_model_combo.get(),
@@ -2097,12 +2141,16 @@ class SettingsDialog:
             "translator_max_tokens": int(self.translator_max_tokens.get()),
             "temperature": float(self.single_temp.get()),
             "max_tokens": int(self.single_max_tokens.get()),
-            "enable_memory_summary": self.enable_memory_var.get(),
-            "max_memory_summaries": int(self.max_memory_summaries.get()),
+            "enable_memory_summary": True,  # больше не используется, но оставим
+            "max_memory_summaries": 5,
             "enable_associative_memory": self.enable_assoc_memory_var.get(),
             "max_associative_memory_entries": int(self.max_assoc_entries.get()),
+            "max_locations_per_scene": int(self.max_locations.get()),
+            "max_characters_per_scene": int(self.max_characters.get()),
+            "max_items_per_scene": int(self.max_items.get()),
             "enabled_stages": enabled_stages,
             "stage_retry_limits": stage_retry_limits,
+            "stage_memory_config": stage_memory_config,
         }
         self.top.destroy()
 

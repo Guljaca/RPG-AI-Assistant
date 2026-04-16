@@ -1,4 +1,0 @@
-=== DEBUG LOG ===
-User message at 2026-04-16T02:55:14.357225:
-SYSTEM: Начнем игру
-
