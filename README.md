@@ -50,7 +50,7 @@
 - Подойдёт квантизация `Q4_K_M`, `Q6` позволит чуть больше контекста.
 
 ### Рекомендуемые модели
-
+- Настоятельно рекомендую модель: **qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k** Причина: все промты оптимизированы под нее.
 - **Qwen 3.5 9B** — даёт хороший результат.
 - Личный пример автора:  
   `qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k`
