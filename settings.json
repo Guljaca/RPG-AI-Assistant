@@ -5,7 +5,7 @@
   "use_two_models": false,
   "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q4_k_s",
   "translator_model": "qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive",
-  "enable_assistant_translation": true,
+  "enable_assistant_translation": false,
   "max_tokens": 8192,
   "temperature": 1.0,
   "primary_temperature": 1.0,
@@ -131,7 +131,7 @@
       "max_summaries": 0
     },
     "stage8_history_check": {
-      "max_history": 10,
+      "max_history": 100,
       "max_summaries": 5
     },
     "stage11_validation": {

@@ -306,15 +306,16 @@ class StageProcessor:
     # Вспомогательные методы
     # --------------------------------------------------------------------------
     def _log_debug(self, step: str, content: str = "", error: str = None):
+        # Пишем только в файл, НЕ выводим в основное окно
         if self.main_app.current_debug_log_path:
             self.main_app._log_debug(step, content, error)
-        if content and len(content) < 500:
-            self._display_system(f"[DEBUG] {step}: {content}")
-        elif content:
-            self._display_system(f"[DEBUG] {step}: {content[:200]}... (обрезано)")
+        # Отладочные сообщения не показываем пользователю в центре
+        # (можно по желанию вывести в thinking_panel, но не обязательно)
+        # self._display_thinking(f"[DEBUG] {step}: {content[:200] if content else ''}")
 
     def _log_full_response(self, stage: str, content: str):
         self._log_debug(f"FULL_RESPONSE_{stage}", f"Content:\n{content}")
+        # Показываем только в thinking_panel, не в центре
         self._display_thinking(f"📨 Ответ модели ({stage}):\n{content[:500]}{'...' if len(content)>500 else ''}")
 
     def _display_thinking(self, msg: str):
@@ -373,10 +374,14 @@ class StageProcessor:
 
         final_response = self.stage_data.get("final_response", "")
         if final_response:
-            self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
-            self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
-            self.main_app._finalize_generation_memory_turn()
-            self._save_current_session()
+            # --- ИСПРАВЛЕНИЕ: проверка на дублирование последнего сообщения ассистента ---
+            last_msg = self.main_app.conversation_history[-1] if self.main_app.conversation_history else None
+            if not (last_msg and last_msg["role"] == "assistant" and last_msg["content"] == final_response):
+                self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
+                self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
+                self.main_app._finalize_generation_memory_turn()
+                self._save_current_session()
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
         if total_time:
             self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
@@ -634,79 +639,22 @@ class StageProcessor:
         if confirm_call:
             try:
                 args = json.loads(confirm_call["function"]["arguments"])
-                if not isinstance(args, list):
-                    raise ValueError("confirm_scene expects a list")
-
-                location_id = None
-                character_ids = []
-                item_ids = []
-
-                for obj_id in args:
-                    if not isinstance(obj_id, str):
-                        continue
-                    if obj_id.startswith('l'):
-                        if location_id is None:
-                            location_id = obj_id
-                    elif obj_id.startswith('c'):
-                        character_ids.append(obj_id)
-                    elif obj_id.startswith('i'):
-                        item_ids.append(obj_id)
-
-                if location_id is None and self.main_app.current_profile.enabled_locations:
-                    location_id = self.main_app.current_profile.enabled_locations[0]
-                    self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
-
-                player_found = False
-                for cid in character_ids:
-                    char = self.main_app.characters.get(cid)
-                    if char and char.is_player:
-                        player_found = True
-                        break
-                if not player_found:
-                    for cid in self.main_app.current_profile.enabled_characters:
-                        char = self.main_app.characters.get(cid)
-                        if char and char.is_player:
-                            character_ids.insert(0, cid)
-                            self._display_system(f"➕ Добавлен игрок {cid} в сцену.\n")
-                            break
-
-                user_msg_lower = self.stage_data.get("user_message", "").lower()
-                for oid, desc in self.stage_data["descriptions"].items():
-                    obj = self.main_app._get_object_by_id(oid)
-                    if obj and hasattr(obj, 'name') and not getattr(obj, 'is_player', False):
-                        name_lower = obj.name.lower()
-                        if name_lower.split()[0] in user_msg_lower or user_msg_lower.startswith(name_lower.split()[0]):
-                            if oid not in character_ids:
-                                character_ids.append(oid)
-
-                self.stage_data["scene_location_id"] = location_id
-                self.stage_data["scene_character_ids"] = character_ids
-                self.stage_data["scene_item_ids"] = item_ids
-
-                scene_parts = []
-                if self.stage_data["scene_location_id"]:
-                    loc = self.main_app.locations.get(self.stage_data["scene_location_id"])
-                    loc_name = loc.name if loc else self.stage_data["scene_location_id"]
-                    scene_parts.append(f"Локация: {loc_name} (ID: {self.stage_data['scene_location_id']})")
-                if self.stage_data["scene_character_ids"]:
-                    char_names = []
-                    for cid in self.stage_data["scene_character_ids"]:
-                        char = self.main_app.characters.get(cid)
-                        char_names.append(f"{char.name} (ID: {cid})" if char else cid)
-                    scene_parts.append(f"Персонажи: {', '.join(char_names)}")
-                if self.stage_data["scene_item_ids"]:
-                    item_names = []
-                    for iid in self.stage_data["scene_item_ids"]:
-                        item = self.main_app.items.get(iid)
-                        item_names.append(f"{item.name} (ID: {iid})" if item else iid)
-                    scene_parts.append(f"Предметы: {', '.join(item_names)}")
-                summary = "\n".join(scene_parts)
-                self.stage_data["scene_summary"] = summary
-                self._display_system(f"✅ Сцена создана:\n{summary}\n")
-                self._stage1_truth_check()
-                return
+                if isinstance(args, list):
+                    self._handle_confirm_scene(args)
+                    return
             except Exception as e:
                 self._log_debug("ERROR", f"confirm_scene parse error: {e}")
+
+        # Если confirm_scene не вызван, пытаемся извлечь массив ID из текста
+        import re
+        # Ищем [l..., c..., ...] или просто список ID
+        match = re.search(r'\[(l\d+(?:\s*,\s*(?:c\d+|i\d+))*)\]', content)
+        if match:
+            ids_str = match.group(1)
+            ids = [id.strip() for id in ids_str.split(',')]
+            self._display_system("⚠️ Модель не вызвала confirm_scene, но указала ID. Использую их.\n")
+            self._handle_confirm_scene(ids)
+            return
 
         limit = self._get_retry_limit("stage1_create_scene")
         if retry_count < limit:
@@ -715,7 +663,6 @@ class StageProcessor:
         else:
             self._display_system("⚠️ Не удалось получить confirm_scene. Создаём сцену по умолчанию.\n")
             self._create_default_scene()
-
     # --------------------------------------------------------------------------
     # СТАДИЯ 2: проверка правдивости
     # --------------------------------------------------------------------------
@@ -843,6 +790,11 @@ class StageProcessor:
             truth_violation=violation_section,
             dice_value=dice_value
         )
+
+        # Добавляем системные стили (мир, рассказчик, текст)
+        system_styles = self._get_system_styles()
+        if system_styles:
+            user_data = system_styles + "\n\n" + user_data
 
         extra_context = {
             "descriptions": descriptions_text,
@@ -1315,8 +1267,12 @@ class StageProcessor:
                     thoughts = line.split(':', 1)[-1].strip() if ':' in line else line
                 elif "планирует" in lower:
                     planned = line.split(':', 1)[-1].strip() if ':' in line else line
-            if thoughts or planned:
-                intent = f"{thoughts} {planned}".strip()
+            # === ИСПРАВЛЕНИЕ: если есть мысль, отбрасываем её, оставляем только план ===
+            if planned:
+                intent = planned
+            elif thoughts:
+                # если нет плана, но есть мысль – это ошибка, берём мысль как запасной вариант
+                intent = thoughts
             else:
                 intent = content[:200].strip()
 
@@ -1358,13 +1314,31 @@ class StageProcessor:
         player_outcome = self.stage_data["player_action_desc"]
         event_desc = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else ""
 
+        if "npc_dice_map" not in self.stage_data or retry_count == 0:
+            npc_dice_map = {}
+            for cid in self.stage_data.get("scene_character_ids", []):
+                char = self.main_app.characters.get(cid)
+                if char and not char.is_player:
+                    npc_dice_map[cid] = self._pop_dice('d20')
+            self.stage_data["npc_dice_map"] = npc_dice_map
+        else:
+            npc_dice_map = self.stage_data["npc_dice_map"]
+
         npc_dice_results = []
-        for cid in self.stage_data.get("scene_character_ids", []):
+        for cid, dice_val in npc_dice_map.items():
             char = self.main_app.characters.get(cid)
-            if char and not char.is_player:
-                val = self._pop_dice('d20')
-                result = {1:"крит.провал",2:"провал",3:"провал",4:"провал"}.get(val, "успех" if 5<=val<=15 else "большой успех" if val<=19 else "крит.успех")
-                npc_dice_results.append(f"{char.name}: d20={val} → {result}")
+            if char:
+                if dice_val == 1:
+                    result = "крит.провал"
+                elif 2 <= dice_val <= 4:
+                    result = "провал"
+                elif 5 <= dice_val <= 15:
+                    result = "успех"
+                elif 16 <= dice_val <= 19:
+                    result = "большой успех"
+                else:
+                    result = "крит.успех"
+                npc_dice_results.append(f"{char.name}: d20={dice_val} → {result}")
         dice_summary = "\n".join(npc_dice_results) if npc_dice_results else "Нет NPC"
 
         dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
@@ -1389,6 +1363,11 @@ class StageProcessor:
             )
             self._display_system("⚠️ Сцена статична – добавлена инструкция принудительного развития.\n")
 
+        # Добавляем системные стили (мир, рассказчик, текст)
+        system_styles = self._get_system_styles()
+        if system_styles:
+            user_data = system_styles + "\n\n" + user_data
+
         extra_context = {
             "location_desc": location_desc,
             "player_action_outcome": player_outcome,
@@ -1410,12 +1389,122 @@ class StageProcessor:
             context_data=full_context
         )
 
+    def _strip_function_wrapper(self, text: str) -> str:
+        """Удаляет обёртки check_history([...]) и validate_response([...]), оставляя чистый текст."""
+        if not text:
+            return text
+        import re
+        patterns = [
+            r'^\s*check_history\(\s*\[\s*"(.*?)"\s*\]\s*\)\s*$',
+            r'^\s*validate_response\(\s*\[\s*"(.*?)"\s*\]\s*\)\s*$',
+            r'^\s*check_history\(\s*\[\s*\]\s*\)\s*$',
+            r'^\s*validate_response\(\s*\[\s*\]\s*\)\s*$',
+        ]
+        for pat in patterns:
+            match = re.search(pat, text, re.DOTALL)
+            if match:
+                if match.group(1) is not None:
+                    inner = match.group(1)
+                    inner = inner.replace('\\n', '\n').replace('\\"', '"')
+                    return inner.strip()
+                else:
+                    return ""
+        return text
+    
+    def _extract_check_history_content(self, text: str) -> Optional[str]:
+        """Извлекает исправленный текст из вызова check_history([...]).
+        Возвращает:
+        - пустую строку "", если вызов с пустым массивом
+        - исправленный текст, если вызов с непустой строкой
+        - None, если вызов не найден или невалидный
+        """
+        if not text:
+            return None
+        # Ищем вызов check_history([...])
+        match = re.search(r'check_history\(\s*\[\s*"(.*?)"\s*\]\s*\)', text, re.DOTALL)
+        if match:
+            inner = match.group(1)
+            # Экранированные последовательности
+            inner = inner.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+            return inner  # может быть пустой строкой
+        return None
+
+    def _extract_validate_response_content(self, text: str) -> Optional[str]:
+        """Извлекает исправленный текст из вызова validate_response([...])."""
+        if not text:
+            return None
+        match = re.search(r'validate_response\(\s*\[\s*"(.*?)"\s*\]\s*\)', text, re.DOTALL)
+        if match:
+            inner = match.group(1)
+            inner = inner.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+            return inner
+        return None
+
+    def _handle_confirm_scene(self, obj_ids: list):
+        """Принудительно создаёт сцену из списка ID."""
+        location_id = None
+        character_ids = []
+        item_ids = []
+        for obj_id in obj_ids:
+            if not isinstance(obj_id, str):
+                continue
+            if obj_id.startswith('l'):
+                if location_id is None:
+                    location_id = obj_id
+            elif obj_id.startswith('c'):
+                character_ids.append(obj_id)
+            elif obj_id.startswith('i'):
+                item_ids.append(obj_id)
+
+        if location_id is None and self.main_app.current_profile.enabled_locations:
+            location_id = self.main_app.current_profile.enabled_locations[0]
+            self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
+
+        # Добавляем игрока, если его нет
+        player_found = any(self.main_app.characters.get(cid, Character(is_player=False)).is_player for cid in character_ids)
+        if not player_found:
+            for cid in self.main_app.current_profile.enabled_characters:
+                char = self.main_app.characters.get(cid)
+                if char and char.is_player:
+                    character_ids.insert(0, cid)
+                    self._display_system(f"➕ Добавлен игрок {cid} в сцену.\n")
+                    break
+
+        self.stage_data["scene_location_id"] = location_id
+        self.stage_data["scene_character_ids"] = character_ids
+        self.stage_data["scene_item_ids"] = item_ids
+
+        scene_parts = []
+        if location_id:
+            loc = self.main_app.locations.get(location_id)
+            loc_name = loc.name if loc else location_id
+            scene_parts.append(f"Локация: {loc_name} (ID: {location_id})")
+        if character_ids:
+            char_names = []
+            for cid in character_ids:
+                char = self.main_app.characters.get(cid)
+                char_names.append(f"{char.name} (ID: {cid})" if char else cid)
+            scene_parts.append(f"Персонажи: {', '.join(char_names)}")
+        if item_ids:
+            item_names = []
+            for iid in item_ids:
+                item = self.main_app.items.get(iid)
+                item_names.append(f"{item.name} (ID: {iid})" if item else iid)
+            scene_parts.append(f"Предметы: {', '.join(item_names)}")
+        summary = "\n".join(scene_parts)
+        self.stage_data["scene_summary"] = summary
+        self._display_system(f"✅ Сцена создана:\n{summary}\n")
+        self._stage1_truth_check()
+
     def _after_stage3_final(self, content, extra):
         retry_count = extra.get("retry_count", 0)
         self._log_full_response("stage3_final", content)
 
         final = content.strip() if content else ""
-        final = final.replace('\\n', '\n')
+        
+        # Удаляем любые обёртки функций
+        final = self._strip_function_wrapper(final)
+        
         if not final:
             limit = self._get_retry_limit("stage3_final")
             if retry_count < limit:
@@ -1424,6 +1513,7 @@ class StageProcessor:
                 return
             final = "(Рассказчик молчит)"
 
+        # Запрещённые начала фраз
         forbidden_patterns = [
             r'^Ты можешь\b', r'^Можешь\b', r'^Попробуй\b',
             r'^Ты можешь выбрать\b', r'^Ты лежишь\b', r'^Ты просыпаешься\b',
@@ -1608,37 +1698,31 @@ class StageProcessor:
 
     def _after_history_check_assoc(self, content, extra, current_final, original_final):
         retry_count = extra.get("retry_count", 0)
-        response_text = content.strip() if content else ""
-        if response_text.startswith("Финальный ответ верный") or "✓" in response_text or "ассоциативная память" in response_text.lower():
-            lines = response_text.split('\n')
-            cleaned_lines = []
-            for line in lines:
-                if not any(marker in line for marker in ["✓", "ассоциативная память", "новая история", "Текст можно возвращать"]):
-                    cleaned_lines.append(line)
-            candidate = "\n".join(cleaned_lines).strip()
-            if candidate and len(candidate) > 20:
-                response_text = candidate
-            else:
-                response_text = current_final
+        extracted = self._extract_check_history_content(content)
 
-        if "НЕТ_ИЗМЕНЕНИЙ" in response_text or "всё правильно" in response_text.lower():
-            response_text = current_final
-
-        if response_text and len(response_text) > 10:
-            new_response = response_text
-            if new_response != current_final:
-                self.stage_data["final_response"] = new_response
-                self._display_system("⚠️ Найдены несоответствия в ассоциативной памяти. Внесены изменения.\n")
-            else:
+        if extracted is not None:
+            if extracted == "":
                 self._display_system("✅ Ассоциативная память: всё в порядке.\n")
-        else:
-            limit = self._get_retry_limit("stage8_history_check")
-            if retry_count < limit:
-                self._display_error(f"⚠️ Некорректный ответ при проверке ассоциативной памяти. Повтор ({retry_count+1}/{limit})...\n")
-                self._history_check_assoc(retry_count+1)
+                self._history_check_summary()
                 return
-            self._display_system("⚠️ Не удалось проверить ассоциативную память, продолжаем.\n")
-        self._history_check_summary()
+            else:
+                if self._is_valid_narrative_text(extracted):
+                    self._display_system("⚠️ Найдены несоответствия в ассоциативной памяти. Внесены изменения.\n")
+                    self.stage_data["final_response"] = extracted
+                else:
+                    self._display_system("⚠️ Получен некорректный исправленный текст. Изменения отклонены.\n")
+                self._history_check_summary()
+                return
+
+        # Если вызов не найден – не меняем ответ
+        limit = self._get_retry_limit("stage8_history_check")
+        if retry_count < limit:
+            self._display_error(f"⚠️ Модель не вызвала check_history. Повтор ({retry_count+1}/{limit})...\n")
+            self._history_check_assoc(retry_count+1)
+            return
+        else:
+            self._display_system("⚠️ Не удалось проверить ассоциативную память, продолжаем без изменений.\n")
+            self._history_check_summary()
 
     def _history_check_summary(self, retry_count=0):
         summary_count = len(self.main_app.memory_summaries) if hasattr(self.main_app, 'memory_summaries') else 0
@@ -1702,6 +1786,20 @@ class StageProcessor:
     def _after_history_check_summary(self, content, extra, current_final, original_final):
         retry_count = extra.get("retry_count", 0)
         response_text = content.strip() if content else ""
+
+        extracted = self._extract_check_history_content(response_text)
+        if extracted is not None:
+            if extracted == "":
+                self._display_system("✅ Краткая память: всё в порядке.\n")
+                self._history_check_old_histories()
+                return
+            else:
+                self._display_system("⚠️ Найдены несоответствия в краткой памяти. Внесены изменения.\n")
+                self.stage_data["final_response"] = extracted
+                self._history_check_old_histories()
+                return
+
+        # Старая логика совместимости (если модель ответила без check_history)
         if response_text.startswith("Финальный ответ верный") or "✓" in response_text or "краткая память" in response_text.lower():
             lines = response_text.split('\n')
             cleaned_lines = []
@@ -1810,6 +1908,22 @@ class StageProcessor:
 
     def _after_history_check_old_histories(self, content, extra, index, current_final, original_final, total):
         response_text = content.strip() if content else ""
+
+        extracted = self._extract_check_history_content(response_text)
+        if extracted is not None:
+            if extracted == "":
+                self._display_system(f"✅ Группа историй {index+1} в порядке.\n")
+                self.history_check_state["current_index"] = index + 1
+                self._history_check_old_histories()
+                return
+            else:
+                self._display_system(f"⚠️ Найдены несоответствия в группе историй {index+1}. Внесены изменения.\n")
+                self.stage_data["final_response"] = extracted
+                self.history_check_state["current_index"] = index + 1
+                self._history_check_old_histories()
+                return
+
+        # Старая логика совместимости
         if response_text.startswith("Финальный ответ верный") or "✓" in response_text or "старая история" in response_text.lower():
             lines = response_text.split('\n')
             cleaned_lines = []
@@ -1874,11 +1988,12 @@ class StageProcessor:
             npc_actions_lines.append(f"{name}: {action}")
         npc_actions = "\n".join(npc_actions_lines)
 
+        npc_dice_map = self.stage_data.get("npc_dice_map", {})
         npc_dice_lines = []
         for cid in self.stage_data.get('scene_character_ids', []):
             char = self.main_app.characters.get(cid)
             if char and not char.is_player:
-                dice_val = self._pop_dice('d20')
+                dice_val = npc_dice_map.get(cid, "?")
                 npc_dice_lines.append(f"{char.name}: d20={dice_val}")
         dice_summary_npc = "\n".join(npc_dice_lines)
 
@@ -1933,38 +2048,52 @@ class StageProcessor:
         max_retries = self._get_retry_limit("stage11_validation")
         self._log_full_response("stage11_validation", content)
 
-        corrected = None
-
-        tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["validate_response"])
-        if tool_calls:
-            call = tool_calls[-1]
-            try:
-                args = json.loads(call["function"]["arguments"])
-                if isinstance(args, list) and len(args) == 1 and isinstance(args[0], str):
-                    corrected = args[0]
-                elif isinstance(args, list) and len(args) == 1 and isinstance(args[0], list) and len(args[0]) == 1:
-                    corrected = args[0][0] if args[0] else ""
-                elif isinstance(args, tuple) and len(args) == 2 and args[1] == []:
-                    if isinstance(args[0], list) and args[0]:
-                        corrected = "\n".join(args[0])
-                elif isinstance(args, list) and len(args) > 1 and all(isinstance(x, str) for x in args):
-                    corrected = "\n".join(args)
+        extracted = self._extract_validate_response_content(content)
+        if extracted is not None:
+            if extracted == "":
+                self._display_system("✅ Валидация пройдена, ответ корректен.\n")
+                self._stage4_summary()
+                return
+            else:
+                corrected = extracted.replace('\\n', '\n')
+                corrected = self._strip_function_wrapper(corrected)
+                # Дополнительная защита от мусора
+                if self._is_valid_narrative_text(corrected) and len(corrected) > 20:
+                    # Очистка от запрещённых фраз
+                    forbidden = [r'ты можешь', r'можешь выбрать', r'ты видишь', r'ты чувствуешь', r'ты лежишь']
+                    if any(re.search(p, corrected, re.IGNORECASE) for p in forbidden):
+                        self._display_system("⚠️ Валидатор пропустил запрещённые фразы, применяю дополнительную очистку.\n")
+                        for p in forbidden:
+                            corrected = re.sub(p, '', corrected, flags=re.IGNORECASE)
+                        corrected = re.sub(r'\s+', ' ', corrected).strip()
+                    corrected = corrected.replace('\n\n', '\n')
+                    corrected = '\n'.join(line.strip() for line in corrected.split('\n'))
+                    self.stage_data["final_response"] = corrected.strip()
+                    self._display_system("✅ Ответ исправлен по результатам валидации.\n")
                 else:
-                    self._log_debug("VALIDATION_WRONG_FORMAT", f"Неизвестный формат args: {args}")
-            except Exception as e:
-                self._log_debug("ERROR", f"validate_response parse error: {e}")
+                    self._display_system("⚠️ Валидатор вернул некорректный текст. Изменения отклонены.\n")
+                self._stage4_summary()
+                return
+        # ---------------------------------------------------------
 
-        if corrected is None and content:
-            patterns = [
-                r'validate_response\(\s*\[\s*"(.+?)"\s*\]\s*\)',
-                r'Исправленный текст:\s*(.+?)(?=\n\n|\Z)',
-                r'Исправленный ответ:\s*(.+?)(?=\n\n|\Z)',
-            ]
-            for pat in patterns:
-                match = re.search(pat, content, re.DOTALL | re.IGNORECASE)
-                if match:
-                    corrected = match.group(1).strip()
-                    break
+        # Старая логика (если вызов не распознан)
+        corrected = None
+        cleaned = self._strip_function_wrapper(content)
+        if cleaned and cleaned != content:
+            corrected = cleaned
+
+        if not corrected:
+            tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["validate_response"])
+            if tool_calls:
+                call = tool_calls[-1]
+                try:
+                    args = json.loads(call["function"]["arguments"])
+                    if isinstance(args, list) and len(args) == 1 and isinstance(args[0], str):
+                        corrected = args[0]
+                    elif isinstance(args, list) and len(args) == 1 and isinstance(args[0], list) and len(args[0]) == 1:
+                        corrected = args[0][0] if args[0] else ""
+                except Exception as e:
+                    self._log_debug("ERROR", f"validate_response parse error: {e}")
 
         if corrected is not None and isinstance(corrected, str):
             if corrected.strip() == "":
@@ -1973,16 +2102,22 @@ class StageProcessor:
                 return
 
             corrected = corrected.replace('\\n', '\n')
-            forbidden = [r'ты можешь', r'можешь выбрать', r'ты видишь', r'ты чувствуешь', r'ты лежишь']
-            if any(re.search(p, corrected, re.IGNORECASE) for p in forbidden):
-                self._display_system("⚠️ Валидатор пропустил запрещённые фразы, применяю дополнительную очистку.\n")
-                for p in forbidden:
-                    corrected = re.sub(p, '', corrected, flags=re.IGNORECASE)
-                corrected = re.sub(r'\s+', ' ', corrected).strip()
-            corrected = corrected.replace('\n\n', '\n')
-            corrected = '\n'.join(line.strip() for line in corrected.split('\n'))
-            self.stage_data["final_response"] = corrected.strip()
-            self._display_system("✅ Ответ исправлен по результатам валидации.\n")
+            corrected = self._strip_function_wrapper(corrected)
+            
+            # Проверка валидности текста
+            if self._is_valid_narrative_text(corrected) and len(corrected) > 20:
+                forbidden = [r'ты можешь', r'можешь выбрать', r'ты видишь', r'ты чувствуешь', r'ты лежишь']
+                if any(re.search(p, corrected, re.IGNORECASE) for p in forbidden):
+                    self._display_system("⚠️ Валидатор пропустил запрещённые фразы, применяю дополнительную очистку.\n")
+                    for p in forbidden:
+                        corrected = re.sub(p, '', corrected, flags=re.IGNORECASE)
+                    corrected = re.sub(r'\s+', ' ', corrected).strip()
+                corrected = corrected.replace('\n\n', '\n')
+                corrected = '\n'.join(line.strip() for line in corrected.split('\n'))
+                self.stage_data["final_response"] = corrected.strip()
+                self._display_system("✅ Ответ исправлен по результатам валидации.\n")
+            else:
+                self._display_system("⚠️ Валидатор вернул некорректный текст. Изменения отклонены.\n")
             self._stage4_summary()
             return
 
@@ -1993,6 +2128,7 @@ class StageProcessor:
         else:
             self._display_system("⚠️ Не удалось получить корректный ответ валидатора после всех попыток. Пропускаем валидацию.\n")
             self._stage4_summary()
+
 
     # --------------------------------------------------------------------------
     # СТАДИЯ 9: краткая память (summary)
@@ -2028,13 +2164,12 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
-        self.main_app.center_panel.start_temp_response()
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage4_summary(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage4_summary",
-            use_temp=True,
+            use_temp=False,
             show_in_thinking=True,
             context_data=full_context
         )
@@ -2043,14 +2178,37 @@ class StageProcessor:
         retry_count = extra.get("retry_count", 0)
         self._log_full_response("stage4_summary", content)
         self.main_app.center_panel.clear_temp_response()
+        
         summary = content.strip() if content else ""
-        if not summary or len(summary) > 100:
+        
+        # Запрещённые начала
+        forbidden_starts = [
+            "игрок сделал", "игрок сказал", "рассказчик сказал",
+            "кажется", "возможно", "вероятно", "наверное"
+        ]
+        summary_lower = summary.lower()
+        if any(summary_lower.startswith(fs) for fs in forbidden_starts):
+            summary = ""
+        
+        if not summary or len(summary) > 200:
             limit = self._get_retry_limit("stage4_summary")
             if retry_count < limit:
-                self._display_error("⚠️ Слишком длинно или пусто, повтор...\n")
+                self._display_error(f"⚠️ Некорректный ответ краткой памяти. Повтор ({retry_count+1}/{limit})...\n")
                 self._stage4_summary(retry_count+1)
                 return
-            summary = "Игрок продолжил действия."
+            final = self.stage_data.get("final_response", "")
+            movement_match = re.search(r'(сделал(?:а)? шаг|вош(?:ёл|ла)|выш(?:ел|ла)|подош(?:ёл|ла)|сел(?:а)?|встал(?:а)?)', final)
+            if movement_match:
+                summary = f"Персонаж {movement_match.group(0)}"
+            else:
+                summary = "Персонажи взаимодействовали."
+        
+        summary = re.sub(r'^(Краткий факт:\s*)', '', summary, flags=re.IGNORECASE)
+        summary = summary.strip()
+        
+        if len(summary) > 150:
+            summary = summary[:147] + "..."
+        
         self.main_app.record_added_summary(summary)
         self._display_system(f"🧠 Память: {summary[:100]}\n")
         self._stage10_associative_memory()
@@ -2110,7 +2268,7 @@ class StageProcessor:
         if not content or len(content.strip()) < 5:
             limit = self._get_retry_limit("stage10_associative_memory")
             if retry_count < limit:
-                self._display_error("⚠️ Повтор...\n")
+                self._display_thinking("⚠️ Повтор ассоциативной памяти...\n")
                 self._stage10_associative_memory(retry_count+1)
                 return
             self._finish_generation()
@@ -2128,5 +2286,49 @@ class StageProcessor:
                     updated += 1
                     changed_ids.append(obj_id)
         self.last_changed_objects = list(set(changed_ids))
-        self._display_system(f"✅ Память обновлена для {updated} объектов.\n")
+        self._display_thinking(f"✅ Память обновлена для {updated} объектов.\n")
         self._finish_generation()
+
+    def _extract_check_history_content(self, text: str) -> Optional[str]:
+        """Извлекает исправленный текст из вызова check_history([...]).
+        Возвращает:
+        - пустую строку "", если вызов с пустым массивом
+        - исправленный текст, если вызов с непустой строкой
+        - None, если вызов не найден или невалидный
+        """
+        if not text:
+            return None
+        # Ищем вызов check_history([...])
+        match = re.search(r'check_history\(\s*\[\s*"(.*?)"\s*\]\s*\)', text, re.DOTALL)
+        if match:
+            inner = match.group(1)
+            # Экранированные последовательности
+            inner = inner.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+            return inner  # может быть пустой строкой
+        return None
+    
+    def _get_system_styles(self) -> str:
+        """Возвращает объединённые системные стили (мир, рассказчик, текст) для вставки в запрос."""
+        styles = []
+        if hasattr(self.main_app, 'world_style_prompt') and self.main_app.world_style_prompt:
+            styles.append(self.main_app.world_style_prompt)
+        if hasattr(self.main_app, 'narrator_style_prompt') and self.main_app.narrator_style_prompt:
+            styles.append(self.main_app.narrator_style_prompt)
+        if hasattr(self.main_app, 'text_style_prompt') and self.main_app.text_style_prompt:
+            styles.append(self.main_app.text_style_prompt)
+        return "\n\n".join(styles) if styles else ""
+    
+    def _is_valid_narrative_text(self, text: str) -> bool:
+        """Проверяет, что текст похож на нарратив, а не на мета-рассуждение."""
+        if not text or len(text) < 10:
+            return False
+        # Запрещённые мета-фразы
+        forbidden = [
+            "ok, i'm ready", "let me think", "i'll analyze", 
+            "как редактор", "я проверю", "приступим"
+        ]
+        lower_text = text.lower()
+        if any(phrase in lower_text for phrase in forbidden):
+            return False
+        # Должен содержать хотя бы один глагол и не содержать маркеров рассуждения
+        return True

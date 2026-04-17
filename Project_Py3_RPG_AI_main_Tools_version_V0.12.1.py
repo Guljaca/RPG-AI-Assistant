@@ -529,6 +529,12 @@ class MainApp(tk.Tk):
         self.translator_temperature = self.settings.get("translator_temperature", 0.3)
         self.translator_max_tokens = self.settings.get("translator_max_tokens", 4096)
 
+        # --- ИСПРАВЛЕНИЕ: если двухмодельный режим выключен, перевод не может быть активен ---
+        if not self.use_two_models:
+            self.enable_assistant_translation = False
+            self.settings["enable_assistant_translation"] = False
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
         self.max_locations_per_scene = self.settings.get("max_locations_per_scene", 5)
         self.max_characters_per_scene = self.settings.get("max_characters_per_scene", 10)
         self.max_items_per_scene = self.settings.get("max_items_per_scene", 20)
@@ -1210,7 +1216,17 @@ class MainApp(tk.Tk):
                 return
             self.current_session_id = session_id
             self.current_profile = GameProfile.from_dict(session_data.get("profile", {}))
-            self.conversation_history = session_data.get("history", [])
+            
+            # --- ИСПРАВЛЕНИЕ: удаление дубликатов ассистента подряд ---
+            raw_history = session_data.get("history", [])
+            cleaned_history = []
+            for i, msg in enumerate(raw_history):
+                if msg["role"] == "assistant" and cleaned_history and cleaned_history[-1]["role"] == "assistant" and cleaned_history[-1]["content"] == msg["content"]:
+                    continue  # пропускаем дубликат
+                cleaned_history.append(msg)
+            self.conversation_history = cleaned_history
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+            
             self.local_descriptions = session_data.get("local_descriptions", {})
             self.memory_summaries = session_data.get("memory_summaries", [])
             self.associative_memory = session_data.get("associative_memory", {})
@@ -1626,6 +1642,13 @@ class MainApp(tk.Tk):
         self.primary_model = data.get("primary_model", "local-model")
         self.translator_model = data.get("translator_model", "local-model")
         self.enable_assistant_translation = data.get("enable_assistant_translation", False)
+        
+        # --- ИСПРАВЛЕНИЕ: если двухмодельный режим выключен, перевод неактивен ---
+        if not self.use_two_models:
+            self.enable_assistant_translation = False
+            self.settings["enable_assistant_translation"] = False
+        # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+        
         self.model_name = data.get("model_name", "local-model")
         self.primary_temperature = data.get("primary_temperature", 0.7)
         self.primary_max_tokens = data.get("primary_max_tokens", 4096)
@@ -1662,7 +1685,6 @@ class MainApp(tk.Tk):
                     "max_summaries": cfg.get("max_summaries", 5)
                 }
 
-        # Обновляем выбор модели для этапов
         saved_model_choice = data.get("stage_model_selection", {})
         for stage in all_stages:
             if stage in saved_model_choice:
@@ -1670,6 +1692,7 @@ class MainApp(tk.Tk):
         self.save_settings()
 
         messagebox.showinfo("Настройки", "Настройки сохранены и применены.")
+
 
     def _handle_update_profile(self, data):
         if not data:
@@ -1874,17 +1897,22 @@ class MainApp(tk.Tk):
                     self._log_debug("FULL_REASONING_translation", thinking_buffer)
 
                 if full_translation:
+                    # --- ИСПРАВЛЕНИЕ: предотвращение дублирования перевода ---
+                    last_msg = self.conversation_history[-1] if self.conversation_history else None
+                    if last_msg and last_msg["role"] == "assistant" and last_msg["content"] == full_translation:
+                        self.after(0, lambda: self.center_panel.display_message("\n[Перевод совпадает с оригиналом, пропущен]\n", "system"))
+                    else:
+                        self.after(0, lambda: self.conversation_history.append({"role": "assistant", "content": full_translation}))
+                    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
                     self.after(0, lambda: self.center_panel.finalize_translation(full_translation, response_start_index))
-                    self.after(0, lambda: self.conversation_history.append({"role": "assistant", "content": full_translation}))
-                    self.after(0, lambda: self._save_current_session_safe())
                     self.after(0, lambda: setattr(self, 'last_translated_response', full_translation))
                     self.after(0, lambda: self.center_panel.update_translation_button_state())
+                    self.after(0, lambda: self._save_current_session_safe())
                 else:
                     self.after(0, lambda: self.center_panel.display_message("\n[Translation failed]\n", "error"))
             except Exception as e:
                 self.after(0, lambda: self.center_panel.display_message(f"\n[Translation error: {e}]\n", "error"))
         threading.Thread(target=translate_stream, daemon=True).start()
-
 
 class SettingsDialog:
     def __init__(self, parent, current_settings, stage_memory_config, stage_model_selection):
@@ -2127,13 +2155,15 @@ class SettingsDialog:
         if self.use_two_models_var.get():
             self.dual_frame.grid()
             self.single_frame.grid_remove()
-            self.translation_cb.grid()
+            self.translation_cb.config(state="normal")
+            # включаем комбобоксы выбора модели для этапов
             for widget in self.model_choice_widgets.values():
-                widget.config(state="normal")
+                widget.config(state="readonly")
         else:
             self.single_frame.grid()
             self.dual_frame.grid_remove()
-            self.translation_cb.grid_remove()
+            self.translation_cb.config(state="disabled")
+            self.enable_assistant_translation_var.set(False)   # принудительно снимаем галку
             for widget in self.model_choice_widgets.values():
                 widget.config(state="disabled")
 
