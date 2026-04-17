@@ -3,15 +3,15 @@
   "model_name": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q6_k",
   "max_history_messages": 10,
   "use_two_models": false,
-  "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix",
-  "translator_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix",
-  "enable_assistant_translation": false,
-  "max_tokens": 4096,
+  "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q4_k_s",
+  "translator_model": "qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive",
+  "enable_assistant_translation": true,
+  "max_tokens": 8192,
   "temperature": 1.0,
-  "primary_temperature": 0.7,
-  "primary_max_tokens": 4096,
+  "primary_temperature": 1.0,
+  "primary_max_tokens": 8192,
   "translator_temperature": 0.3,
-  "translator_max_tokens": 4096,
+  "translator_max_tokens": 8192,
   "stage_prompts_config": {
     "stage1_request_descriptions": [
       "stage1_request_descriptions",
@@ -20,9 +20,7 @@
     "stage1_create_scene": [
       "stage1_create_scene",
       "history:auto",
-      "narrator:n1",
-      "narrator:n2",
-      "narrator:n3"
+      "narrator:n1"
     ],
     "stage1_truth_check": [
       "stage1_truth_check",
@@ -53,9 +51,7 @@
     "stage2_npc_action": [
       "stage2_npc_action",
       "history:auto",
-      "narrator:n1",
-      "narrator:n2",
-      "narrator:n3"
+      "narrator:n1"
     ],
     "stage3_final": [
       "stage3_final",
@@ -92,59 +88,79 @@
     "stage1_random_event_details": true,
     "stage2_npc_action": true,
     "stage3_final": true,
+    "stage8_history_check": true,
     "stage11_validation": true,
     "stage4_summary": true,
     "stage10_associative_memory": true
   },
   "stage_memory_config": {
     "stage1_request_descriptions": {
-      "max_history": 4,
+      "max_history": 2,
       "max_summaries": 0
     },
     "stage1_create_scene": {
-      "max_history": 4,
-      "max_summaries": 3
+      "max_history": 2,
+      "max_summaries": 0
     },
     "stage1_truth_check": {
-      "max_history": 4,
-      "max_summaries": 2
+      "max_history": 2,
+      "max_summaries": 0
     },
     "stage1_player_action": {
-      "max_history": 4,
-      "max_summaries": 3
+      "max_history": 2,
+      "max_summaries": 0
     },
     "stage1_random_event_determine": {
-      "max_history": 4,
+      "max_history": 2,
       "max_summaries": 0
     },
     "stage1_random_event_request_objects": {
-      "max_history": 4,
+      "max_history": 2,
       "max_summaries": 0
     },
     "stage1_random_event_details": {
-      "max_history": 4,
-      "max_summaries": 3
+      "max_history": 2,
+      "max_summaries": 0
     },
     "stage2_npc_action": {
-      "max_history": 4,
-      "max_summaries": 5
+      "max_history": 2,
+      "max_summaries": 0
     },
     "stage3_final": {
-      "max_history": 4,
+      "max_history": 2,
+      "max_summaries": 0
+    },
+    "stage8_history_check": {
+      "max_history": 10,
       "max_summaries": 5
     },
     "stage11_validation": {
-      "max_history": 4,
-      "max_summaries": 3
+      "max_history": 2,
+      "max_summaries": 0
     },
     "stage4_summary": {
-      "max_history": 4,
+      "max_history": 2,
       "max_summaries": 0
     },
     "stage10_associative_memory": {
-      "max_history": 4,
+      "max_history": 2,
       "max_summaries": 0
     }
+  },
+  "stage_model_selection": {
+    "stage1_request_descriptions": "primary",
+    "stage1_create_scene": "primary",
+    "stage1_truth_check": "primary",
+    "stage1_player_action": "primary",
+    "stage1_random_event_determine": "primary",
+    "stage1_random_event_request_objects": "primary",
+    "stage1_random_event_details": "primary",
+    "stage2_npc_action": "primary",
+    "stage3_final": "primary",
+    "stage8_history_check": "primary",
+    "stage11_validation": "primary",
+    "stage4_summary": "primary",
+    "stage10_associative_memory": "primary"
   },
   "stage_retry_limits": {
     "stage1_request_descriptions": 2,
@@ -156,11 +172,12 @@
     "stage1_random_event_details": 2,
     "stage2_npc_action": 2,
     "stage3_final": 2,
+    "stage8_history_check": 2,
     "stage11_validation": 2,
     "stage4_summary": 2,
     "stage10_associative_memory": 2
   },
-  "max_locations_per_scene": 1,
-  "max_characters_per_scene": 3,
+  "max_locations_per_scene": 3,
+  "max_characters_per_scene": 4,
   "max_items_per_scene": 20
 }

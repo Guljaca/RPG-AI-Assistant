@@ -1,4 +1,4 @@
-# stage_processor.py
+# stage_processor.py (полная версия с исправлениями)
 import json
 import random
 import re
@@ -174,7 +174,6 @@ class StageProcessor:
     Модель НЕ вызывает roll_dice, только получает готовые числа.
     Все вызовы функций извлекаются из текста через UniversalParser.
     """
-    # Все возможные стадии (для синхронизации с настройками)
     ALL_STAGES = [
         "stage1_request_descriptions",
         "stage1_create_scene",
@@ -185,6 +184,7 @@ class StageProcessor:
         "stage1_random_event_details",
         "stage2_npc_action",
         "stage3_final",
+        "stage8_history_check",
         "stage11_validation",
         "stage4_summary",
         "stage10_associative_memory"
@@ -222,6 +222,41 @@ class StageProcessor:
         self.dice_queue_d20 = []
         self.dice_queue_d100 = []
         self._refill_dice_queues()
+
+        # Для стадии 8.1
+        self.history_check_state = {}
+        self.original_final_response = ""
+
+        # Проверка наличия всех необходимых промтов
+        self._validate_prompts()
+
+    def _validate_prompts(self):
+        """Проверяет, что все необходимые промт-файлы существуют."""
+        required_prompts = [
+            "stage1_request_descriptions",
+            "stage1_create_scene",
+            "stage1_truth_check",
+            "stage1_player_action",
+            "stage1_random_event",
+            "stage1_random_event_continue",
+            "stage1_random_event_request_objects",
+            "stage1_turn_order",
+            "stage1_validate_scene",
+            "stage1_validate_random_event",
+            "stage2_npc_action",
+            "stage3_final",
+            "stage4_summary",
+            "stage8_history_check",
+            "stage10_associative_memory",
+            "stage11_validation",
+            "compress_description",
+            "dice_rules",
+            "translator_system"
+        ]
+        for prompt_name in required_prompts:
+            content = self.main_app.prompt_manager.get_prompt_content(prompt_name)
+            if content is None or content.strip() == "":
+                raise FileNotFoundError(f"Required prompt file '{prompt_name}.json' not found or empty.")
 
     def _refill_dice_queues(self):
         self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
@@ -294,9 +329,28 @@ class StageProcessor:
     def _get_object_description_with_local(self, obj_id: str) -> str:
         return self.main_app.get_description_for_model(obj_id)
 
-    def _send_request(self, messages, callback, extra=None, stage_name: str = None, use_temp: bool = False, show_in_thinking: bool = False):
+    def _send_request(self, user_data: str, callback, extra=None, stage_name: str = None,
+                    use_temp: bool = False, show_in_thinking: bool = False,
+                    context_data: Dict = None):
+        """Отправляет запрос, где user_data — полное содержимое user-сообщения,
+        а context_data передаётся для подстановки плейсхолдеров в системные промты.
+        Автоматически определяет модель для этапа на основе настроек use_two_models и stage_model_selection."""
+        if context_data is None:
+            context_data = self.stage_data
+
+        model_choice = None
+        if self.main_app.use_two_models and stage_name:
+            model_choice = self.main_app.stage_model_selection.get(stage_name, "primary")
+
         self.main_app._send_model_request(
-            messages, callback, extra, stage_name, use_temp, show_in_thinking
+            user_content=user_data,
+            callback=callback,
+            extra=extra,
+            stage_name=stage_name,
+            use_temp=use_temp,
+            show_in_thinking=show_in_thinking,
+            context_data=context_data,
+            model_choice=model_choice
         )
 
     def _display_system(self, msg: str):
@@ -316,18 +370,17 @@ class StageProcessor:
             self.generation_start_time = None
         else:
             self._log_debug("GENERATION_COMPLETED")
-        
+
         final_response = self.stage_data.get("final_response", "")
         if final_response:
-            # Просто выводим текст, tkinter сам обработает \n как перенос строки
             self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
             self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
             self.main_app._finalize_generation_memory_turn()
             self._save_current_session()
-        
+
         if total_time:
             self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
-        
+
         self.main_app.is_generating = False
         self.main_app.center_panel.set_input_state("normal")
         self.main_app.center_panel.update_translation_button_state()
@@ -418,34 +471,37 @@ class StageProcessor:
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
-        # Получаем лимиты из настроек
         max_locs = self.main_app.max_locations_per_scene
         max_chars = self.main_app.max_characters_per_scene
         max_items = self.main_app.max_items_per_scene
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_request_descriptions")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_request_descriptions' не загружен. Проверьте файлы промтов.")
-        main_prompt = prompt_template.format(
-            user_message=self.stage_data["user_message"],
+            raise FileNotFoundError("Prompt 'stage1_request_descriptions' not found.")
+        user_data = prompt_template.format(
+            user_message=self.stage_data['user_message'],
             available_objects=available,
             max_locations=max_locs,
             max_characters=max_chars,
             max_items=max_items
         )
-        main_prompt += "\n\n⚠️ Ты должен ответить ТОЛЬКО вызовом send_object_info с массивом ID объектов. Пример: send_object_info(['l1','c2','c3']). Никакого другого текста."
 
-        messages = [
-            {"role": "user", "content": f"Сообщение игрока: {self.stage_data['user_message']}"},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "available_objects": available,
+            "max_locations": max_locs,
+            "max_characters": max_chars,
+            "max_items": max_items,
+            "user_message": self.stage_data['user_message']
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_request_descriptions(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_request_descriptions(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_request_descriptions",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_request_descriptions(self, content, extra):
@@ -545,24 +601,25 @@ class StageProcessor:
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_create_scene")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_create_scene' не загружен. Проверьте файлы промтов.")
-        main_prompt = prompt_template.format(
-            user_message=self.stage_data["user_message"],
+            raise FileNotFoundError("Prompt 'stage1_create_scene' not found.")
+        user_data = prompt_template.format(
+            user_message=self.stage_data['user_message'],
             descriptions=descriptions_text
         )
-        main_prompt += "\n\n⚠️ Ты должен ответить ТОЛЬКО вызовом confirm_scene с одним аргументом-списком: confirm_scene([location_id, character_ids, item_ids]). Пример: confirm_scene(['l1', ['c2','c3'], []]). Никакого другого текста."
 
-        messages = [
-            {"role": "user", "content": f"Сообщение игрока: {self.stage_data['user_message']}"},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "descriptions": descriptions_text,
+            "user_message": self.stage_data['user_message']
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_create_scene(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_create_scene(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_create_scene",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_create_scene(self, content, extra):
@@ -577,25 +634,41 @@ class StageProcessor:
         if confirm_call:
             try:
                 args = json.loads(confirm_call["function"]["arguments"])
+                if not isinstance(args, list):
+                    raise ValueError("confirm_scene expects a list")
+
                 location_id = None
                 character_ids = []
                 item_ids = []
 
-                if isinstance(args, list) and len(args) == 1 and isinstance(args[0], list) and len(args[0]) >= 3:
-                    inner = args[0]
-                    location_id = inner[0] if isinstance(inner[0], str) else None
-                    character_ids = inner[1] if isinstance(inner[1], list) else []
-                    item_ids = inner[2] if isinstance(inner[2], list) else []
-                elif isinstance(args, list) and len(args) >= 3:
-                    location_id = args[0] if isinstance(args[0], str) else None
-                    character_ids = args[1] if isinstance(args[1], list) else []
-                    item_ids = args[2] if isinstance(args[2], list) else []
-                elif isinstance(args, dict):
-                    location_id = args.get("location_id")
-                    character_ids = args.get("character_ids", [])
-                    item_ids = args.get("item_ids", [])
-                else:
-                    raise ValueError("Unknown args format")
+                for obj_id in args:
+                    if not isinstance(obj_id, str):
+                        continue
+                    if obj_id.startswith('l'):
+                        if location_id is None:
+                            location_id = obj_id
+                    elif obj_id.startswith('c'):
+                        character_ids.append(obj_id)
+                    elif obj_id.startswith('i'):
+                        item_ids.append(obj_id)
+
+                if location_id is None and self.main_app.current_profile.enabled_locations:
+                    location_id = self.main_app.current_profile.enabled_locations[0]
+                    self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
+
+                player_found = False
+                for cid in character_ids:
+                    char = self.main_app.characters.get(cid)
+                    if char and char.is_player:
+                        player_found = True
+                        break
+                if not player_found:
+                    for cid in self.main_app.current_profile.enabled_characters:
+                        char = self.main_app.characters.get(cid)
+                        if char and char.is_player:
+                            character_ids.insert(0, cid)
+                            self._display_system(f"➕ Добавлен игрок {cid} в сцену.\n")
+                            break
 
                 user_msg_lower = self.stage_data.get("user_message", "").lower()
                 for oid, desc in self.stage_data["descriptions"].items():
@@ -658,24 +731,25 @@ class StageProcessor:
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_truth_check")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_truth_check' не загружен.")
-        main_prompt = prompt_template.format(
-            user_message=self.stage_data["user_message"],
+            raise FileNotFoundError("Prompt 'stage1_truth_check' not found.")
+        user_data = prompt_template.format(
+            user_message=self.stage_data['user_message'],
             descriptions=descriptions_text
         )
-        main_prompt += "\n\n⚠️ ТОЛЬКО вызов report_truth_check с одним аргументом-списком: report_truth_check([violation, edited_message]). Пример: report_truth_check(['', ''])"
 
-        messages = [
-            {"role": "user", "content": f"Проверь сообщение: {self.stage_data['user_message']}"},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "descriptions": descriptions_text,
+            "user_message": self.stage_data['user_message']
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_truth_check(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_truth_check(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_truth_check",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_truth_check(self, content, extra):
@@ -743,7 +817,6 @@ class StageProcessor:
         self._log_debug(f"=== STAGE3: player_action (attempt {retry_count+1}) ===")
         self._display_system(f"🎲 Этап 3/10: Действие игрока (попытка {retry_count+1})...\n")
 
-        # Сохраняем бросок при первой попытке
         if retry_count == 0:
             dice_value = self._pop_dice('d20')
             self.stage_data["player_action_dice"] = dice_value
@@ -756,41 +829,43 @@ class StageProcessor:
         self._display_system(f"🎲 Бросок d20: {dice_value}\n")
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
-        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
         violation_text = self.stage_data.get("truth_violation", "")
         violation_section = f"\nНарушение: {violation_text}\n" if violation_text else ""
+        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_player_action")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_player_action' не загружен.")
-        main_prompt = prompt_template.format(
-            user_message=self.stage_data["user_message"],
+            raise FileNotFoundError("Prompt 'stage1_player_action' not found.")
+        user_data = prompt_template.format(
+            user_message=self.stage_data['user_message'],
             descriptions=descriptions_text,
             dice_rules=dice_rules,
             truth_violation=violation_section,
             dice_value=dice_value
         )
-        main_prompt += f"\n\n⚠️ Вызови act с одним аргументом-списком: act([{dice_value}, 'твоё описание'])."
 
-        messages = [
-            {"role": "user", "content": f"Игрок: {self.stage_data['user_message']}"},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "descriptions": descriptions_text,
+            "user_message": self.stage_data['user_message'],
+            "dice_value": dice_value,
+            "dice_rules": dice_rules,
+            "truth_violation": violation_section
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_player_action(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_player_action(content, extra),
             extra={"retry_count": retry_count, "expected_dice": dice_value},
             stage_name="stage1_player_action",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_player_action(self, content, extra):
         retry_count = extra.get("retry_count", 0)
         expected_dice = extra.get("expected_dice")
-        
-        # Исправляем частую ошибку: act([10, '...']] → act([10, '...'])
-        import re
+
         content = re.sub(r'\]\s*\]$', ']', content.strip())
         content = re.sub(r'\]\]', ']', content)
         self._log_full_response("stage1_player_action", content)
@@ -859,26 +934,29 @@ class StageProcessor:
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_random_event' не загружен.")
-        main_prompt = prompt_template.format(
-            descriptions=descriptions_text,
+            raise FileNotFoundError("Prompt 'stage1_random_event' not found.")
+        user_data = prompt_template.format(
             player_action=player_action,
+            descriptions=descriptions_text,
             dice_value=dice_value,
             event_chance=event_chance
         )
-        main_prompt += "\n\n⚠️ Вызови report_random_event с одним аргументом-списком: report_random_event([dice_value, 'yes' или 'no', ''])."
 
-        messages = [
-            {"role": "user", "content": f"Действие игрока: {player_action}"},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "player_action": player_action,
+            "descriptions": descriptions_text,
+            "dice_value": dice_value,
+            "event_chance": event_chance
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_random_event_determine(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_random_event_determine(content, extra),
             extra={"retry_count": retry_count, "dice_value": dice_value, "event_chance": event_chance},
             stage_name="stage1_random_event_determine",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_random_event_determine(self, content, extra):
@@ -978,29 +1056,35 @@ class StageProcessor:
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_request_objects")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_random_event_request_objects' не загружен.")
-        main_prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage1_random_event_request_objects' not found.")
+        user_data = prompt_template.format(
             event_dice=event_dice,
-            descriptions=descriptions_text,
             player_action=player_action,
+            descriptions=descriptions_text,
             available_objects=available,
             max_locations=max_locs,
             max_characters=max_chars,
             max_items=max_items
         )
-        main_prompt += "\n\n⚠️ Если не хватает объектов, вызови send_object_info с массивом ID. Если хватает, ответь 'OK'."
 
-        messages = [
-            {"role": "user", "content": "Определи, нужны ли дополнительные объекты для описания события."},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "event_dice": event_dice,
+            "player_action": player_action,
+            "descriptions": descriptions_text,
+            "available_objects": available,
+            "max_locations": max_locs,
+            "max_characters": max_chars,
+            "max_items": max_items
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_random_event_request_objects(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_random_event_request_objects(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_random_event_request_objects",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_random_event_request_objects(self, content, extra):
@@ -1061,25 +1145,27 @@ class StageProcessor:
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_continue")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage1_random_event_continue' не загружен.")
-        main_prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage1_random_event_continue' not found.")
+        user_data = prompt_template.format(
+            player_action=self.stage_data['player_action_desc'],
             descriptions=descriptions_text,
-            player_action=self.stage_data["player_action_desc"],
             dice_value=quality_dice
         )
-        main_prompt += "\n\n⚠️ Вызови report_random_event с одним аргументом-списком: report_random_event([dice_value, 'yes', 'твоё описание'])"
 
-        messages = [
-            {"role": "user", "content": "Опиши событие."},
-            {"role": "system", "content": main_prompt}
-        ]
+        extra_context = {
+            "player_action": self.stage_data['player_action_desc'],
+            "descriptions": descriptions_text,
+            "dice_value": quality_dice
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage1_random_event_details(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage1_random_event_details(content, extra),
             extra={"retry_count": retry_count, "dice_value": quality_dice},
             stage_name="stage1_random_event_details",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage1_random_event_details(self, content, extra):
@@ -1133,7 +1219,6 @@ class StageProcessor:
             self._stage3_final()
             return
 
-        # Защита от бесконечной рекурсии
         if retry_count > 50:
             self._display_error("❌ Критическая ошибка: слишком много попыток обработки NPC. Принудительный выход.\n")
             self._stage3_final()
@@ -1142,7 +1227,6 @@ class StageProcessor:
         self._log_debug(f"=== STAGE6: NPCs (attempt {retry_count+1}) ===")
         self._display_system(f"🎭 Этап 6/10: Обработка NPC (попытка {retry_count+1})...\n")
 
-        # Получаем список NPC (исключая игрока)
         all_chars = self.stage_data.get("scene_character_ids", [])
         npc_ids = []
         for cid in all_chars:
@@ -1150,18 +1234,15 @@ class StageProcessor:
             if char and not char.is_player:
                 npc_ids.append(cid)
 
-        # Если NPC нет — сразу переходим к финальному этапу
         if not npc_ids:
             self._display_system("Нет NPC.\n")
             self._stage3_final()
             return
 
-        # Инициализация данных, если первый вызов
         if not self.stage_data.get("npc_actions"):
             self.stage_data["npc_actions"] = {}
             self.stage_data["current_npc_index"] = 0
 
-        # Проверка, что все NPC обработаны
         if self.stage_data["current_npc_index"] >= len(npc_ids):
             self._display_system("✅ Все NPC обработаны.\n")
             self._stage3_final()
@@ -1188,8 +1269,8 @@ class StageProcessor:
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage2_npc_action")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage2_npc_action' не загружен.")
-        main_prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage2_npc_action' not found.")
+        user_data = prompt_template.format(
             npc_name=npc.name,
             npc_id=npc_id,
             descriptions=descriptions_text,
@@ -1197,15 +1278,24 @@ class StageProcessor:
             event_description=event_desc,
             previous_actions=previous_text
         )
-        main_prompt += "\n\n⚠️ Формат: Думает: ... Планирует: ..."
-        messages = [{"role": "user", "content": main_prompt}]
+
+        extra_context = {
+            "npc_name": npc.name,
+            "npc_id": npc_id,
+            "descriptions": descriptions_text,
+            "player_action": player_action,
+            "event_description": event_desc,
+            "previous_actions": previous_text
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage2_npc_action(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage2_npc_action(content, extra),
             extra={"npc_id": npc_id, "npc_name": npc.name, "retry_count": retry_count},
             stage_name="stage2_npc_action",
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage2_npc_action(self, content, extra):
@@ -1241,7 +1331,6 @@ class StageProcessor:
 
         self.stage_data["npc_actions"][npc_id] = intent
         self._display_system(f"✍️ {npc_name}: {intent[:100]}\n")
-        # Переходим к следующему NPC, сбрасывая счётчик повторений
         self.stage_data["current_npc_index"] += 1
         self._stage2_npc_action(0)
 
@@ -1251,7 +1340,7 @@ class StageProcessor:
     def _stage3_final(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage3_final", True):
             self._log_debug("STAGE7_SKIPPED", "Stage7 (final) disabled")
-            self._stage11_validation()
+            self._stage8_history_check()
             return
 
         self._log_debug(f"=== STAGE7: final (attempt {retry_count+1}) ===")
@@ -1269,8 +1358,6 @@ class StageProcessor:
         player_outcome = self.stage_data["player_action_desc"]
         event_desc = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else ""
 
-        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
-
         npc_dice_results = []
         for cid in self.stage_data.get("scene_character_ids", []):
             char = self.main_app.characters.get(cid)
@@ -1280,10 +1367,11 @@ class StageProcessor:
                 npc_dice_results.append(f"{char.name}: d20={val} → {result}")
         dice_summary = "\n".join(npc_dice_results) if npc_dice_results else "Нет NPC"
 
+        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage3_final")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage3_final' не загружен.")
-        prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage3_final' not found.")
+        user_data = prompt_template.format(
             location_desc=location_desc,
             player_action_outcome=player_outcome,
             event_description=event_desc,
@@ -1292,26 +1380,34 @@ class StageProcessor:
             dice_rules=dice_rules
         )
 
-        # ДОБАВЛЕНИЕ: если нет активных NPC и не произошло события – форсируем развитие сцены
         if not self.stage_data.get("npc_actions") and not self.stage_data.get("event_occurred"):
-            extra_instruction = (
+            user_data += (
                 "\n\n**ВАЖНО:** В этой сцене нет активных NPC и не произошло случайного события. "
                 "Ты ОБЯЗАН продвинуть сюжет: опиши, как проходит 5-10 минут, или добавь внешнее изменение "
                 "(звук, скрип, чей-то голос), или заставь NPC (если он есть) совершить простое действие. "
                 "Не оставляй сцену замороженной."
             )
-            prompt += extra_instruction
             self._display_system("⚠️ Сцена статична – добавлена инструкция принудительного развития.\n")
 
-        messages = [{"role": "user", "content": prompt}]
+        extra_context = {
+            "location_desc": location_desc,
+            "player_action_outcome": player_outcome,
+            "event_description": event_desc,
+            "npcs_actions": npc_actions_text,
+            "dice_results": dice_summary,
+            "dice_rules": dice_rules
+        }
+        full_context = {**self.stage_data, **extra_context}
+
         self.main_app.center_panel.start_temp_response()
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage3_final(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage3_final(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage3_final",
             use_temp=False,
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage3_final(self, content, extra):
@@ -1319,9 +1415,7 @@ class StageProcessor:
         self._log_full_response("stage3_final", content)
 
         final = content.strip() if content else ""
-        # --- ИСПРАВЛЕНИЕ ЭКРАНИРОВАННЫХ ПЕРЕНОСОВ ---
         final = final.replace('\\n', '\n')
-        # -------------------------------------------
         if not final:
             limit = self._get_retry_limit("stage3_final")
             if retry_count < limit:
@@ -1330,7 +1424,6 @@ class StageProcessor:
                 return
             final = "(Рассказчик молчит)"
 
-        import re
         forbidden_patterns = [
             r'^Ты можешь\b', r'^Можешь\b', r'^Попробуй\b',
             r'^Ты можешь выбрать\b', r'^Ты лежишь\b', r'^Ты просыпаешься\b',
@@ -1344,17 +1437,408 @@ class StageProcessor:
                 continue
             filtered_lines.append(line)
         final = '\n'.join(filtered_lines)
-
-        # Убираем двойные переносы строк
         final = final.replace('\n\n', '\n')
         final = '\n'.join(line.strip() for line in final.split('\n'))
 
         self.stage_data["final_response"] = final
+        self.original_final_response = final
         self.main_app.center_panel.clear_temp_response()
-        self._stage11_validation()
-        
+        self._stage8_history_check()
+
     # --------------------------------------------------------------------------
-    # СТАДИЯ 8: валидация финального ответа
+    # СТАДИЯ 8.1: Проверка истории (цикличная)
+    # --------------------------------------------------------------------------
+    def _get_settings_value(self, key: str, default):
+        if hasattr(self.main_app, 'settings') and isinstance(self.main_app.settings, dict):
+            return self.main_app.settings.get(key, default)
+        return default
+
+    def _get_new_histories_count(self) -> int:
+        return self._get_settings_value('new_histories_count', 2)
+
+    def _is_history_grouping_enabled(self) -> bool:
+        return self._get_settings_value('enable_history_grouping', False)
+
+    def _get_history_group_size(self) -> int:
+        return self._get_settings_value('history_group_size', 2)
+
+    def _get_max_history_for_stage8(self) -> int:
+        mem_cfg = self.main_app.stage_memory_config.get("stage8_history_check", {})
+        return mem_cfg.get("max_history", 10)
+
+    def _get_ordered_old_histories(self):
+        history = self.main_app.conversation_history
+        pairs = []
+        for i in range(len(history) - 1):
+            if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
+                pairs.append((history[i]["content"], history[i+1]["content"]))
+        if pairs and self.stage_data.get("final_response"):
+            last_pair = pairs[-1]
+            if last_pair[1] == self.stage_data["final_response"]:
+                pairs = pairs[:-1]
+        max_history = self._get_max_history_for_stage8()
+        if len(pairs) > max_history:
+            pairs = pairs[-max_history:]
+
+        total_pairs = len(pairs)
+        result = []
+        for idx, (user_msg, asst_msg) in enumerate(pairs):
+            distance = total_pairs - idx - 1
+            result.append((user_msg, asst_msg, distance))
+        return result
+
+    def _get_recent_histories(self, count: int):
+        history = self.main_app.conversation_history
+        pairs = []
+        for i in range(len(history) - 1):
+            if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
+                pairs.append((history[i]["content"], history[i+1]["content"]))
+        if self.stage_data.get("final_response") and (not pairs or pairs[-1][1] != self.stage_data["final_response"]):
+            last_user = self.stage_data.get("original_user_message", "")
+            pairs.append((last_user, self.stage_data["final_response"]))
+
+        recent = pairs[-count:] if pairs else []
+        result = []
+        for idx, (user_msg, asst_msg) in enumerate(reversed(recent)):
+            result.append((user_msg, asst_msg, idx))
+        return result
+
+    def _get_grouped_histories(self, histories_with_dist: List[Tuple[str, str, int]], group_size: int) -> List[List[Tuple[str, str, int]]]:
+        groups = []
+        for i in range(0, len(histories_with_dist), group_size):
+            group = histories_with_dist[i:i+group_size]
+            groups.append(group)
+        return groups
+
+    def _stage8_history_check(self):
+        if not self.main_app.enabled_stages.get("stage8_history_check", True):
+            self._log_debug("STAGE8_HISTORY_SKIPPED", "Stage8 (history_check) disabled")
+            self._stage11_validation()
+            return
+
+        self._log_debug("=== STAGE8.1: history_check ===")
+        self._display_system("📜 Этап 8.1/10: Проверка истории (цикличная)...\n")
+
+        assoc_count = len(self.main_app.associative_memory) if hasattr(self.main_app, 'associative_memory') else 0
+        self._display_system(f"📊 Всего записей ассоциативной памяти: {assoc_count}\n")
+        summary_count = len(self.main_app.memory_summaries) if hasattr(self.main_app, 'memory_summaries') else 0
+        self._display_system(f"📊 Всего записей краткой памяти: {summary_count}\n")
+        old_histories = self._get_ordered_old_histories()
+        if self._is_history_grouping_enabled():
+            group_size = self._get_history_group_size()
+            grouped_old = self._get_grouped_histories(old_histories, group_size)
+            total_groups = len(grouped_old)
+            self._display_system(f"📊 Всего записей полной памяти (групп историй): {total_groups}\n")
+        else:
+            total_groups = len(old_histories)
+            self._display_system(f"📊 Всего записей полной памяти (историй): {total_groups}\n")
+
+        if self._is_history_grouping_enabled():
+            group_size = self._get_history_group_size()
+            grouped_old = self._get_grouped_histories(old_histories, group_size)
+        else:
+            grouped_old = [[h] for h in old_histories]
+
+        self.history_check_state = {
+            "step": 0,
+            "old_histories_groups": grouped_old,
+            "current_index": 0,
+        }
+        self._history_check_assoc()
+
+    def _history_check_assoc(self, retry_count=0):
+        assoc_count = len(self.main_app.associative_memory) if hasattr(self.main_app, 'associative_memory') else 0
+        self._display_system(f"🔍 [1/3] Проверка с ассоциативной памятью (записей: {assoc_count})...\n")
+        current_final = self.stage_data.get("final_response", "")
+        original_final = self.original_final_response
+
+        assoc_text = ""
+        for obj_id, changes in self.main_app.associative_memory.items():
+            obj = self.main_app._get_object_by_id(obj_id)
+            obj_name = obj.name if obj else obj_id
+            assoc_text += f"{obj_name} ({obj_id}): {', '.join(changes)}\n"
+        if not assoc_text:
+            assoc_text = "Нет записей ассоциативной памяти."
+
+        new_count = self._get_new_histories_count()
+        new_histories = self._get_recent_histories(new_count)
+        if not new_histories:
+            self._display_system("⚠️ Нет новых историй для сравнения, пропускаем проверку ассоциативной памяти.\n")
+            self._history_check_summary()
+            return
+
+        if self._is_history_grouping_enabled():
+            group_size = self._get_history_group_size()
+            new_groups = self._get_grouped_histories(new_histories, group_size)
+            new_group = new_groups[-1] if new_groups else []
+        else:
+            new_group = new_histories
+
+        new_hist_text = ""
+        for idx, (u, a, dist) in enumerate(new_group):
+            new_hist_text += f"Новая история {idx+1} (прошло {dist} обменов назад):\nПользователь: {u}\nАссистент: {a}\n\n"
+
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage8_history_check")
+        if not prompt_template:
+            raise FileNotFoundError("Prompt 'stage8_history_check' not found.")
+        user_data = prompt_template.format(
+            original_final=original_final,
+            current_final=current_final,
+            assoc_memory=assoc_text,
+            new_histories=new_hist_text
+        )
+
+        self._display_thinking(f"📤 Запрос на проверку ассоциативной памятью:\n{user_data[:1000]}...")
+        extra_context = {
+            "original_final": original_final,
+            "current_final": current_final,
+            "assoc_memory": assoc_text,
+            "new_histories": new_hist_text
+        }
+        full_context = {**self.stage_data, **extra_context}
+        self._send_request(
+            user_data=user_data,
+            callback=lambda content, extra: self._after_history_check_assoc(content, extra, current_final, original_final),
+            extra={"retry_count": retry_count, "current_final": current_final, "original_final": original_final},
+            stage_name="stage8_history_check",
+            use_temp=False,
+            show_in_thinking=True,
+            context_data=full_context
+        )
+
+    def _after_history_check_assoc(self, content, extra, current_final, original_final):
+        retry_count = extra.get("retry_count", 0)
+        response_text = content.strip() if content else ""
+        if response_text.startswith("Финальный ответ верный") or "✓" in response_text or "ассоциативная память" in response_text.lower():
+            lines = response_text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                if not any(marker in line for marker in ["✓", "ассоциативная память", "новая история", "Текст можно возвращать"]):
+                    cleaned_lines.append(line)
+            candidate = "\n".join(cleaned_lines).strip()
+            if candidate and len(candidate) > 20:
+                response_text = candidate
+            else:
+                response_text = current_final
+
+        if "НЕТ_ИЗМЕНЕНИЙ" in response_text or "всё правильно" in response_text.lower():
+            response_text = current_final
+
+        if response_text and len(response_text) > 10:
+            new_response = response_text
+            if new_response != current_final:
+                self.stage_data["final_response"] = new_response
+                self._display_system("⚠️ Найдены несоответствия в ассоциативной памяти. Внесены изменения.\n")
+            else:
+                self._display_system("✅ Ассоциативная память: всё в порядке.\n")
+        else:
+            limit = self._get_retry_limit("stage8_history_check")
+            if retry_count < limit:
+                self._display_error(f"⚠️ Некорректный ответ при проверке ассоциативной памяти. Повтор ({retry_count+1}/{limit})...\n")
+                self._history_check_assoc(retry_count+1)
+                return
+            self._display_system("⚠️ Не удалось проверить ассоциативную память, продолжаем.\n")
+        self._history_check_summary()
+
+    def _history_check_summary(self, retry_count=0):
+        summary_count = len(self.main_app.memory_summaries) if hasattr(self.main_app, 'memory_summaries') else 0
+        self._display_system(f"🔍 [2/3] Проверка с краткой памятью (записей: {summary_count})...\n")
+        current_final = self.stage_data.get("final_response", "")
+        original_final = self.original_final_response
+
+        summaries = self.main_app.memory_summaries[-5:] if self.main_app.memory_summaries else []
+        if not summaries:
+            self._display_system("Краткая память пуста, пропускаем.\n")
+            self._history_check_old_histories()
+            return
+
+        new_count = self._get_new_histories_count()
+        new_histories = self._get_recent_histories(new_count)
+        if not new_histories:
+            self._display_system("⚠️ Нет новых историй для сравнения, пропускаем проверку краткой памяти.\n")
+            self._history_check_old_histories()
+            return
+
+        if self._is_history_grouping_enabled():
+            group_size = self._get_history_group_size()
+            new_groups = self._get_grouped_histories(new_histories, group_size)
+            new_group = new_groups[-1] if new_groups else []
+        else:
+            new_group = new_histories
+
+        new_hist_text = ""
+        for idx, (u, a, dist) in enumerate(new_group):
+            new_hist_text += f"Новая история {idx+1} (прошло {dist} обменов назад):\nПользователь: {u}\nАссистент: {a}\n\n"
+
+        summary_text = "\n".join(f"- {s}" for s in summaries)
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage8_history_check")
+        if not prompt_template:
+            raise FileNotFoundError("Prompt 'stage8_history_check' not found.")
+        user_data = prompt_template.format(
+            original_final=original_final,
+            current_final=current_final,
+            assoc_memory=summary_text,
+            new_histories=new_hist_text
+        )
+
+        self._display_thinking(f"📤 Запрос на проверку краткой памятью:\n{user_data[:1000]}...")
+        extra_context = {
+            "original_final": original_final,
+            "current_final": current_final,
+            "summaries": summary_text,
+            "new_histories": new_hist_text
+        }
+        full_context = {**self.stage_data, **extra_context}
+        self._send_request(
+            user_data=user_data,
+            callback=lambda content, extra: self._after_history_check_summary(content, extra, current_final, original_final),
+            extra={"retry_count": retry_count, "current_final": current_final, "original_final": original_final},
+            stage_name="stage8_history_check",
+            use_temp=False,
+            show_in_thinking=True,
+            context_data=full_context
+        )
+
+    def _after_history_check_summary(self, content, extra, current_final, original_final):
+        retry_count = extra.get("retry_count", 0)
+        response_text = content.strip() if content else ""
+        if response_text.startswith("Финальный ответ верный") or "✓" in response_text or "краткая память" in response_text.lower():
+            lines = response_text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                if not any(marker in line for marker in ["✓", "краткая память", "новая история", "Текст можно возвращать"]):
+                    cleaned_lines.append(line)
+            candidate = "\n".join(cleaned_lines).strip()
+            if candidate and len(candidate) > 20:
+                response_text = candidate
+            else:
+                response_text = current_final
+
+        if "НЕТ_ИЗМЕНЕНИЙ" in response_text or "всё правильно" in response_text.lower():
+            response_text = current_final
+
+        if response_text and len(response_text) > 10:
+            new_response = response_text
+            if new_response != current_final:
+                self.stage_data["final_response"] = new_response
+                self._display_system("⚠️ Найдены несоответствия в краткой памяти. Внесены изменения.\n")
+            else:
+                self._display_system("✅ Краткая память: всё в порядке.\n")
+        else:
+            limit = self._get_retry_limit("stage8_history_check")
+            if retry_count < limit:
+                self._display_error(f"⚠️ Некорректный ответ при проверке краткой памяти. Повтор ({retry_count+1}/{limit})...\n")
+                self._history_check_summary(retry_count+1)
+                return
+            self._display_system("⚠️ Не удалось проверить краткую память, продолжаем.\n")
+        self._history_check_old_histories()
+
+    def _history_check_old_histories(self):
+        old_groups = self.history_check_state.get("old_histories_groups", [])
+        current_index = self.history_check_state.get("current_index", 0)
+        total = len(old_groups)
+        if current_index >= total:
+            self._display_system("✅ Все старые истории проверены.\n")
+            self._stage11_validation()
+            return
+
+        old_group = old_groups[current_index]
+        new_count = self._get_new_histories_count()
+        new_histories = self._get_recent_histories(new_count)
+        if not new_histories:
+            self._display_system("⚠️ Нет новых историй для сравнения, пропускаем проверку старых историй.\n")
+            self._stage11_validation()
+            return
+
+        if self._is_history_grouping_enabled():
+            group_size = self._get_history_group_size()
+            new_groups = self._get_grouped_histories(new_histories, group_size)
+            new_group = new_groups[-1] if new_groups else []
+        else:
+            new_group = new_histories
+
+        old_hist_text = ""
+        min_dist = None
+        max_dist = None
+        for idx, (u, a, dist) in enumerate(old_group):
+            old_hist_text += f"Старая история {idx+1} (прошло {dist} обменов назад):\nПользователь: {u}\nАссистент: {a}\n\n"
+            if min_dist is None or dist < min_dist:
+                min_dist = dist
+            if max_dist is None or dist > max_dist:
+                max_dist = dist
+        if len(old_group) > 1 and min_dist is not None and max_dist is not None:
+            dist_range = f"от {min_dist} до {max_dist} обменов назад"
+        else:
+            dist_range = f"{min_dist} обменов назад" if min_dist is not None else "неизвестно"
+
+        new_hist_text = ""
+        for idx, (u, a, dist) in enumerate(new_group):
+            new_hist_text += f"Новая история {idx+1} (прошло {dist} обменов назад):\nПользователь: {u}\nАссистент: {a}\n\n"
+
+        current_final = self.stage_data.get("final_response", "")
+        original_final = self.original_final_response
+        self._display_system(f"🔍 [3/3] Проверка полной памяти: группа {current_index+1}/{total} (расстояние до старой истории: {dist_range})\n")
+
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage8_history_check")
+        if not prompt_template:
+            raise FileNotFoundError("Prompt 'stage8_history_check' not found.")
+        user_data = prompt_template.format(
+            original_final=original_final,
+            current_final=current_final,
+            assoc_memory=old_hist_text,
+            new_histories=new_hist_text
+        )
+
+        self._display_thinking(f"📤 Запрос на проверку старых историй (группа {current_index+1}):\n{user_data[:1000]}...")
+        extra_context = {
+            "original_final": original_final,
+            "current_final": current_final,
+            "old_histories": old_hist_text,
+            "new_histories": new_hist_text,
+            "distance_range": dist_range
+        }
+        full_context = {**self.stage_data, **extra_context}
+        self._send_request(
+            user_data=user_data,
+            callback=lambda content, extra: self._after_history_check_old_histories(content, extra, current_index, current_final, original_final, total),
+            extra={"index": current_index, "current_final": current_final, "original_final": original_final, "total": total},
+            stage_name="stage8_history_check",
+            use_temp=False,
+            show_in_thinking=True,
+            context_data=full_context
+        )
+
+    def _after_history_check_old_histories(self, content, extra, index, current_final, original_final, total):
+        response_text = content.strip() if content else ""
+        if response_text.startswith("Финальный ответ верный") or "✓" in response_text or "старая история" in response_text.lower():
+            lines = response_text.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                if not any(marker in line for marker in ["✓", "старая история", "новая история", "Текст можно возвращать"]):
+                    cleaned_lines.append(line)
+            candidate = "\n".join(cleaned_lines).strip()
+            if candidate and len(candidate) > 20:
+                response_text = candidate
+            else:
+                response_text = current_final
+
+        if "НЕТ_ИЗМЕНЕНИЙ" in response_text or "всё правильно" in response_text.lower():
+            response_text = current_final
+
+        if response_text and len(response_text) > 10:
+            new_response = response_text
+            if new_response != current_final:
+                self.stage_data["final_response"] = new_response
+                self._display_system(f"⚠️ Найдены несоответствия в группе историй {index+1}. Внесены изменения.\n")
+            else:
+                self._display_system(f"✅ Группа историй {index+1} в порядке.\n")
+        else:
+            self._display_system(f"⚠️ Не удалось проверить группу историй {index+1}, продолжаем.\n")
+        self.history_check_state["current_index"] = index + 1
+        self._history_check_old_histories()
+
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 11: валидация
     # --------------------------------------------------------------------------
     def _stage11_validation(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_validation", True):
@@ -1363,7 +1847,7 @@ class StageProcessor:
             return
 
         self._log_debug(f"=== STAGE11: validation (attempt {retry_count+1}) ===")
-        self._display_system(f"✅ Этап 8/10: Валидация результата (попытка {retry_count+1})...\n")
+        self._display_system(f"✅ Этап 8.2/10: Валидация результата (попытка {retry_count+1})...\n")
 
         final_response = self.stage_data.get("final_response", "")
         if not final_response:
@@ -1400,11 +1884,8 @@ class StageProcessor:
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage11_validation")
         if not prompt_template:
-            self._display_error("❌ Промт 'stage11_validation' не загружен. Валидация пропущена.\n")
-            self._stage4_summary()
-            return
-
-        validation_prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage11_validation' not found.")
+        user_data = prompt_template.format(
             scene_location_id=scene_location_id,
             scene_character_ids=scene_character_ids,
             scene_item_ids=scene_item_ids,
@@ -1420,55 +1901,59 @@ class StageProcessor:
             final_response=final_response
         )
 
-        messages = [
-            {"role": "system", "content": "Ты проверяешь и при необходимости исправляешь ответ ассистента."},
-            {"role": "user", "content": validation_prompt}
-        ]
+        extra_context = {
+            "scene_location_id": scene_location_id,
+            "scene_character_ids": scene_character_ids,
+            "scene_item_ids": scene_item_ids,
+            "descriptions": descriptions,
+            "player_action_desc": player_action_desc,
+            "player_action_dice": player_action_dice,
+            "event_occurred": event_occurred,
+            "event_occurrence_dice": event_occurrence_dice,
+            "event_quality_dice": event_quality_dice,
+            "event_desc": event_desc,
+            "npc_actions": npc_actions,
+            "dice_summary_npc": dice_summary_npc,
+            "final_response": final_response
+        }
+        full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage11_validation(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage11_validation(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage11_validation",
             use_temp=False,
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage11_validation(self, content, extra):
         retry_count = extra.get("retry_count", 0)
-        max_retries = self._get_retry_limit("stage11_validation")  # обычно 2-3
+        max_retries = self._get_retry_limit("stage11_validation")
         self._log_full_response("stage11_validation", content)
 
         corrected = None
 
-        # Попытка распарсить корректный вызов validate_response
         tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["validate_response"])
         if tool_calls:
             call = tool_calls[-1]
             try:
                 args = json.loads(call["function"]["arguments"])
-                # Ожидаемый формат: validate_response(["текст"])  -> args = ["текст"]
-                # Ошибочный формат: validate_response(["строка1", "строка2"], []) -> args = (["строка1","строка2"], [])
-                # Нормализуем:
                 if isinstance(args, list) and len(args) == 1 and isinstance(args[0], str):
                     corrected = args[0]
                 elif isinstance(args, list) and len(args) == 1 and isinstance(args[0], list) and len(args[0]) == 1:
-                    # случай: [["текст"]]
                     corrected = args[0][0] if args[0] else ""
                 elif isinstance(args, tuple) and len(args) == 2 and args[1] == []:
-                    # ошибочный формат: (["строка1", "строка2"], [])
                     if isinstance(args[0], list) and args[0]:
-                        # склеиваем строки через \n
                         corrected = "\n".join(args[0])
                 elif isinstance(args, list) and len(args) > 1 and all(isinstance(x, str) for x in args):
-                    # ошибочный формат: ["строка1", "строка2"] (без второго списка)
                     corrected = "\n".join(args)
                 else:
                     self._log_debug("VALIDATION_WRONG_FORMAT", f"Неизвестный формат args: {args}")
             except Exception as e:
                 self._log_debug("ERROR", f"validate_response parse error: {e}")
 
-        # Если не удалось получить corrected из вызова, пробуем извлечь из текста по паттернам
         if corrected is None and content:
             patterns = [
                 r'validate_response\(\s*\[\s*"(.+?)"\s*\]\s*\)',
@@ -1481,17 +1966,13 @@ class StageProcessor:
                     corrected = match.group(1).strip()
                     break
 
-        # Если corrected получен и не пуст (или пустая строка — означает "без изменений")
         if corrected is not None and isinstance(corrected, str):
-            # Пустая строка -> валидация пройдена, без изменений
             if corrected.strip() == "":
                 self._display_system("✅ Валидация пройдена, ответ корректен.\n")
                 self._stage4_summary()
                 return
 
-            # Применяем минимальные исправления
             corrected = corrected.replace('\\n', '\n')
-            import re
             forbidden = [r'ты можешь', r'можешь выбрать', r'ты видишь', r'ты чувствуешь', r'ты лежишь']
             if any(re.search(p, corrected, re.IGNORECASE) for p in forbidden):
                 self._display_system("⚠️ Валидатор пропустил запрещённые фразы, применяю дополнительную очистку.\n")
@@ -1505,7 +1986,6 @@ class StageProcessor:
             self._stage4_summary()
             return
 
-        # Если corrected не получен или пуст (и при этом не пустая строка-признак)
         if retry_count < max_retries:
             self._display_error(f"⚠️ Валидатор вернул некорректный формат. Повтор ({retry_count+1}/{max_retries})...\n")
             self._stage11_validation(retry_count + 1)
@@ -1536,23 +2016,27 @@ class StageProcessor:
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage4_summary")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage4_summary' не загружен.")
-        prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage4_summary' not found.")
+        user_data = prompt_template.format(
             last_user_msg=last_user,
             last_assistant_msg=last_assistant
         )
-        messages = [
-            {"role": "system", "content": "Ты выделяешь одно ключевое изменение."},
-            {"role": "user", "content": prompt}
-        ]
+
+        extra_context = {
+            "last_user_msg": last_user,
+            "last_assistant_msg": last_assistant
+        }
+        full_context = {**self.stage_data, **extra_context}
+
         self.main_app.center_panel.start_temp_response()
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage4_summary(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage4_summary(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage4_summary",
             use_temp=True,
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage4_summary(self, content, extra):
@@ -1572,7 +2056,7 @@ class StageProcessor:
         self._stage10_associative_memory()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 10: ассоциативная память объектов (пропускается, если выключена)
+    # СТАДИЯ 10: ассоциативная память объектов
     # --------------------------------------------------------------------------
     def _stage10_associative_memory(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage10_associative_memory", True) or not self.main_app.enable_associative_memory:
@@ -1598,20 +2082,26 @@ class StageProcessor:
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage10_associative_memory")
         if not prompt_template:
-            raise RuntimeError("Промт 'stage10_associative_memory' не загружен.")
-        prompt = prompt_template.format(
+            raise FileNotFoundError("Prompt 'stage10_associative_memory' not found.")
+        user_data = prompt_template.format(
             final_response=final,
             objects=objects_text
         )
-        prompt += "\n\n⚠️ Формат: object_id: изменение"
-        messages = [{"role": "user", "content": prompt}]
+
+        extra_context = {
+            "final_response": final,
+            "objects": objects_text
+        }
+        full_context = {**self.stage_data, **extra_context}
+
         self._send_request(
-            messages,
-            lambda content, extra: self._after_stage10_associative_memory(content, extra),
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage10_associative_memory(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage10_associative_memory",
             use_temp=True,
-            show_in_thinking=True
+            show_in_thinking=True,
+            context_data=full_context
         )
 
     def _after_stage10_associative_memory(self, content, extra):
@@ -1627,7 +2117,7 @@ class StageProcessor:
             return
 
         updated = 0
-        changed_ids = [] 
+        changed_ids = []
         for line in content.strip().split('\n'):
             if ':' in line:
                 obj_id, change = line.split(':', 1)
@@ -1636,7 +2126,7 @@ class StageProcessor:
                 if obj_id and change and len(change) > 3:
                     self.main_app.record_added_assoc(obj_id, change)
                     updated += 1
-                    changed_ids.append(obj_id)   
-        self.last_changed_objects = list(set(changed_ids))  
+                    changed_ids.append(obj_id)
+        self.last_changed_objects = list(set(changed_ids))
         self._display_system(f"✅ Память обновлена для {updated} объектов.\n")
         self._finish_generation()

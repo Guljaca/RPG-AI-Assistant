@@ -12,6 +12,7 @@ class RightPanel(ttk.Frame):
         self._build_ui()
         self._create_tabs()
         self.show_tab("profile")
+        
     def _build_ui(self):
         self.button_container = ttk.Frame(self)
         self.button_container.pack(fill=tk.X, padx=5, pady=5)
@@ -31,6 +32,7 @@ class RightPanel(ttk.Frame):
             self.tab_buttons[tab_name] = btn
         self.content_frame = ttk.Frame(self)
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
     def _create_tabs(self):
         self.tab_frames["profile"] = ProfileTab(self.content_frame, self.app)
         self.tab_frames["narrators"] = BaseEditorTab(self.content_frame, self.app, "narrators", Narrator, "Рассказчики")
@@ -40,6 +42,7 @@ class RightPanel(ttk.Frame):
         self.tab_frames["prompts"] = SystemPromptsTab(self.content_frame, self.app)
         self.tab_frames["translator_prompts"] = TranslatorPromptsTab(self.content_frame, self.app)
         self.tab_frames["stage_prompts"] = StagePromptsTab(self.content_frame, self.app)
+        
     def show_tab(self, tab_name: str):
         if self.current_tab == tab_name:
             return
@@ -54,22 +57,33 @@ class RightPanel(ttk.Frame):
                 else:
                     btn.config(state="normal")
             self.tab_frames[tab_name].refresh()
+            
     def refresh(self):
         for frame in self.tab_frames.values():
             if hasattr(frame, "refresh"):
                 frame.refresh()
+                
+    def cleanup_inactive_narrators(self):
+        """Пробрасывает вызов к вкладке StagePromptsTab для очистки неактивных рассказчиков."""
+        stage_frame = self.tab_frames.get("stage_prompts")
+        if stage_frame and hasattr(stage_frame, "cleanup_inactive_narrators"):
+            stage_frame.cleanup_inactive_narrators()
+                
     def notify_object_created(self, obj_type: str, obj_id: str):
         frame = self.tab_frames.get(obj_type)
         if frame and hasattr(frame, "add_object"):
             frame.add_object(obj_id)
+            
     def notify_object_updated(self, obj_type: str, obj_id: str):
         frame = self.tab_frames.get(obj_type)
         if frame and hasattr(frame, "update_object"):
             frame.update_object(obj_id)
+            
     def notify_object_deleted(self, obj_type: str, obj_id: str):
         frame = self.tab_frames.get(obj_type)
         if frame and hasattr(frame, "remove_object"):
             frame.remove_object(obj_id)
+            
     def notify_prompt_created(self, name: str):
         frame1 = self.tab_frames.get("prompts")
         if frame1 and hasattr(frame1, "add_prompt"):
@@ -77,6 +91,7 @@ class RightPanel(ttk.Frame):
         frame2 = self.tab_frames.get("translator_prompts")
         if frame2 and hasattr(frame2, "add_prompt"):
             frame2.add_prompt(name)
+            
     def notify_prompt_updated(self, name: str):
         frame1 = self.tab_frames.get("prompts")
         if frame1 and hasattr(frame1, "update_prompt"):
@@ -84,6 +99,7 @@ class RightPanel(ttk.Frame):
         frame2 = self.tab_frames.get("translator_prompts")
         if frame2 and hasattr(frame2, "update_prompt"):
             frame2.update_prompt(name)
+            
     def notify_prompt_deleted(self, name: str):
         frame1 = self.tab_frames.get("prompts")
         if frame1 and hasattr(frame1, "remove_prompt"):

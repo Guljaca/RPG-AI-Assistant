@@ -32,6 +32,14 @@ def add_context_menu(widget):
     widget.bind("<Control-a>", lambda e: widget.tag_add(tk.SEL, "1.0", tk.END) if hasattr(widget, 'tag_add') else widget.select_range(0, tk.END))
     widget.bind("<Control-A>", lambda e: widget.tag_add(tk.SEL, "1.0", tk.END) if hasattr(widget, 'tag_add') else widget.select_range(0, tk.END))
 
+# ---------- Вспомогательная функция центрирования окна ----------
+def center_window(window, parent):
+    """Центрирует окно window относительно родительского окна parent."""
+    window.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (window.winfo_width() // 2)
+    y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (window.winfo_height() // 2)
+    window.geometry(f"+{x}+{y}")
+
 # ---------- Вкладка "Профиль" ----------
 class ProfileTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -152,10 +160,19 @@ class ProfileTab(ttk.Frame):
             self.app.update("load_profile", {"name": name})
 
     def _save_profile(self):
+        name = self.app.current_profile.name
+        if not name or name == "Default":
+            new_name = simpledialog.askstring("Сохранить профиль", "Введите имя профиля:", initialvalue=name, parent=self)
+            if not new_name:
+                return
+            self.app.current_profile.name = new_name
         self.app.update("save_profile")
 
     def _new_profile(self):
-        self.app.update("new_profile")
+        name = simpledialog.askstring("Новый профиль", "Введите имя нового профиля:", parent=self)
+        if not name:
+            return
+        self.app.update("new_profile", {"name": name})
 
 # ---------- Базовый редактор для объектов (Рассказчики, Персонажи, Локации, Предметы) ----------
 class BaseEditorTab(ttk.Frame):
@@ -518,7 +535,7 @@ class SystemPromptsTab(ttk.Frame):
         self.save_btn.config(state=tk.DISABLED)
 
     def _create_new(self):
-        name = simpledialog.askstring("Новый промт", "Введите имя нового промта (без префикса 'translator_'):")
+        name = simpledialog.askstring("Новый промт", "Введите имя нового промта (без префикса 'translator_'):", parent=self)
         if name:
             if name.startswith("translator_"):
                 messagebox.showwarning("Недопустимое имя", "Имя не должно начинаться с 'translator_'.")
@@ -641,7 +658,7 @@ class TranslatorPromptsTab(ttk.Frame):
         self.save_btn.config(state=tk.DISABLED)
 
     def _create_new(self):
-        name = simpledialog.askstring("Новый промт переводчика", "Введите имя нового промта (без префикса 'translator_'):")
+        name = simpledialog.askstring("Новый промт переводчика", "Введите имя нового промта (без префикса 'translator_'):", parent=self)
         if name:
             if name.startswith("translator_"):
                 messagebox.showwarning("Недопустимое имя", "Имя не должно начинаться с 'translator_'.")
@@ -657,9 +674,8 @@ class TranslatorPromptsTab(ttk.Frame):
             return
         self.app.update("delete_prompt", {"name": self.current_prompt_name})
 
-# ---------- Вкладка "Этапы" (исправленная: история добавляется без выбора количества) ----------
+# ---------- Вкладка "Этапы" (исправленная: выбор рассказчиков через диалог с множественным выбором) ----------
 class StagePromptsTab(ttk.Frame):
-    # Полный список стадий, синхронизированный с StageProcessor.ALL_STAGES
     STAGE_MAPPING = [
         ("1.1 Запрос описаний объектов", "stage1_request_descriptions"),
         ("1.2 Создание сцены", "stage1_create_scene"),
@@ -670,7 +686,8 @@ class StagePromptsTab(ttk.Frame):
         ("5.2 Описание события (d20)", "stage1_random_event_details"),
         ("6. Обработка NPC", "stage2_npc_action"),
         ("7. Финальный рассказ", "stage3_final"),
-        ("8. Валидация результата", "stage11_validation"),
+        ("8.1 Проверка истории", "stage8_history_check"),   # НОВАЯ СТАДИЯ
+        ("8.2 Валидация результата", "stage11_validation"),
         ("9. Краткая память", "stage4_summary"),
         ("10. Ассоциативная память", "stage10_associative_memory"),
     ]
@@ -715,7 +732,6 @@ class StagePromptsTab(ttk.Frame):
         self.stage_listbox.configure(yscrollcommand=stage_scrollbar.set)
         self.stage_listbox.bind("<<ListboxSelect>>", self._on_stage_select)
 
-        # Tooltip для списка этапов
         self._setup_tooltips()
 
         right_frame = ttk.LabelFrame(main_row, text="Системные промты для выбранного этапа (порядок важен)")
@@ -810,7 +826,7 @@ class StagePromptsTab(ttk.Frame):
         dialog.title("Выберите системный промт")
         dialog.geometry("400x300")
         dialog.transient(self)
-        dialog.grab_set()
+        center_window(dialog, self.app)
 
         ttk.Label(dialog, text="Доступные промты:").pack(pady=5)
         listbox = tk.Listbox(dialog, height=15)
@@ -838,30 +854,64 @@ class StagePromptsTab(ttk.Frame):
         if not self.current_stage:
             messagebox.showwarning("Ошибка", "Сначала выберите этап")
             return
-        enabled_narrators = self.app.current_profile.enabled_narrators
-        if not enabled_narrators:
-            messagebox.showinfo("Нет рассказчиков", "В текущем профиле не выбран ни один рассказчик.")
+
+        narrators = self.app.narrators
+        if not narrators:
+            messagebox.showinfo("Нет рассказчиков", "В базе нет ни одного рассказчика.")
             return
 
-        current = self.app.stage_prompts_config.get(self.current_stage, [])
-        sel = self.prompts_listbox.curselection()
-        insert_idx = sel[0] if sel else len(current)
+        dialog = tk.Toplevel(self)
+        dialog.title("Выберите рассказчиков")
+        dialog.geometry("500x400")
+        dialog.transient(self)
+        center_window(dialog, self.app)
 
-        new_entries = [f"narrator:{nid}" for nid in enabled_narrators if nid in self.app.narrators]
-        if not new_entries:
-            messagebox.showinfo("Нет рассказчиков", "Выбранные рассказчики не найдены в базе.")
-            return
+        frame = ttk.Frame(dialog)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        for i, entry in enumerate(new_entries):
-            current.insert(insert_idx + i, entry)
+        ttk.Label(frame, text="Доступные рассказчики (можно выбрать несколько):").pack(anchor='w')
+        listbox = tk.Listbox(frame, selectmode=tk.MULTIPLE, height=15)
+        listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        scrollbar = ttk.Scrollbar(listbox, orient=tk.VERTICAL, command=listbox.yview)
+        listbox.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.app.stage_prompts_config[self.current_stage] = current
-        self._refresh_prompts_list()
-        if new_entries:
-            self.prompts_listbox.selection_set(insert_idx)
-            self.prompts_listbox.see(insert_idx)
-        self.app.save_stage_prompts_config()
-        messagebox.showinfo("Рассказчики добавлены", f"Добавлено {len(new_entries)} рассказчиков.")
+        sorted_narrators = sorted(narrators.values(), key=lambda n: n.name)
+        for narr in sorted_narrators:
+            listbox.insert(tk.END, f"{narr.name} (id:{narr.id})")
+
+        def add_selected():
+            selected_indices = listbox.curselection()
+            if not selected_indices:
+                messagebox.showwarning("Выбор", "Не выбран ни один рассказчик.")
+                return
+            current = self.app.stage_prompts_config.get(self.current_stage, [])
+            sel_prompt = self.prompts_listbox.curselection()
+            insert_idx = sel_prompt[0] if sel_prompt else len(current)
+
+            added = 0
+            for idx in selected_indices:
+                item = listbox.get(idx)
+                match = re.search(r'\(id:([^)]+)\)', item)
+                if match:
+                    narr_id = match.group(1)
+                    entry = f"narrator:{narr_id}"
+                    if entry not in current:
+                        current.insert(insert_idx + added, entry)
+                        added += 1
+            if added:
+                self.app.stage_prompts_config[self.current_stage] = current
+                self._refresh_prompts_list()
+                self.app.save_stage_prompts_config()
+                messagebox.showinfo("Добавление", f"Добавлено {added} рассказчиков.")
+            else:
+                messagebox.showinfo("Добавление", "Выбранные рассказчики уже присутствуют в этапе.")
+            dialog.destroy()
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(btn_frame, text="Добавить выбранных", command=add_selected).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     def _remove_all_narrators(self):
         if not self.current_stage:
@@ -910,7 +960,6 @@ class StagePromptsTab(ttk.Frame):
     def refresh(self):
         self._refresh_prompts_list()
 
-    # ========== ИСПРАВЛЕННЫЙ МЕТОД (без диалога выбора количества) ==========
     def _add_history(self):
         if not self.current_stage:
             messagebox.showwarning("Ошибка", "Сначала выберите этап")
