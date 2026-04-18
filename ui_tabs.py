@@ -688,7 +688,7 @@ class StagePromptsTab(ttk.Frame):
         ("7. Финальный рассказ", "stage3_final"),
         ("8.1 Проверка истории", "stage8_history_check"),
         ("8.2 Валидация результата", "stage11_validation"),
-        ("11. Проверка значительных изменений", "stage11_significant_changes"),   # НОВАЯ СТАДИЯ
+        ("11. Проверка значительных изменений", "stage11_significant_changes"),
         ("9. Краткая память", "stage4_summary"),
         ("10. Ассоциативная память", "stage10_associative_memory"),
     ]
@@ -1030,18 +1030,14 @@ class HistoryTab(ttk.Frame):
         self.refresh()
 
     def _build_ui(self):
-        # Основной фрейм для таблицы и скроллов
         tree_frame = ttk.Frame(self)
         tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Создаем Treeview
         self.tree = ttk.Treeview(
             tree_frame,
             columns=("num", "user_msg", "assistant_msg", "importance"),
             show="headings"
         )
-        
-        # Настройка колонок
         self.tree.heading("num", text="№")
         self.tree.heading("user_msg", text="Сообщение пользователя")
         self.tree.heading("assistant_msg", text="Ответ ассистента")
@@ -1052,36 +1048,26 @@ class HistoryTab(ttk.Frame):
         self.tree.column("assistant_msg", width=300)
         self.tree.column("importance", width=100, anchor="center")
 
-        # Вертикальный скролл
         v_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscrollcommand=v_scroll.set)
-        
-        # Горизонтальный скролл
         h_scroll = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
         self.tree.configure(xscrollcommand=h_scroll.set)
 
-        # Размещение: Treeview слева, вертикальный скролл справа, горизонтальный внизу
         self.tree.grid(row=0, column=0, sticky="nsew")
         v_scroll.grid(row=0, column=1, sticky="ns")
         h_scroll.grid(row=1, column=0, sticky="ew")
-        
-        # Настройка веса, чтобы Treeview растягивался
         tree_frame.grid_rowconfigure(0, weight=1)
         tree_frame.grid_columnconfigure(0, weight=1)
 
-        # Привязка колесика мыши для вертикальной прокрутки
         def _on_mousewheel(event):
             self.tree.yview_scroll(int(-1*(event.delta/120)), "units")
         self.tree.bind("<MouseWheel>", _on_mousewheel)
-        # Для Linux (Button-4/5)
         self.tree.bind("<Button-4>", lambda e: self.tree.yview_scroll(-1, "units"))
         self.tree.bind("<Button-5>", lambda e: self.tree.yview_scroll(1, "units"))
 
-        # Привязка событий кликов
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<ButtonRelease-1>", self._on_click_importance)
 
-        # Информационная панель
         info_frame = ttk.LabelFrame(self, text="Справка")
         info_frame.pack(fill=tk.X, padx=5, pady=5)
         ttk.Label(info_frame, text="• Двойной клик по строке → просмотр полной пары.\n"
@@ -1100,9 +1086,14 @@ class HistoryTab(ttk.Frame):
             flags = flags[:len(pairs)]
         elif len(flags) < len(pairs):
             flags += [False] * (len(pairs) - len(flags))
+        # Синхронизируем оригинальный список, если он изменился
+        if len(self.app.significant_changes_flags) != len(flags):
+            self.app.significant_changes_flags = flags
+            self.app._save_current_session_safe()
         return pairs, flags
 
     def refresh(self):
+        """Обновляет таблицу, синхронизируя флаги с текущей историей."""
         if not self.tree:
             return
         for row in self.tree.get_children():
@@ -1129,6 +1120,7 @@ class HistoryTab(ttk.Frame):
         if idx < 0 or idx >= len(flags):
             return
         new_flag = not flags[idx]
+        # Обновляем флаг в основном списке приложения
         if idx < len(self.app.significant_changes_flags):
             self.app.significant_changes_flags[idx] = new_flag
         else:

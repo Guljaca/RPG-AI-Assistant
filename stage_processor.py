@@ -186,7 +186,7 @@ class StageProcessor:
         "stage3_final",
         "stage8_history_check",
         "stage11_validation",
-        "stage11_significant_changes",    # НОВАЯ СТАДИЯ 11
+        "stage11_significant_changes",
         "stage4_summary",
         "stage10_associative_memory"
     ]
@@ -249,7 +249,7 @@ class StageProcessor:
             "stage8_history_check",
             "stage10_associative_memory",
             "stage11_validation",
-            "stage11_significant_changes",   # НОВЫЙ ПРОМТ
+            "stage11_significant_changes",
             "compress_description",
             "dice_rules",
             "translator_system"
@@ -381,6 +381,9 @@ class StageProcessor:
                 self.main_app._finalize_generation_memory_turn()
                 self._save_current_session()
 
+        if hasattr(self.main_app, 'right_panel') and self.main_app.right_panel:
+            self.main_app.right_panel.refresh()
+
         if total_time:
             self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
 
@@ -413,13 +416,19 @@ class StageProcessor:
         return self.main_app.stage_retry_limits.get(stage_name, 2)
 
     # --------------------------------------------------------------------------
-    # Синхронное получение описаний объектов
+    # Синхронное получение описаний объектов с добавлением метки (ИГРОК)
     # --------------------------------------------------------------------------
     def _fetch_descriptions_sync(self, obj_ids: List[str]):
         for obj_id in obj_ids:
+            obj_id = str(obj_id)
             self._display_system(f"📦 Получение описания для {obj_id}...\n")
             try:
                 desc = self._get_object_description_with_local(obj_id)
+                # Добавляем метку (ИГРОК) для персонажа-игрока, если её нет
+                obj = self.main_app._get_object_by_id(obj_id)
+                if obj and hasattr(obj, 'is_player') and obj.is_player:
+                    if "(ИГРОК)" not in desc:
+                        desc += " (ИГРОК)"
                 self.stage_data["descriptions"][obj_id] = desc
                 self._display_system(f"✅ Описание {obj_id} получено.\n")
             except Exception as e:
@@ -454,7 +463,8 @@ class StageProcessor:
             if char:
                 assoc = self.main_app.get_associative_memory_for_object(cid)
                 assoc_str = f" ({assoc})" if assoc else ""
-                player_tag = ' (ИГРОК)' if char.is_player else ''
+                is_player = char.is_player   # прямой флаг из объекта
+                player_tag = ' (ИГРОК)' if is_player else ''
                 objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
@@ -520,8 +530,9 @@ class StageProcessor:
                     object_ids = list(args.values())[0]
 
                 if object_ids is not None and isinstance(object_ids, list) and object_ids:
-                    self._display_system(f"📦 Запрошены объекты: {object_ids}\n")
-                    self._fetch_descriptions_sync(object_ids)
+                    normalized_ids = [str(oid) for oid in object_ids]
+                    self._display_system(f"📦 Запрошены объекты: {normalized_ids}\n")
+                    self._fetch_descriptions_sync(normalized_ids)
                     self._stage1_create_scene()
                     return
                 else:
@@ -541,9 +552,24 @@ class StageProcessor:
         location_id = None
         if self.main_app.current_profile.enabled_locations:
             location_id = self.main_app.current_profile.enabled_locations[0]
-        character_ids = [cid for cid in self.main_app.current_profile.enabled_characters
-                        if not self.main_app.characters.get(cid, Character(is_player=False)).is_player]
+        # Определяем ID игрока по флагу is_player
+        player_id = None
+        for cid in self.main_app.current_profile.enabled_characters:
+            char = self.main_app.characters.get(cid)
+            if char and char.is_player:
+                player_id = cid
+                break
+        character_ids = []
+        for cid in self.main_app.current_profile.enabled_characters:
+            if cid != player_id:
+                character_ids.append(cid)
+        if player_id:
+            character_ids.insert(0, player_id)
         item_ids = self.main_app.current_profile.enabled_items[:3]
+
+        location_id = str(location_id) if location_id else None
+        character_ids = [str(cid) for cid in character_ids]
+        item_ids = [str(iid) for iid in item_ids]
 
         self.stage_data["scene_location_id"] = location_id
         self.stage_data["scene_character_ids"] = character_ids
@@ -591,7 +617,7 @@ class StageProcessor:
         self._log_debug(f"=== STAGE1.2: create_scene (attempt {retry_count+1}) ===")
         self._display_system(f"🎬 Этап 1.2/11: Создание сцены (попытка {retry_count+1})...\n")
 
-        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
+        descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items() if isinstance(desc, str)])
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_create_scene")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_create_scene' not found.")
@@ -971,7 +997,8 @@ class StageProcessor:
             if char:
                 assoc = self.main_app.get_associative_memory_for_object(cid)
                 assoc_str = f" ({assoc})" if assoc else ""
-                player_tag = ' (ИГРОК)' if char.is_player else ''
+                is_player = char.is_player
+                player_tag = ' (ИГРОК)' if is_player else ''
                 objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
@@ -1146,16 +1173,15 @@ class StageProcessor:
             self._stage2_npc_action()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 6: обработка NPC (действия)
+    # СТАДИЯ 6: обработка NPC (действия) – ИСПРАВЛЕНА: добавлено явное предупреждение модели не описывать игрока
     # --------------------------------------------------------------------------
     def _stage2_npc_action(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage2_npc_action", True):
-            self._log_debug("STAGE6_SKIPPED", "Stage6 (NPC) disabled")
             self._stage3_final()
             return
 
         if retry_count > 50:
-            self._display_error("❌ Критическая ошибка: слишком много попыток обработки NPC. Принудительный выход.\n")
+            self._display_error("❌ Критическая ошибка: слишком много попыток обработки NPC.\n")
             self._stage3_final()
             return
 
@@ -1163,10 +1189,14 @@ class StageProcessor:
         self._display_system(f"🎭 Этап 6/11: Обработка NPC (попытка {retry_count+1})...\n")
 
         all_chars = self.stage_data.get("scene_character_ids", [])
+        # Определяем NPC – персонажи, у которых is_player == False
         npc_ids = []
         for cid in all_chars:
-            char = self.main_app.characters.get(cid)
+            char = self.main_app.characters.get(str(cid))
             if char and not char.is_player:
+                npc_ids.append(cid)
+            elif char is None:
+                # если персонаж не найден, считаем NPC (на всякий случай)
                 npc_ids.append(cid)
 
         if not npc_ids:
@@ -1191,8 +1221,18 @@ class StageProcessor:
             self._stage2_npc_action(0)
             return
 
+        # Находим игрока для запрещающей инструкции
+        player_id = None
+        player_name = "игрок"
+        for cid in all_chars:
+            char = self.main_app.characters.get(str(cid))
+            if char and char.is_player:
+                player_id = cid
+                player_name = char.name
+                break
+
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
-        player_action = self.stage_data["player_action_desc"]
+        player_action = self.stage_data.get("user_message", "")
         event_desc = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else "Нет события"
 
         previous = []
@@ -1213,6 +1253,10 @@ class StageProcessor:
             event_description=event_desc,
             previous_actions=previous_text
         )
+
+        # Добавляем явное предупреждение, чтобы модель не описывала действия игрока
+        warning = f"\n\n**ВАЖНО:** Ты описываешь действие только персонажа {npc.name}. Не описывай действия, мысли или речь игрока {player_name}. Не пиши от лица игрока."
+        user_data += warning
 
         extra_context = {
             "npc_name": npc.name,
@@ -1284,93 +1328,69 @@ class StageProcessor:
         self._display_system(f"📖 Этап 7/11: Генерация финального ответа (попытка {retry_count+1})...\n")
 
         location_id = self.stage_data.get("scene_location_id")
-        location_desc = self.stage_data["descriptions"].get(location_id, "Локация") if location_id else "Неизвестно"
+        if location_id:
+            loc_obj = self.main_app._get_object_by_id(location_id)
+            loc_desc = self.stage_data["descriptions"].get(location_id, "")
+            if loc_obj:
+                location_full_name = f"{loc_obj.name}: {loc_desc}" if loc_desc else loc_obj.name
+            else:
+                location_full_name = f"{location_id}: {loc_desc}" if loc_desc else location_id
+        else:
+            location_full_name = "Неизвестно"
 
-        npc_actions_text = ""
-        for cid in self.stage_data.get("scene_character_ids", []):
+        # Формируем описание действий NPC
+        npc_actions_lines = []
+        for cid, action in self.stage_data.get("npc_actions", {}).items():
             char = self.main_app.characters.get(cid)
-            if char and not char.is_player and cid in self.stage_data["npc_actions"]:
-                npc_actions_text += f"{char.name}: {self.stage_data['npc_actions'][cid]}\n"
+            name = char.name if char else cid
+            npc_actions_lines.append(f"{name}: {action}")
+        npc_actions_text = "\n".join(npc_actions_lines) if npc_actions_lines else "Нет активных NPC"
 
-        player_outcome = self.stage_data["player_action_desc"]
-        event_desc = self.stage_data["event_desc"] if self.stage_data["event_occurred"] else ""
+        event_desc = self.stage_data["event_desc"] if self.stage_data.get("event_occurred", False) else ""
 
-        if "npc_dice_map" not in self.stage_data or retry_count == 0:
+        # Получаем словарь бросков NPC только для NPC (не игроков)
+        npc_dice_map = self.stage_data.get("npc_dice_map")
+        if npc_dice_map is None:
             npc_dice_map = {}
             for cid in self.stage_data.get("scene_character_ids", []):
                 char = self.main_app.characters.get(cid)
                 if char and not char.is_player:
                     npc_dice_map[cid] = self._pop_dice('d20')
             self.stage_data["npc_dice_map"] = npc_dice_map
-        else:
-            npc_dice_map = self.stage_data["npc_dice_map"]
 
-        npc_dice_results = []
+        # Формируем сводку по броскам NPC
+        npc_dice_lines = []
         for cid, dice_val in npc_dice_map.items():
             char = self.main_app.characters.get(cid)
             if char:
-                if dice_val == 1:
-                    result = "крит.провал"
-                elif 2 <= dice_val <= 4:
-                    result = "провал"
-                elif 5 <= dice_val <= 15:
-                    result = "успех"
-                elif 16 <= dice_val <= 19:
-                    result = "большой успех"
-                else:
-                    result = "крит.успех"
-                npc_dice_results.append(f"{char.name}: d20={dice_val} → {result}")
-        dice_summary = "\n".join(npc_dice_results) if npc_dice_results else "Нет NPC"
+                npc_dice_lines.append(f"{char.name}: d20={dice_val}")
+        dice_summary = "\n".join(npc_dice_lines) if npc_dice_lines else "Нет NPC"
 
-        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage3_final")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage3_final' not found.")
 
-        characters_context = self._get_characters_context()
-
-        last_assistant_msg = ""
-        if self.main_app.conversation_history:
-            for msg in reversed(self.main_app.conversation_history):
-                if msg["role"] == "assistant":
-                    last_assistant_msg = msg["content"]
-                    break
-
-        anti_repeat_warning = ""
-        if last_assistant_msg:
-            anti_repeat_warning = f"\n\n**ПРЕДУПРЕЖДЕНИЕ:** Последний ответ ассистента был:\n\"{last_assistant_msg[:200]}...\"\nТвой ответ НЕ ДОЛЖЕН быть копией этого текста. Опиши новые события, учитывая результат действия игрока: {player_outcome}\n"
+        characters_context = self._get_characters_context_with_presence()
 
         user_data = prompt_template.format(
-            location_desc=location_desc,
-            player_action_outcome=player_outcome,
+            location_desc=location_full_name,
             event_description=event_desc,
             npcs_actions=npc_actions_text,
-            dice_results=dice_summary,
-            dice_rules=dice_rules,
-            characters_context=characters_context
+            dice_results=dice_summary
         )
-        user_data += anti_repeat_warning
 
         if not self.stage_data.get("npc_actions") and not self.stage_data.get("event_occurred"):
-            user_data += (
-                "\n\n**ВАЖНО:** В этой сцене нет активных NPC и не произошло случайного события. "
-                "Ты ОБЯЗАН продвинуть сюжет: опиши, как проходит некоторое время, или добавь внешнее изменение "
-                "(звук, скрип, чей-то голос), или заставь NPC (если он есть) совершить простое действие. "
-                "Не оставляй сцену замороженной."
-            )
-            self._display_system("⚠️ Сцена статична – добавлена инструкция принудительного развития.\n")
+            user_data += "\n\n**ВАЖНО:** В этой сцене нет активных NPC и не произошло случайного события. Опиши изменение окружения или продвижение времени."
 
         system_styles = self._get_system_styles()
         if system_styles:
             user_data = system_styles + "\n\n" + user_data
 
         extra_context = {
-            "location_desc": location_desc,
-            "player_action_outcome": player_outcome,
+            "location_desc": location_full_name,
             "event_description": event_desc,
             "npcs_actions": npc_actions_text,
             "dice_results": dice_summary,
-            "dice_rules": dice_rules,
             "characters_context": characters_context
         }
         full_context = {**self.stage_data, **extra_context}
@@ -1433,8 +1453,7 @@ class StageProcessor:
         character_ids = []
         item_ids = []
         for obj_id in obj_ids:
-            if not isinstance(obj_id, str):
-                continue
+            obj_id = str(obj_id)
             if obj_id.startswith('l'):
                 if location_id is None:
                     location_id = obj_id
@@ -1447,14 +1466,16 @@ class StageProcessor:
             location_id = self.main_app.current_profile.enabled_locations[0]
             self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
 
-        player_found = any(self.main_app.characters.get(cid, Character(is_player=False)).is_player for cid in character_ids)
-        if not player_found:
-            for cid in self.main_app.current_profile.enabled_characters:
-                char = self.main_app.characters.get(cid)
-                if char and char.is_player:
-                    character_ids.insert(0, cid)
-                    self._display_system(f"➕ Добавлен игрок {cid} в сцену.\n")
-                    break
+        # Определяем игрока по флагу is_player
+        player_id = None
+        for cid in self.main_app.current_profile.enabled_characters:
+            char = self.main_app.characters.get(cid)
+            if char and char.is_player:
+                player_id = cid
+                break
+        if player_id and player_id not in character_ids:
+            character_ids.insert(0, player_id)
+            self._display_system(f"➕ Добавлен игрок {player_id} в сцену.\n")
 
         self.stage_data["scene_location_id"] = location_id
         self.stage_data["scene_character_ids"] = character_ids
@@ -1490,18 +1511,15 @@ class StageProcessor:
         final = self._strip_function_wrapper(final)
         final = final.replace('\\n', '\n')
 
-        # Удаляем оставшиеся вызовы функций
         final = re.sub(r'\b(check_history|validate_response|act|report_\w+)\s*\([^)]*\)', '', final, flags=re.DOTALL)
         final = re.sub(r'\n{3,}', '\n\n', final)
 
-        # Проверка на повтор предыдущего ответа
         last_assistant_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
                 if msg["role"] == "assistant":
                     last_assistant_msg = msg["content"]
                     break
-
         if last_assistant_msg and final.strip() == last_assistant_msg.strip():
             self._display_error("⚠️ Обнаружен повтор предыдущего ответа. Перегенерация...\n")
             limit = self._get_retry_limit("stage3_final")
@@ -1511,7 +1529,20 @@ class StageProcessor:
             else:
                 final = final + " (События не изменились, но момент застыл.)"
 
-        # УДАЛЕН БЛОК forbidden_starts — он нарушает универсальность и может обрезать валидные ответы
+        last_user_msg = ""
+        if self.main_app.conversation_history:
+            for msg in reversed(self.main_app.conversation_history):
+                if msg["role"] == "user":
+                    last_user_msg = msg["content"]
+                    break
+        if last_user_msg and final.strip() == last_user_msg.strip():
+            self._display_error("⚠️ Обнаружен повтор сообщения пользователя. Перегенерация...\n")
+            limit = self._get_retry_limit("stage3_final")
+            if retry_count < limit:
+                self._stage3_final(retry_count+1)
+                return
+            else:
+                final = final + " (Рассказчик продолжает повествование.)"
 
         self.stage_data["final_response"] = final
         self.original_final_response = final
@@ -1519,7 +1550,7 @@ class StageProcessor:
         self._stage8_history_check()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 8.1: Проверка истории (упрощённая, без циклов) - МОДИФИЦИРОВАНА
+    # СТАДИЯ 8.1: Проверка истории
     # --------------------------------------------------------------------------
     def _stage8_history_check(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage8_history_check", True):
@@ -1530,36 +1561,31 @@ class StageProcessor:
         self._log_debug(f"=== STAGE8.1: history_check (attempt {retry_count+1}) ===")
         self._display_system(f"📜 Этап 8.1/11: Проверка истории (попытка {retry_count+1})...\n")
 
-        # Собираем пары user-assistant из истории
         history = self.main_app.conversation_history
         pairs = []
         for i in range(len(history) - 1):
             if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
                 pairs.append((history[i]["content"], history[i+1]["content"]))
-        
-        # Если текущий ответ уже добавлен в историю (обычно ещё нет), исключаем последнюю пару
+
         if pairs and self.stage_data.get("final_response"):
             last_pair = pairs[-1]
             if last_pair[1] == self.stage_data["final_response"]:
                 pairs = pairs[:-1]
 
         max_history = self.main_app.stage_memory_config.get("stage8_history_check", {}).get("max_history", 10)
-        
-        # Фильтрация пар в зависимости от включённости стадии 11
+
         if self.main_app.enabled_stages.get("stage11_significant_changes", True):
-            # Стадия 11 включена: используем только пары с флагом значительных изменений
             flags = self.main_app.significant_changes_flags
-            # Флаги соответствуют парам в порядке их добавления. Длина flags может быть меньше количества пар
             filtered_pairs = []
             for idx, pair in enumerate(pairs):
                 if idx < len(flags) and flags[idx]:
                     filtered_pairs.append(pair)
-            # Ограничиваем количество
+            if not filtered_pairs and pairs:
+                filtered_pairs = [pairs[-1]]
             if len(filtered_pairs) > max_history:
                 filtered_pairs = filtered_pairs[-max_history:]
             pairs = filtered_pairs
         else:
-            # Стадия 11 отключена: берём все последние пары (ограниченные max_history)
             if len(pairs) > max_history:
                 pairs = pairs[-max_history:]
 
@@ -1575,7 +1601,6 @@ class StageProcessor:
             self._stage11_validation()
             return
 
-        # Получаем результат стадии 11 для предыдущего ответа (если есть)
         prev_significant = "неизвестно"
         if hasattr(self.main_app, 'significant_changes_flags') and self.main_app.significant_changes_flags:
             prev_significant = "да" if self.main_app.significant_changes_flags[-1] else "нет"
@@ -1610,60 +1635,21 @@ class StageProcessor:
         self._log_full_response("stage8_history_check", content)
         extracted = self._extract_check_history_content(content)
 
-        # --- ДОПОЛНИТЕЛЬНАЯ ЛОГИКА: проверка на невыполненные обещания ---
-        if extracted is None or extracted.strip() == "":
-            current_response = self.stage_data.get("final_response", "")
-            # Получаем предыдущие пары с флагом True
-            history = self.main_app.conversation_history
-            pairs = []
-            for i in range(len(history) - 1):
-                if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
-                    pairs.append((history[i]["content"], history[i+1]["content"]))
-            flags = getattr(self.main_app, 'significant_changes_flags', [])
-            prev_promises = []
-            for idx, (user_msg, asst_msg) in enumerate(pairs):
-                if idx < len(flags) and flags[idx]:
-                    lower = asst_msg.lower()
-                    # Универсальные фразы-маркеры обещаний/планов
-                    if any(phrase in lower for phrase in [
-                        "пойдём", "давай", "нужно", "должен", "сделаем", 
-                        "приготовлю", "скоро будет", "собираюсь", "планирую",
-                        "надо", "обязательно", "пора", "время"
-                    ]):
-                        prev_promises.append(asst_msg)
-            if prev_promises and current_response:
-                current_lower = current_response.lower()
-                promise_kept = False
-                for promise in prev_promises:
-                    # Извлекаем ключевые слова (первые 3-5 значимых слов)
-                    words = [w for w in promise.split() if len(w) > 3][:5]
-                    if any(w in current_lower for w in words):
-                        promise_kept = True
-                        break
-                if not promise_kept:
-                    self._display_system("⚠️ Обнаружено невыполненное обещание из предыдущей истории. Требуется исправление.\n")
-                    max_retries = self._get_retry_limit("stage8_history_check")
-                    if retry_count < max_retries:
-                        self._stage8_history_check(retry_count + 1)
-                        return
-                    else:
-                        # Добавляем нейтральное продолжение, чтобы сцена не застыла
-                        self.stage_data["final_response"] += " (Продолжение следует ожидаемым действиям.)"
-        # --- КОНЕЦ ДОПОЛНИТЕЛЬНОЙ ЛОГИКИ ---
+        if extracted is not None and extracted.strip() in ("", "исправленный текст", "исправленный текст\""):
+            self._display_system("⚠️ Модель не предоставила реального исправления. Изменения отклонены.\n")
+            self._stage11_validation()
+            return
 
-        if extracted is not None and extracted.strip() != "" and extracted.strip() != "check_history([\"\"])":
-            if extracted.strip() == "":
-                self._display_system("✅ Проверка истории: всё в порядке.\n")
+        if extracted is not None and extracted.strip() != "":
+            corrected = extracted.replace('\\n', '\n')
+            corrected = self._strip_function_wrapper(corrected)
+            if self._is_valid_narrative_text(corrected) and len(corrected) > 20:
+                self.stage_data["final_response"] = corrected
+                self._display_system("⚠️ Ответ исправлен по результатам проверки истории.\n")
             else:
-                corrected = extracted.replace('\\n', '\n')
-                corrected = self._strip_function_wrapper(corrected)
-                if self._is_valid_narrative_text(corrected) and len(corrected) > 20:
-                    self.stage_data["final_response"] = corrected
-                    self._display_system("⚠️ Ответ исправлен по результатам проверки истории.\n")
-                else:
-                    self._display_system("⚠️ Получен некорректный исправленный текст. Изменения отклонены.\n")
+                self._display_system("⚠️ Получен некорректный исправленный текст. Изменения отклонены.\n")
         else:
-            self._display_system("⚠️ Модель не вызвала check_history или вернула пустой ответ. Считаем, что изменений не требуется.\n")
+            self._display_system("✅ Проверка истории: всё в порядке.\n")
 
         self._stage11_validation()
 
@@ -1673,7 +1659,7 @@ class StageProcessor:
     def _stage11_validation(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_validation", True):
             self._log_debug("STAGE11_SKIPPED", "Stage11 (validation) disabled")
-            self._stage11_significant_changes()   # переход к новой стадии 11
+            self._stage11_significant_changes()
             return
 
         self._log_debug(f"=== STAGE11: validation (attempt {retry_count+1}) ===")
@@ -1716,23 +1702,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage11_validation")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage11_validation' not found.")
-        user_data = prompt_template.format(
-            scene_location_id=scene_location_id,
-            scene_character_ids=scene_character_ids,
-            scene_item_ids=scene_item_ids,
-            descriptions=descriptions,
-            player_action_desc=player_action_desc,
-            player_action_dice=player_action_dice,
-            event_occurred=event_occurred,
-            event_occurrence_dice=event_occurrence_dice,
-            event_quality_dice=event_quality_dice,
-            event_desc=event_desc,
-            npc_actions=npc_actions,
-            dice_summary_npc=dice_summary_npc,
-            final_response=final_response
-        )
 
-        extra_context = {
+        format_args = {
             "scene_location_id": scene_location_id,
             "scene_character_ids": scene_character_ids,
             "scene_item_ids": scene_item_ids,
@@ -1747,6 +1718,22 @@ class StageProcessor:
             "dice_summary_npc": dice_summary_npc,
             "final_response": final_response
         }
+        if "{prev_user_message}" in prompt_template:
+            prev_user_msg = ""
+            if self.main_app.conversation_history:
+                for msg in reversed(self.main_app.conversation_history):
+                    if msg["role"] == "user":
+                        prev_user_msg = msg["content"]
+                        break
+            format_args["prev_user_message"] = prev_user_msg
+
+        try:
+            user_data = prompt_template.format(**format_args)
+        except KeyError as e:
+            self._log_debug("ERROR", f"Missing key in stage11_validation format: {e}")
+            user_data = prompt_template
+
+        extra_context = format_args.copy()
         full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
@@ -1838,7 +1825,6 @@ class StageProcessor:
         self._log_debug(f"=== STAGE11: significant_changes (attempt {retry_count+1}) ===")
         self._display_system(f"🔍 Этап 11/11: Проверка значительных изменений (попытка {retry_count+1})...\n")
 
-        # Берём две последние пары user-assistant
         history = self.main_app.conversation_history
         pairs = []
         for i in range(len(history) - 1):
@@ -1846,12 +1832,10 @@ class StageProcessor:
                 pairs.append((history[i]["content"], history[i+1]["content"]))
 
         if len(pairs) < 2:
-            # Недостаточно данных для сравнения
             self._display_system("Недостаточно истории для проверки значительных изменений.\n")
             self._finalize_significant_changes(False)
             return
 
-        # Формируем текущую пару (последнее сообщение пользователя и текущий ответ)
         last_user_msg = ""
         if self.main_app.conversation_history and self.main_app.conversation_history[-1]["role"] == "user":
             last_user_msg = self.main_app.conversation_history[-1]["content"]
@@ -1859,25 +1843,26 @@ class StageProcessor:
             last_user_msg = self.stage_data.get("original_user_message", "")
         curr_pair = (last_user_msg, self.stage_data.get("final_response", ""))
 
-        prev_pair = pairs[-2]   # предыдущая пара из истории
+        prev_pair = pairs[-2]
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage11_significant_changes")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage11_significant_changes' not found.")
 
-        user_data = prompt_template.format(
-            prev_user_message=prev_pair[0],
-            prev_assistant_message=prev_pair[1],
-            curr_user_message=curr_pair[0],
-            curr_assistant_message=curr_pair[1]
-        )
-
-        extra_context = {
+        format_args = {
             "prev_user_message": prev_pair[0],
             "prev_assistant_message": prev_pair[1],
             "curr_user_message": curr_pair[0],
             "curr_assistant_message": curr_pair[1]
         }
+        try:
+            user_data = prompt_template.format(**format_args)
+        except KeyError as e:
+            self._log_debug("ERROR", f"Missing key in stage11_significant_changes format: {e}")
+            user_data = prompt_template
+            self._display_error(f"⚠️ Промт stage11_significant_changes требует отсутствующий ключ: {e}\n")
+
+        extra_context = format_args.copy()
         full_context = {**self.stage_data, **extra_context}
 
         self._send_request(
@@ -1895,21 +1880,17 @@ class StageProcessor:
         self._log_full_response("stage11_significant_changes", content)
 
         significant = False
-        # Пытаемся распарсить вызов функции report_significant_changes([...])
         tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_significant_changes"])
         if tool_calls:
             try:
                 args = json.loads(tool_calls[-1]["function"]["arguments"])
-                # Ожидаем, что args будет списком, например [True] или [False]
                 if isinstance(args, list) and len(args) > 0:
                     significant = bool(args[0])
                 elif isinstance(args, dict):
-                    # fallback для старого формата
                     significant = args.get("significant", False)
             except Exception as e:
                 self._log_debug("ERROR", f"Failed to parse report_significant_changes: {e}")
         else:
-            # Если вызов не найден, пробуем найти в тексте булево значение
             content_lower = content.lower()
             if "true" in content_lower or "yes" in content_lower or "да" in content_lower:
                 significant = True
@@ -1919,14 +1900,10 @@ class StageProcessor:
         self._finalize_significant_changes(significant)
 
     def _finalize_significant_changes(self, significant: bool):
-        # Сохраняем флаг в main_app
         if not hasattr(self.main_app, 'significant_changes_flags'):
             self.main_app.significant_changes_flags = []
         self.main_app.significant_changes_flags.append(significant)
-        # Сохраняем сессию, чтобы флаг не потерялся
-        self.main_app._save_current_session_safe()
         self._display_system(f"{'✅' if significant else '❌'} Значительные изменения: {'да' if significant else 'нет'}\n")
-        # Переход к следующей стадии (summary)
         self._stage4_summary()
 
     # --------------------------------------------------------------------------
@@ -1984,89 +1961,6 @@ class StageProcessor:
             self._display_system("⚠️ Не удалось получить краткую память.\n")
         self._stage10_associative_memory()
 
-    def _stage8_history_check(self, retry_count=0):
-        if not self.main_app.enabled_stages.get("stage8_history_check", True):
-            self._log_debug("STAGE8_HISTORY_SKIPPED", "Stage8 (history_check) disabled")
-            self._stage11_validation()
-            return
-
-        self._log_debug(f"=== STAGE8.1: history_check (attempt {retry_count+1}) ===")
-        self._display_system(f"📜 Этап 8.1/11: Проверка истории (попытка {retry_count+1})...\n")
-
-        # Собираем пары user-assistant из истории
-        history = self.main_app.conversation_history
-        pairs = []
-        for i in range(len(history) - 1):
-            if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
-                pairs.append((history[i]["content"], history[i+1]["content"]))
-        
-        # Если текущий ответ уже добавлен в историю (обычно ещё нет), исключаем последнюю пару
-        if pairs and self.stage_data.get("final_response"):
-            last_pair = pairs[-1]
-            if last_pair[1] == self.stage_data["final_response"]:
-                pairs = pairs[:-1]
-
-        max_history = self.main_app.stage_memory_config.get("stage8_history_check", {}).get("max_history", 10)
-        
-        # Фильтрация пар в зависимости от включённости стадии 11
-        if self.main_app.enabled_stages.get("stage11_significant_changes", True):
-            flags = self.main_app.significant_changes_flags
-            filtered_pairs = []
-            for idx, pair in enumerate(pairs):
-                if idx < len(flags) and flags[idx]:
-                    filtered_pairs.append(pair)
-            # Если после фильтрации не осталось пар, берём последнюю пару (даже с False)
-            if not filtered_pairs and pairs:
-                filtered_pairs = [pairs[-1]]
-            if len(filtered_pairs) > max_history:
-                filtered_pairs = filtered_pairs[-max_history:]
-            pairs = filtered_pairs
-        else:
-            if len(pairs) > max_history:
-                pairs = pairs[-max_history:]
-
-        old_histories_text = ""
-        for idx, (user_msg, asst_msg) in enumerate(pairs):
-            old_histories_text += f"История {idx+1}:\nПользователь: {user_msg}\nАссистент: {asst_msg}\n\n"
-
-        if not old_histories_text:
-            old_histories_text = "Нет предыдущих историй."
-
-        current_response = self.stage_data.get("final_response", "")
-        if not current_response:
-            self._stage11_validation()
-            return
-
-        # Получаем результат стадии 11 для предыдущего ответа (если есть)
-        prev_significant = "неизвестно"
-        if hasattr(self.main_app, 'significant_changes_flags') and self.main_app.significant_changes_flags:
-            prev_significant = "да" if self.main_app.significant_changes_flags[-1] else "нет"
-
-        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage8_history_check")
-        if not prompt_template:
-            raise FileNotFoundError("Prompt 'stage8_history_check' not found.")
-        user_data = prompt_template.format(
-            assoc_memory=old_histories_text,
-            new_histories=f"Новый ответ ассистента:\n{current_response}",
-            significant_changes_previous=prev_significant
-        )
-
-        extra_context = {
-            "old_histories": old_histories_text,
-            "current_response": current_response,
-            "significant_changes_previous": prev_significant
-        }
-        full_context = {**self.stage_data, **extra_context}
-
-        self._send_request(
-            user_data=user_data,
-            callback=lambda content, extra: self._after_stage8_history_check(content, extra, retry_count),
-            extra={"retry_count": retry_count},
-            stage_name="stage8_history_check",
-            use_temp=False,
-            show_in_thinking=True,
-            context_data=full_context
-        )
     # --------------------------------------------------------------------------
     # СТАДИЯ 10: ассоциативная память объектов
     # --------------------------------------------------------------------------
@@ -2157,7 +2051,6 @@ class StageProcessor:
         if not text or len(text) < 10:
             return False
         forbidden = [
-            "ok, i'm ready", "let me think", "i'll analyze",
             "как редактор", "я проверю", "приступим",
             "let me check", "i'm going to", "look at the history"
         ]
@@ -2165,34 +2058,15 @@ class StageProcessor:
         if any(phrase in lower_text for phrase in forbidden):
             return False
         return True
-
-    def _get_characters_context(self) -> str:
-        """Формирует строку со списком персонажей сцены (ID, имя, роль, краткое описание). Без привязки к конкретным ID."""
+    
+    def _get_characters_context_with_presence(self) -> str:
+        """Возвращает описания ТОЛЬКО NPC (без игрока) для передачи в финальный промт."""
         lines = []
-        # Добавляем игрока
-        player_id = None
-        for cid in self.stage_data.get("scene_character_ids", []):
-            char = self.main_app.characters.get(cid)
-            if char and char.is_player:
-                player_id = cid
-                break
-        if player_id:
-            char = self.main_app.characters.get(player_id)
-            if char:
-                desc = self.stage_data["descriptions"].get(player_id, "Нет описания")
-                lines.append(f"• {player_id} – {char.name} (ИГРОК) – {desc[:100]}")
-        # Добавляем NPC
         for cid in self.stage_data.get("scene_character_ids", []):
             char = self.main_app.characters.get(cid)
             if char and not char.is_player:
                 desc = self.stage_data["descriptions"].get(cid, "Нет описания")
-                # Определяем роль из отношений, если есть (универсально)
-                role = "NPC"
-                if hasattr(char, 'relationship') and char.relationship:
-                    role = char.relationship
-                elif hasattr(char, 'role') and char.role:
-                    role = char.role
-                lines.append(f"• {cid} – {char.name} ({role}) – {desc[:100]}")
-        if not lines:
-            return "Нет персонажей."
-        return "\n".join(lines)
+                if len(desc) > 300:
+                    desc = desc[:300] + "..."
+                lines.append(f"• {char.name} – {desc}")
+        return "\n".join(lines) if lines else "Нет других персонажей."

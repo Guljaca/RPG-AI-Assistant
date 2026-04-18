@@ -1,6 +1,6 @@
 # models.py
 from dataclasses import dataclass, field, asdict
-from typing import List
+from typing import List, Optional
 
 @dataclass
 class BaseObject:
@@ -41,6 +41,7 @@ class GameProfile:
     enabled_characters: List[str] = field(default_factory=list)
     enabled_locations: List[str] = field(default_factory=list)
     enabled_items: List[str] = field(default_factory=list)
+    player_character_id: Optional[str] = None   # <-- ДОБАВЛЕНО
 
     def to_dict(self) -> dict:
         return {
@@ -48,7 +49,8 @@ class GameProfile:
             "enabled_narrators": self.enabled_narrators,
             "enabled_characters": self.enabled_characters,
             "enabled_locations": self.enabled_locations,
-            "enabled_items": self.enabled_items
+            "enabled_items": self.enabled_items,
+            "player_character_id": self.player_character_id   # <--
         }
 
     @classmethod
@@ -58,5 +60,6 @@ class GameProfile:
             enabled_narrators=data.get("enabled_narrators", []),
             enabled_characters=data.get("enabled_characters", []),
             enabled_locations=data.get("enabled_locations", []),
-            enabled_items=data.get("enabled_items", [])
+            enabled_items=data.get("enabled_items", []),
+            player_character_id=data.get("player_character_id")   # <--
         )

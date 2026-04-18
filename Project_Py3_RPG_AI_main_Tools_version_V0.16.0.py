@@ -818,7 +818,6 @@ class MainApp(tk.Tk):
             messagebox.showerror("Ошибка", f"Неизвестный класс для {obj_type}")
             return
 
-        is_new = False
         if obj_id and obj_id in objects_dict:
             obj = objects_dict[obj_id]
             obj.name = name
@@ -827,6 +826,15 @@ class MainApp(tk.Tk):
                 obj.is_player = data["is_player"]
             self.storage.save_object(obj_type, obj)
             action = "обновлён"
+            
+            # Синхронизация player_character_id
+            if obj_type == "characters":
+                if obj.is_player and self.current_profile.player_character_id != obj.id:
+                    self.current_profile.player_character_id = obj.id
+                    self.storage.save_profile(self.current_profile)
+                elif not obj.is_player and self.current_profile.player_character_id == obj.id:
+                    self.current_profile.player_character_id = None
+                    self.storage.save_profile(self.current_profile)
         else:
             kwargs = {"name": name, "description": desc}
             if obj_type == "characters":
@@ -835,8 +843,10 @@ class MainApp(tk.Tk):
             self.storage.save_object(obj_type, obj)
             objects_dict[obj.id] = obj
             action = "создан"
-            is_new = True
             self._add_to_profile_if_not_exists(obj_type, obj.id)
+            if obj_type == "characters" and obj.is_player:
+                self.current_profile.player_character_id = obj.id
+                self.storage.save_profile(self.current_profile)
 
         self._refresh_all_ui()
         self._save_current_session_safe()
@@ -865,6 +875,12 @@ class MainApp(tk.Tk):
         objects_dict = getattr(self, obj_type)
         objects_dict[obj.id] = obj
         self._add_to_profile_if_not_exists(obj_type, obj.id)
+        
+        # Синхронизация player_character_id
+        if obj_type == "characters" and obj.is_player:
+            self.current_profile.player_character_id = obj.id
+            self.storage.save_profile(self.current_profile)
+        
         self._refresh_all_ui()
         self._save_current_session_safe()
         messagebox.showinfo("Создано", f"{cls.__name__} '{name}' создан (ID: {obj.id}).")
@@ -881,6 +897,12 @@ class MainApp(tk.Tk):
         self.storage.delete_object(obj_type, obj_id)
         del objects_dict[obj_id]
         self._remove_from_profile(obj_type, obj_id)
+        
+        # Синхронизация player_character_id
+        if obj_type == "characters" and self.current_profile.player_character_id == obj_id:
+            self.current_profile.player_character_id = None
+            self.storage.save_profile(self.current_profile)
+        
         self._refresh_all_ui()
         self._save_current_session_safe()
         if obj_type == "narrators":
@@ -1018,6 +1040,18 @@ class MainApp(tk.Tk):
         if not default["translator_model"] or default["translator_model"] == "local-model":
             default["translator_model"] = default["model_name"]
         return default
+    
+    def _sync_significant_flags_with_history(self):
+        """Синхронизирует список significant_changes_flags с количеством пар user-assistant в истории."""
+        history = self.conversation_history
+        pairs_count = 0
+        for i in range(0, len(history) - 1, 2):
+            if history[i]['role'] == 'user' and history[i+1]['role'] == 'assistant':
+                pairs_count += 1
+        if len(self.significant_changes_flags) > pairs_count:
+            self.significant_changes_flags = self.significant_changes_flags[:pairs_count]
+        elif len(self.significant_changes_flags) < pairs_count:
+            self.significant_changes_flags += [False] * (pairs_count - len(self.significant_changes_flags))
 
     def save_settings(self):
         with open(self.settings_file, "w") as f:
@@ -1046,6 +1080,7 @@ class MainApp(tk.Tk):
     def _save_current_session_safe(self):
         if not self.current_session_id:
             return
+        self._sync_significant_flags_with_history()   # синхронизация перед сохранением
         session_data = self.storage.load_session(self.current_session_id)
         if not session_data:
             session_data = {
@@ -1058,7 +1093,7 @@ class MainApp(tk.Tk):
                 "associative_memory": self.associative_memory,
                 "memory_turn_index": self.memory_turn_index,
                 "assoc_turn_changes": self.assoc_turn_changes,
-                "significant_changes_flags": self.significant_changes_flags,   # НОВОЕ
+                "significant_changes_flags": self.significant_changes_flags,
             }
         else:
             session_data["profile"] = self.current_profile.to_dict()
@@ -1068,7 +1103,7 @@ class MainApp(tk.Tk):
             session_data["associative_memory"] = self.associative_memory
             session_data["memory_turn_index"] = self.memory_turn_index
             session_data["assoc_turn_changes"] = self.assoc_turn_changes
-            session_data["significant_changes_flags"] = self.significant_changes_flags   # НОВОЕ
+            session_data["significant_changes_flags"] = self.significant_changes_flags
         session_data["last_used"] = datetime.now().isoformat()
         self.storage.save_session(self.current_session_id, session_data)
 
@@ -1111,7 +1146,7 @@ class MainApp(tk.Tk):
             self.associative_memory = {}
             self.memory_turn_index = []
             self.assoc_turn_changes = []
-            self.significant_changes_flags = []   # НОВОЕ
+            self.significant_changes_flags = []
             if self.is_generating:
                 self.stop_generation_flag = True
             self.conversation_history = []
@@ -1167,6 +1202,7 @@ class MainApp(tk.Tk):
         self._sync_last_user_message()
         self.last_original_response = None
         self.last_translated_response = None
+        self._sync_significant_flags_with_history()   # дополнительная синхронизация
         self._save_current_session_safe()
         self.center_panel.clear_chat()
         for msg in self.conversation_history:
@@ -1181,7 +1217,7 @@ class MainApp(tk.Tk):
             self.associative_memory = {}
             self.memory_turn_index = []
             self.assoc_turn_changes = []
-            self.significant_changes_flags = []   # НОВОЕ
+            self.significant_changes_flags = []
             if self.current_session_id:
                 self._save_current_session_safe()
             session_id = str(uuid.uuid4())
@@ -1204,7 +1240,7 @@ class MainApp(tk.Tk):
                 "associative_memory": {},
                 "memory_turn_index": [],
                 "assoc_turn_changes": [],
-                "significant_changes_flags": []   # НОВОЕ
+                "significant_changes_flags": []
             }
             self.storage.save_session(session_id, session_data)
             self.current_session_id = session_id
@@ -1247,6 +1283,9 @@ class MainApp(tk.Tk):
 
             self.current_session_id = session_id
             self.current_profile = GameProfile.from_dict(session_data.get("profile", {}))
+            # Убедимся, что поле существует
+            if not hasattr(self.current_profile, 'player_character_id'):
+                self.current_profile.player_character_id = None
 
             # Очистка дубликатов сообщений ассистента подряд
             raw_history = session_data.get("history", [])
@@ -1263,6 +1302,9 @@ class MainApp(tk.Tk):
             self.memory_turn_index = session_data.get("memory_turn_index", [])
             self.assoc_turn_changes = session_data.get("assoc_turn_changes", [])
             self.significant_changes_flags = session_data.get("significant_changes_flags", [])
+
+            # Синхронизируем флаги с историей
+            self._sync_significant_flags_with_history()
 
             if self.max_associative_memory_entries > 0:
                 for obj_id in list(self.associative_memory.keys()):
@@ -1287,6 +1329,10 @@ class MainApp(tk.Tk):
             self._refresh_all_ui()
             self.center_panel.update_translation_button_state()
             self.center_panel.update_token_count(0, 0)
+
+            # Обновляем правую панель, чтобы флаги отобразились во вкладке "История"
+            if self.right_panel:
+                self.right_panel.refresh()
 
             session_data["last_used"] = datetime.now().isoformat()
             self.storage.save_session(session_id, session_data)
@@ -1392,8 +1438,9 @@ class MainApp(tk.Tk):
                             self.associative_memory[obj_id].remove(change)
                         if not self.associative_memory[obj_id]:
                             del self.associative_memory[obj_id]
-            if self.significant_changes_flags:   # НОВОЕ
+            if self.significant_changes_flags:
                 self.significant_changes_flags.pop()
+            self._sync_significant_flags_with_history()
             self._save_current_session_safe()
         self.last_original_response = None
         self.last_translated_response = None
@@ -1402,6 +1449,9 @@ class MainApp(tk.Tk):
             role = "Вы" if msg["role"] == "user" else "Ассистент"
             tag = "user" if msg["role"] == "user" else "assistant"
             self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+        # Обновляем правую панель, чтобы флаги отобразились корректно
+        if self.right_panel:
+            self.right_panel.refresh()
         self._start_debug_log(f"REGENERATE: {self.last_user_message}")
         self._start_generation(self.last_user_message)
 
