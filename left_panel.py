@@ -1,12 +1,12 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, simpledialog   # добавлен simpledialog
+from tkinter import ttk, scrolledtext, messagebox, simpledialog
 
 
 class LeftPanel(ttk.Frame):
-    def __init__(self, parent, app):          # добавлен параметр app
+    def __init__(self, parent, app):
         super().__init__(parent)
-        self.app = app                         # сохранение ссылки на главное приложение
-        self.session_ids = []                  # список ID сессий
+        self.app = app
+        self.session_ids = []
         self._build_ui()
         self.refresh_session_list()
 
@@ -29,14 +29,21 @@ class LeftPanel(ttk.Frame):
         self._context_menu.add_command(label="Удалить", command=self._delete_selected)
 
     def refresh_session_list(self):
-        self.listbox.delete(0, tk.END)
+        """Обновляет список сессий, корректно синхронизируя данные."""
+        # Получаем актуальный список ID сессий
         sessions = self.app.storage.list_sessions()
         self.session_ids = sessions
+
+        # Очищаем listbox и заполняем заново
+        self.listbox.delete(0, tk.END)
         for sid in sessions:
             name = self.get_session_name(sid)
             if sid == self.app.current_session_id:
                 name = f"▶ {name}"
             self.listbox.insert(tk.END, name)
+
+        # Сбрасываем выделение, чтобы не оставалось ссылок на удалённые сессии
+        self.listbox.selection_clear(0, tk.END)
 
     def get_session_name(self, session_id: str) -> str:
         data = self.app.storage.load_session(session_id)

@@ -686,8 +686,9 @@ class StagePromptsTab(ttk.Frame):
         ("5.2 Описание события (d20)", "stage1_random_event_details"),
         ("6. Обработка NPC", "stage2_npc_action"),
         ("7. Финальный рассказ", "stage3_final"),
-        ("8.1 Проверка истории", "stage8_history_check"),   # НОВАЯ СТАДИЯ
+        ("8.1 Проверка истории", "stage8_history_check"),
         ("8.2 Валидация результата", "stage11_validation"),
+        ("11. Проверка значительных изменений", "stage11_significant_changes"),   # НОВАЯ СТАДИЯ
         ("9. Краткая память", "stage4_summary"),
         ("10. Ассоциативная память", "stage10_associative_memory"),
     ]

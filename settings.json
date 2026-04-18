@@ -1,10 +1,10 @@
 {
   "api_url": "http://localhost:1234/v1",
-  "model_name": "qwen/qwen3.5-9b",
+  "model_name": "google/gemma-4-e4b",
   "max_history_messages": 10,
   "use_two_models": false,
   "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q4_k_s",
-  "translator_model": "qwen3.5-35b-a3b-uncensored-hauhaucs-aggressive",
+  "translator_model": "qwen/qwen3.5-9b",
   "enable_assistant_translation": false,
   "max_tokens": 8192,
   "temperature": 0.95,
@@ -20,7 +20,8 @@
     "stage1_create_scene": [
       "stage1_create_scene",
       "history:auto",
-      "narrator:n1"
+      "narrator:n1",
+      "narrator:n6"
     ],
     "stage1_truth_check": [
       "stage1_truth_check",
@@ -28,14 +29,11 @@
     ],
     "stage1_player_action": [
       "dice_rules",
-      "stage1_player_action",
-      "history:auto",
-      "narrator:n1",
-      "narrator:n2",
-      "narrator:n3"
+      "stage1_player_action"
     ],
     "stage1_random_event_determine": [
-      "stage1_random_event"
+      "stage1_random_event",
+      "narrator:n6"
     ],
     "stage1_random_event_request_objects": [
       "stage1_random_event_request_objects",
@@ -73,6 +71,9 @@
     "stage10_associative_memory": [
       "stage10_associative_memory",
       "history:auto"
+    ],
+    "stage11_significant_changes": [
+      "stage11_significant_changes"
     ]
   },
   "enable_memory_summary": true,
@@ -91,6 +92,7 @@
     "stage3_final": true,
     "stage8_history_check": true,
     "stage11_validation": true,
+    "stage11_significant_changes": true,
     "stage4_summary": true,
     "stage10_associative_memory": true
   },
@@ -139,6 +141,10 @@
       "max_history": 2,
       "max_summaries": 0
     },
+    "stage11_significant_changes": {
+      "max_history": 2,
+      "max_summaries": 0
+    },
     "stage4_summary": {
       "max_history": 2,
       "max_summaries": 0
@@ -160,6 +166,7 @@
     "stage3_final": "primary",
     "stage8_history_check": "primary",
     "stage11_validation": "primary",
+    "stage11_significant_changes": "primary",
     "stage4_summary": "primary",
     "stage10_associative_memory": "primary"
   },
@@ -167,29 +174,32 @@
     "stage1_request_descriptions": 0.8,
     "stage1_create_scene": 1.0,
     "stage1_truth_check": 0.4,
-    "stage1_player_action": 0.95,
+    "stage1_player_action": 0.7,
     "stage1_random_event_determine": 0.5,
     "stage1_random_event_request_objects": 0.7,
     "stage1_random_event_details": 1.15,
     "stage2_npc_action": 1.05,
-    "stage3_final": 0.95,
+    "stage3_final": 1.15,
     "stage8_history_check": 0.3,
     "stage11_validation": 0.25,
+    "stage11_significant_changes": 0.3,
     "stage4_summary": 0.5,
     "stage10_associative_memory": 0.65
   },
+  "random_event_chance": 30,
   "stage_retry_limits": {
     "stage1_request_descriptions": 2,
     "stage1_create_scene": 2,
     "stage1_truth_check": 2,
-    "stage1_player_action": 2,
+    "stage1_player_action": 3,
     "stage1_random_event_determine": 2,
     "stage1_random_event_request_objects": 2,
     "stage1_random_event_details": 2,
     "stage2_npc_action": 2,
-    "stage3_final": 2,
+    "stage3_final": 3,
     "stage8_history_check": 2,
     "stage11_validation": 2,
+    "stage11_significant_changes": 2,
     "stage4_summary": 2,
     "stage10_associative_memory": 2
   },

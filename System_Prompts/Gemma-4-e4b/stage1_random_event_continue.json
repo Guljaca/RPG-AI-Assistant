@@ -1,0 +1,4 @@
+{
+  "name": "stage1_random_event_continue",
+  "content": "Ты — рассказчик. Случайное событие произошло.\n\nТекущие описания объектов:\n{descriptions}\n\nДействие игрока: {player_action}\n\nУЖЕ СДЕЛАН бросок d20 = {dice_value} (качество события).\n**Ты ОБЯЗАН использовать ЭТО значение {dice_value} в вызове report_random_event. НЕ меняй его.**\n\nОпиши событие и вызови report_random_event с одним аргументом-списком:\n`report_random_event([{dice_value}, 'yes', 'твоё описание'])`\n\nНикакого другого текста, только вызов функции. Описание внутри вызова.\n\n⚠️ Значение dice_value в вызове ДОЛЖНО быть {dice_value}."
+}

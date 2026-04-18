@@ -1,4 +1,4 @@
-# Project_Py3_RPG_AI_main_Tools_version_V0.12.1.py
+# Project_Py3_RPG_AI_main_Tools_version_V0.14.0.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
@@ -310,7 +310,8 @@ class PromptManager:
         "translator_system",
         "stage1_create_scene",
         "stage1_random_event_request_objects",
-        "stage11_validation"
+        "stage11_validation",
+        "stage11_significant_changes"   # НОВАЯ СТАДИЯ
     ]
 
     def __init__(self, prompts_dir: str = "System_Prompts"):
@@ -480,6 +481,9 @@ class MainApp(tk.Tk):
         self.storage = StorageManager()
         self.prompt_manager = PromptManager(prompts_dir="System_Prompts")
 
+        self.random_event_chance = self.settings.get("random_event_chance", 30)
+
+
         self.logs_dir = os.path.join(self.storage.base_dir, "logs")
         self.max_log_files = 20
         os.makedirs(self.logs_dir, exist_ok=True)
@@ -510,6 +514,7 @@ class MainApp(tk.Tk):
 
         self.memory_turn_index: List[int] = []
         self.assoc_turn_changes: List[List[Dict]] = []
+        self.significant_changes_flags: List[bool] = []   # НОВОЕ: флаги значительных изменений для каждой пары
 
         self.lm_client = LMStudioClient(base_url=self.settings.get("api_url", "http://localhost:1234/v1"))
 
@@ -714,6 +719,7 @@ class MainApp(tk.Tk):
                     self.associative_memory[obj_id] = self.associative_memory[obj_id][-self.max_associative_memory_entries:]
         else:
             self.assoc_turn_changes.append([])
+        # Флаг значительности будет добавлен позже, после стадии 11
         self.current_generation_added_summaries.clear()
         self.current_generation_added_assoc.clear()
         self._save_current_session_safe()
@@ -977,12 +983,13 @@ class MainApp(tk.Tk):
                 "stage3_final": True,
                 "stage8_history_check": True,
                 "stage11_validation": True,
+                "stage11_significant_changes": True,   # НОВАЯ СТАДИЯ
                 "stage4_summary": True,
                 "stage10_associative_memory": True,
             },
             "stage_memory_config": {},
             "stage_model_selection": {},
-            "stage_temperature_config": {}   # НОВОЕ
+            "stage_temperature_config": {}
         }
         if os.path.exists(self.settings_file):
             with open(self.settings_file, "r") as f:
@@ -1017,12 +1024,17 @@ class MainApp(tk.Tk):
             json.dump(self.settings, f, indent=2)
 
     def _safe_stop_generation(self, callback=None):
+        if hasattr(self, '_stopping') and self._stopping:
+            return
         if self.is_generating:
+            self._stopping = True
             self.stop_generation_flag = True
             self._wait_for_generation_stop(callback)
         else:
             if callback:
                 callback()
+        if hasattr(self, '_stopping'):
+            self._stopping = False
 
     def _wait_for_generation_stop(self, callback):
         if not self.is_generating:
@@ -1046,6 +1058,7 @@ class MainApp(tk.Tk):
                 "associative_memory": self.associative_memory,
                 "memory_turn_index": self.memory_turn_index,
                 "assoc_turn_changes": self.assoc_turn_changes,
+                "significant_changes_flags": self.significant_changes_flags,   # НОВОЕ
             }
         else:
             session_data["profile"] = self.current_profile.to_dict()
@@ -1055,6 +1068,7 @@ class MainApp(tk.Tk):
             session_data["associative_memory"] = self.associative_memory
             session_data["memory_turn_index"] = self.memory_turn_index
             session_data["assoc_turn_changes"] = self.assoc_turn_changes
+            session_data["significant_changes_flags"] = self.significant_changes_flags   # НОВОЕ
         session_data["last_used"] = datetime.now().isoformat()
         self.storage.save_session(self.current_session_id, session_data)
 
@@ -1097,6 +1111,7 @@ class MainApp(tk.Tk):
             self.associative_memory = {}
             self.memory_turn_index = []
             self.assoc_turn_changes = []
+            self.significant_changes_flags = []   # НОВОЕ
             if self.is_generating:
                 self.stop_generation_flag = True
             self.conversation_history = []
@@ -1143,6 +1158,9 @@ class MainApp(tk.Tk):
                             self.associative_memory[obj_id].remove(change)
                         if not self.associative_memory[obj_id]:
                             del self.associative_memory[obj_id]
+                # удаляем соответствующий флаг значительности
+                if self.significant_changes_flags:
+                    self.significant_changes_flags.pop()
             self.conversation_history = self.conversation_history[:last_user_index]
         else:
             self.conversation_history = self.conversation_history[:last_user_index]
@@ -1163,6 +1181,7 @@ class MainApp(tk.Tk):
             self.associative_memory = {}
             self.memory_turn_index = []
             self.assoc_turn_changes = []
+            self.significant_changes_flags = []   # НОВОЕ
             if self.current_session_id:
                 self._save_current_session_safe()
             session_id = str(uuid.uuid4())
@@ -1184,7 +1203,8 @@ class MainApp(tk.Tk):
                 "memory_summaries": [],
                 "associative_memory": {},
                 "memory_turn_index": [],
-                "assoc_turn_changes": []
+                "assoc_turn_changes": [],
+                "significant_changes_flags": []   # НОВОЕ
             }
             self.storage.save_session(session_id, session_data)
             self.current_session_id = session_id
@@ -1214,90 +1234,127 @@ class MainApp(tk.Tk):
         session_id = data.get("session_id")
         if not session_id:
             return
+
         def do_load():
             if self.current_session_id:
                 self._save_current_session_safe()
+
             session_data = self.storage.load_session(session_id)
             if session_data is None:
                 messagebox.showerror("Ошибка", "Сессия повреждена и не может быть загружена.\nПопробуйте удалить её вручную из папки data/sessions/")
                 self.left_panel.refresh_session_list()
                 return
+
             self.current_session_id = session_id
             self.current_profile = GameProfile.from_dict(session_data.get("profile", {}))
-            
-            # --- ИСПРАВЛЕНИЕ: удаление дубликатов ассистента подряд ---
+
+            # Очистка дубликатов сообщений ассистента подряд
             raw_history = session_data.get("history", [])
             cleaned_history = []
             for i, msg in enumerate(raw_history):
                 if msg["role"] == "assistant" and cleaned_history and cleaned_history[-1]["role"] == "assistant" and cleaned_history[-1]["content"] == msg["content"]:
-                    continue  # пропускаем дубликат
+                    continue
                 cleaned_history.append(msg)
             self.conversation_history = cleaned_history
-            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-            
+
             self.local_descriptions = session_data.get("local_descriptions", {})
             self.memory_summaries = session_data.get("memory_summaries", [])
             self.associative_memory = session_data.get("associative_memory", {})
             self.memory_turn_index = session_data.get("memory_turn_index", [])
             self.assoc_turn_changes = session_data.get("assoc_turn_changes", [])
+            self.significant_changes_flags = session_data.get("significant_changes_flags", [])
+
             if self.max_associative_memory_entries > 0:
                 for obj_id in list(self.associative_memory.keys()):
                     if len(self.associative_memory[obj_id]) > self.max_associative_memory_entries:
                         self.associative_memory[obj_id] = self.associative_memory[obj_id][-self.max_associative_memory_entries:]
+
             self._log_debug("MEMORY_LOADED", f"Loaded {len(self.memory_summaries)} summaries, turn index length {len(self.memory_turn_index)}")
             self._sync_last_user_message()
             self.last_original_response = None
             self.last_translated_response = None
             self._sync_profile_with_objects()
+
+            # Обновляем UI
             self.left_panel.refresh_session_list()
             self.center_panel.clear_chat()
             for msg in self.conversation_history:
                 role = "Вы" if msg["role"] == "user" else "Ассистент"
                 tag = "user" if msg["role"] == "user" else "assistant"
                 self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+
             self.center_panel.display_message(f"Загружена сессия: {session_data.get('name', 'Без имени')}\n", "system")
             self._refresh_all_ui()
             self.center_panel.update_translation_button_state()
             self.center_panel.update_token_count(0, 0)
+
             session_data["last_used"] = datetime.now().isoformat()
             self.storage.save_session(session_id, session_data)
+
         self._safe_stop_generation(do_load)
 
     def _handle_delete_session(self, data):
         session_id = data.get("session_id")
         if not session_id:
             return
+
         def do_delete():
-            if messagebox.askyesno("Удаление", f"Удалить сессию '{self.left_panel.get_session_name(session_id)}'?"):
-                self.storage.delete_session(session_id)
-                if session_id == self.current_session_id:
-                    sessions = self.storage.list_sessions()
-                    if sessions:
-                        latest_sid = None
-                        latest_time = None
-                        for sid in sessions:
-                            data = self.storage.load_session(sid)
-                            if data is None:
-                                continue
-                            last_used = data.get("last_used")
-                            if last_used:
-                                try:
-                                    dt = datetime.fromisoformat(last_used)
-                                    if latest_time is None or dt > latest_time:
-                                        latest_time = dt
-                                        latest_sid = sid
-                                except:
-                                    pass
-                        if latest_sid is None and sessions:
-                            latest_sid = sessions[0]
-                        if latest_sid:
-                            self._handle_load_session({"session_id": latest_sid})
-                        else:
-                            self._handle_new_session()
-                    else:
-                        self._handle_new_session()
+            # Проверяем, существует ли ещё сессия (возможно, её уже удалили)
+            if session_id not in self.storage.list_sessions():
+                messagebox.showwarning("Удаление", "Сессия уже удалена.")
+                self.left_panel.refresh_session_list()
+                return
+
+            session_name = self.left_panel.get_session_name(session_id)
+            if not messagebox.askyesno("Удаление", f"Удалить сессию '{session_name}'?"):
+                return
+
+            # Удаляем файл
+            self.storage.delete_session(session_id)
+
+            # Если удалили текущую сессию
+            if session_id == self.current_session_id:
+                # Сбрасываем текущую сессию, чтобы избежать гонок
+                self.current_session_id = None
+                self.conversation_history = []
+                self.last_user_message = ""
+                self.local_descriptions = {}
+                self.memory_summaries = []
+                self.associative_memory = {}
+                self.memory_turn_index = []
+                self.assoc_turn_changes = []
+                self.significant_changes_flags = []
+                self.last_original_response = None
+                self.last_translated_response = None
+
+                # Получаем список оставшихся сессий
+                remaining_sessions = self.storage.list_sessions()
+                if remaining_sessions:
+                    # Выбираем самую последнюю по last_used
+                    latest_sid = None
+                    latest_time = None
+                    for sid in remaining_sessions:
+                        data = self.storage.load_session(sid)
+                        if data is None:
+                            continue
+                        last_used = data.get("last_used")
+                        if last_used:
+                            try:
+                                dt = datetime.fromisoformat(last_used)
+                                if latest_time is None or dt > latest_time:
+                                    latest_time = dt
+                                    latest_sid = sid
+                            except:
+                                pass
+                    if latest_sid is None:
+                        latest_sid = remaining_sessions[0]
+                    self._handle_load_session({"session_id": latest_sid})
                 else:
-                    self.left_panel.refresh_session_list()
+                    self._handle_new_session()
+            else:
+                # Если удалили не текущую сессию, просто обновляем список
+                self.left_panel.refresh_session_list()
+
         self._safe_stop_generation(do_delete)
 
     def _handle_rename_session(self, data):
@@ -1335,6 +1392,8 @@ class MainApp(tk.Tk):
                             self.associative_memory[obj_id].remove(change)
                         if not self.associative_memory[obj_id]:
                             del self.associative_memory[obj_id]
+            if self.significant_changes_flags:   # НОВОЕ
+                self.significant_changes_flags.pop()
             self._save_current_session_safe()
         self.last_original_response = None
         self.last_translated_response = None
@@ -1383,6 +1442,7 @@ class MainApp(tk.Tk):
             self.memory_summaries = []
             self.memory_turn_index = []
             self.assoc_turn_changes = []
+            self.significant_changes_flags = []   # НОВОЕ
             self.associative_memory = {}
             self.local_descriptions = {}
             self.center_panel.update_translation_button_state()
@@ -1646,6 +1706,7 @@ class MainApp(tk.Tk):
     def _handle_update_settings(self, data):
         if not data:
             return
+        self.random_event_chance = data.get("random_event_chance", 30)
         self.settings.update(data)
         self.save_settings()
         self.max_history_messages = data.get("max_history_messages", 10)
@@ -2077,6 +2138,7 @@ class SettingsDialog:
             ("stage3_final", "7. Финальный рассказ"),
             ("stage8_history_check", "8.1 Проверка истории"),
             ("stage11_validation", "8.2 Валидация результата"),
+            ("stage11_significant_changes", "11. Проверка значительных изменений"),   # НОВАЯ СТАДИЯ
             ("stage4_summary", "9. Краткая память"),
             ("stage10_associative_memory", "10. Ассоциативная память"),
         ]
