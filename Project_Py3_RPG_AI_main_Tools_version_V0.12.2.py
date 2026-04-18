@@ -1,4 +1,4 @@
-# Project_Py3_RPG_AI_main_Tools_version_V0.11.0.py
+# Project_Py3_RPG_AI_main_Tools_version_V0.12.1.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
@@ -572,6 +572,13 @@ class MainApp(tk.Tk):
             if stage not in self.stage_model_selection:
                 self.stage_model_selection[stage] = "primary"
 
+        # ---- НОВОЕ: температура для каждого этапа ----
+        self.stage_temperature_config = self.settings.get("stage_temperature_config", {})
+        for stage in all_stages:
+            if stage not in self.stage_temperature_config:
+                self.stage_temperature_config[stage] = None   # None означает использовать стандартную для выбранной модели
+        # --------------------------------------------
+
         self.current_generation_added_summaries = []
         self.current_generation_added_assoc = []
 
@@ -968,13 +975,14 @@ class MainApp(tk.Tk):
                 "stage1_random_event_details": True,
                 "stage2_npc_action": True,
                 "stage3_final": True,
-                "stage8_history_check": True,      # НОВАЯ СТАДИЯ
+                "stage8_history_check": True,
                 "stage11_validation": True,
                 "stage4_summary": True,
                 "stage10_associative_memory": True,
             },
             "stage_memory_config": {},
-            "stage_model_selection": {}
+            "stage_model_selection": {},
+            "stage_temperature_config": {}   # НОВОЕ
         }
         if os.path.exists(self.settings_file):
             with open(self.settings_file, "r") as f:
@@ -1440,13 +1448,14 @@ class MainApp(tk.Tk):
 
     # --------------------------------------------------------------------------
     # Общий метод отправки запроса к модели (с логированием reasoning)
-    # Добавлен параметр model_choice: "primary" или "translator" (если None, определяется по stage_name)
+    # Добавлен параметр temperature_override для возможности задать температуру для конкретного этапа
     # --------------------------------------------------------------------------
     def _send_model_request(self, user_content: str, callback, extra=None,
                             stage_name: str = None, use_temp: bool = False,
                             show_in_thinking: bool = False,
                             context_data: Dict = None,
-                            model_choice: str = None):
+                            model_choice: str = None,
+                            temperature_override: float = None):
         messages = []
         if context_data is None:
             context_data = {}
@@ -1513,16 +1522,19 @@ class MainApp(tk.Tk):
                 chosen = "primary"
             if chosen == "primary":
                 model = self.primary_model
-                temp = self.primary_temperature
+                default_temp = self.primary_temperature
                 max_tok = self.primary_max_tokens
             else:  # translator
                 model = self.translator_model
-                temp = self.translator_temperature
+                default_temp = self.translator_temperature
                 max_tok = self.translator_max_tokens
         else:
             model = self.model_name
-            temp = self.settings.get("temperature", 0.7)
+            default_temp = self.settings.get("temperature", 0.7)
             max_tok = self.settings.get("max_tokens", 4096)
+
+        # Если переопределена температура для этапа, используем её
+        temp = temperature_override if temperature_override is not None else default_temp
 
         full_prompt_lines = []
         full_prompt_lines.append(f"=== МОДЕЛЬ: {model} ===")
@@ -1689,10 +1701,18 @@ class MainApp(tk.Tk):
         for stage in all_stages:
             if stage in saved_model_choice:
                 self.stage_model_selection[stage] = saved_model_choice[stage]
+
+        # ---- НОВОЕ: загружаем температуры этапов ----
+        saved_temp_config = data.get("stage_temperature_config", {})
+        for stage in all_stages:
+            if stage in saved_temp_config:
+                self.stage_temperature_config[stage] = saved_temp_config[stage]
+            else:
+                self.stage_temperature_config[stage] = None
+        # -------------------------------------------
+
         self.save_settings()
-
         messagebox.showinfo("Настройки", "Настройки сохранены и применены.")
-
 
     def _handle_update_profile(self, data):
         if not data:
@@ -1846,7 +1866,7 @@ class MainApp(tk.Tk):
         settings_menu.add_command(label="Параметры API", command=self._open_settings_dialog)
 
     def _open_settings_dialog(self):
-        dialog = SettingsDialog(self, self.settings, self.stage_memory_config, self.stage_model_selection)
+        dialog = SettingsDialog(self, self.settings, self.stage_memory_config, self.stage_model_selection, self.stage_temperature_config)
         self.wait_window(dialog.top)
         if dialog.result:
             self.update("update_settings", dialog.result)
@@ -1915,20 +1935,21 @@ class MainApp(tk.Tk):
         threading.Thread(target=translate_stream, daemon=True).start()
 
 class SettingsDialog:
-    def __init__(self, parent, current_settings, stage_memory_config, stage_model_selection):
+    def __init__(self, parent, current_settings, stage_memory_config, stage_model_selection, stage_temperature_config):
         self.top = tk.Toplevel(parent)
         self.top.title("Настройки")
-        self.top.geometry("900x1000")
+        self.top.geometry("900x1100")   # немного увеличили высоту
         self.top.transient(parent)
         self.top.grab_set()
         parent.update_idletasks()
         x = parent.winfo_rootx() + (parent.winfo_width() // 2) - (900 // 2)
-        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (1000 // 2)
+        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (1100 // 2)
         self.top.geometry(f"+{x}+{y}")
         self.result = None
         self.parent = parent
         self.stage_memory_config = stage_memory_config
         self.stage_model_selection = stage_model_selection
+        self.stage_temperature_config = stage_temperature_config   # НОВОЕ
 
         main_canvas = tk.Canvas(self.top, borderwidth=0)
         scrollbar = ttk.Scrollbar(self.top, orient="vertical", command=main_canvas.yview)
@@ -2035,13 +2056,14 @@ class SettingsDialog:
         stages_frame = ttk.LabelFrame(main_frame, text="Настройки этапов генерации")
         stages_frame.grid(row=10, column=0, columnspan=2, sticky="ew", pady=10)
 
-        # Заголовки
+        # Заголовки (добавлена колонка "Температура")
         ttk.Label(stages_frame, text="Стадия", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(stages_frame, text="Вкл", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=5, pady=2)
         ttk.Label(stages_frame, text="Повторы", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=5, pady=2)
         ttk.Label(stages_frame, text="История (сообщ.)", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=5, pady=2)
         ttk.Label(stages_frame, text="Резюме (шт.)", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=4, padx=5, pady=2)
         ttk.Label(stages_frame, text="Модель", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=5, padx=5, pady=2)
+        ttk.Label(stages_frame, text="Температура", font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=6, padx=5, pady=2)   # НОВОЕ
 
         stage_list = [
             ("stage1_request_descriptions", "1.1 Запрос описаний объектов"),
@@ -2053,7 +2075,7 @@ class SettingsDialog:
             ("stage1_random_event_details", "5.2 Описание события (d20)"),
             ("stage2_npc_action", "6. Обработка NPC"),
             ("stage3_final", "7. Финальный рассказ"),
-            ("stage8_history_check", "8.1 Проверка истории"),      # НОВАЯ СТАДИЯ
+            ("stage8_history_check", "8.1 Проверка истории"),
             ("stage11_validation", "8.2 Валидация результата"),
             ("stage4_summary", "9. Краткая память"),
             ("stage10_associative_memory", "10. Ассоциативная память"),
@@ -2065,6 +2087,7 @@ class SettingsDialog:
         self.summary_vars = {}
         self.model_choice_vars = {}
         self.model_choice_widgets = {}
+        self.temp_vars = {}          # НОВОЕ
 
         for i, (key, label) in enumerate(stage_list, start=1):
             ttk.Label(stages_frame, text=label).grid(row=i, column=0, sticky="w", padx=5, pady=2)
@@ -2096,6 +2119,20 @@ class SettingsDialog:
             model_combo.bind("<<ComboboxSelected>>", lambda e, k=key, v=model_var: v.set(model_combo.get()))
             self.model_choice_widgets[key] = model_combo
 
+            # НОВОЕ: температура для этапа
+            temp_val = self.stage_temperature_config.get(key)
+            if temp_val is None:
+                temp_str = ""
+            else:
+                temp_str = str(temp_val)
+            temp_var = tk.StringVar(value=temp_str)
+            self.temp_vars[key] = temp_var
+            temp_spin = ttk.Spinbox(stages_frame, from_=0.0, to=2.0, increment=0.05, width=8, textvariable=temp_var)
+            temp_spin.grid(row=i, column=6, padx=5, pady=2)
+            # Добавляем подсказку: если поле пустое, используется стандартная температура выбранной модели
+            tooltip_text = "Оставьте пустым для использования стандартной температуры выбранной модели"
+            self._add_tooltip(temp_spin, tooltip_text)
+
         stages_frame.columnconfigure(0, weight=1)
 
         btn_frame = ttk.Frame(main_frame)
@@ -2107,6 +2144,22 @@ class SettingsDialog:
 
         self._refresh_models_list()
         self._toggle_two_models()
+
+    def _add_tooltip(self, widget, text):
+        """Простая подсказка при наведении."""
+        def show(event):
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            label = ttk.Label(tooltip, text=text, background="#ffffe0", relief="solid", borderwidth=1)
+            label.pack()
+            widget.tooltip = tooltip
+        def hide(event):
+            if hasattr(widget, 'tooltip') and widget.tooltip:
+                widget.tooltip.destroy()
+                widget.tooltip = None
+        widget.bind("<Enter>", show)
+        widget.bind("<Leave>", hide)
 
     def _refresh_models_list(self):
         api_url = self.api_url.get().strip()
@@ -2178,6 +2231,22 @@ class SettingsDialog:
                 "max_summaries": int(self.summary_vars[key].get())
             }
         stage_model_selection = {key: var.get() for key, var in self.model_choice_vars.items()}
+        # НОВОЕ: сбор температур этапов
+        stage_temperature_config = {}
+        for key, var in self.temp_vars.items():
+            val = var.get().strip()
+            if val:
+                try:
+                    temp = float(val)
+                    if 0.0 <= temp <= 2.0:
+                        stage_temperature_config[key] = temp
+                    else:
+                        stage_temperature_config[key] = None
+                except ValueError:
+                    stage_temperature_config[key] = None
+            else:
+                stage_temperature_config[key] = None
+        # -------------------------------------
         self.result = {
             "api_url": self.api_url.get().strip(),
             "model_name": self.model_name_combo.get(),
@@ -2203,6 +2272,7 @@ class SettingsDialog:
             "stage_retry_limits": stage_retry_limits,
             "stage_memory_config": stage_memory_config,
             "stage_model_selection": stage_model_selection,
+            "stage_temperature_config": stage_temperature_config,   # НОВОЕ
         }
         self.top.destroy()
 

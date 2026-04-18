@@ -1,0 +1,26 @@
+=== DEBUG LOG ===
+User message at 2026-04-18T00:47:06.274355:
+REGENERATE: Учитывая, что Ай не мылась, а душ работает, я понимаю, что в там сейчас Кай. Странно что она моется утром, на да ладно. Я беру чистое полотенце из шкафа, и даю Ай. 
+- Вытрись наконец насухо, а то заболеешь! 
+Итак, Кай моется, а мы с Ай в моей комнате. Я оделся в обычную одежду.
+
+[2026-04-18T00:47:06.280830] STAGE1_SKIPPED
+Stage1 disabled
+
+[2026-04-18T00:47:06.281308] STAGE1_CREATE_SCENE_SKIPPED
+Stage1_create_scene disabled
+
+[2026-04-18T00:47:06.285593] STAGE2_SKIPPED
+Stage2 (truth_check) disabled
+
+[2026-04-18T00:47:06.285753] STAGE4_SKIPPED
+Stage4 (random_event_determine) disabled
+
+[2026-04-18T00:47:06.285893] STAGE6_SKIPPED
+Stage6 (NPC) disabled
+
+[2026-04-18T00:47:06.286034] STAGE7_SKIPPED
+Stage7 (final) disabled
+
+[2026-04-18T00:47:06.286353] === STAGE8.1: history_check ===
+
