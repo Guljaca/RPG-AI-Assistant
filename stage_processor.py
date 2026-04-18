@@ -1,8 +1,4 @@
 # stage_processor.py
-# Поддержка температуры для каждого этапа из настроек.
-# Температура НЕ переопределяется внутри кода, а берётся из self.main_app.stage_temperature_config
-# и передаётся через параметр temperature_override в _send_request.
-
 import json
 import random
 import re
@@ -1756,7 +1752,10 @@ class StageProcessor:
         summary_count = len(self.main_app.memory_summaries) if hasattr(self.main_app, 'memory_summaries') else 0
         self._display_system(f"🔍 [2/3] Проверка с краткой памятью (записей: {summary_count})...\n")
 
-        summaries = self.main_app.memory_summaries[-5:] if self.main_app.memory_summaries else []
+        # ИСПРАВЛЕНИЕ: использовать max_summaries из конфига stage8_history_check
+        mem_cfg = self.main_app.stage_memory_config.get("stage8_history_check", {})
+        max_summaries = mem_cfg.get("max_summaries", 5)
+        summaries = self.main_app.memory_summaries[-max_summaries:] if self.main_app.memory_summaries else []
         if not summaries:
             self._display_system("Краткая память пуста, пропускаем.\n")
             self._history_check_old_histories()
