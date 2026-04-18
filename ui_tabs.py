@@ -1016,3 +1016,177 @@ class StagePromptsTab(ttk.Frame):
             self.app.save_stage_prompts_config()
             if self.current_stage:
                 self._refresh_prompts_list()
+
+# ========== ДОБАВИТЬ В КОНЕЦ ФАЙЛА ui_tabs.py ==========
+
+# ========== HistoryTab (исправленная версия с работающей прокруткой) ==========
+class HistoryTab(ttk.Frame):
+    """Вкладка для просмотра и редактирования важности пар сообщений."""
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self.tree = None
+        self._build_ui()
+        self.refresh()
+
+    def _build_ui(self):
+        # Основной фрейм для таблицы и скроллов
+        tree_frame = ttk.Frame(self)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        # Создаем Treeview
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=("num", "user_msg", "assistant_msg", "importance"),
+            show="headings"
+        )
+        
+        # Настройка колонок
+        self.tree.heading("num", text="№")
+        self.tree.heading("user_msg", text="Сообщение пользователя")
+        self.tree.heading("assistant_msg", text="Ответ ассистента")
+        self.tree.heading("importance", text="Важность")
+
+        self.tree.column("num", width=50, anchor="center")
+        self.tree.column("user_msg", width=300)
+        self.tree.column("assistant_msg", width=300)
+        self.tree.column("importance", width=100, anchor="center")
+
+        # Вертикальный скролл
+        v_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=v_scroll.set)
+        
+        # Горизонтальный скролл
+        h_scroll = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(xscrollcommand=h_scroll.set)
+
+        # Размещение: Treeview слева, вертикальный скролл справа, горизонтальный внизу
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        v_scroll.grid(row=0, column=1, sticky="ns")
+        h_scroll.grid(row=1, column=0, sticky="ew")
+        
+        # Настройка веса, чтобы Treeview растягивался
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+
+        # Привязка колесика мыши для вертикальной прокрутки
+        def _on_mousewheel(event):
+            self.tree.yview_scroll(int(-1*(event.delta/120)), "units")
+        self.tree.bind("<MouseWheel>", _on_mousewheel)
+        # Для Linux (Button-4/5)
+        self.tree.bind("<Button-4>", lambda e: self.tree.yview_scroll(-1, "units"))
+        self.tree.bind("<Button-5>", lambda e: self.tree.yview_scroll(1, "units"))
+
+        # Привязка событий кликов
+        self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<ButtonRelease-1>", self._on_click_importance)
+
+        # Информационная панель
+        info_frame = ttk.LabelFrame(self, text="Справка")
+        info_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(info_frame, text="• Двойной клик по строке → просмотр полной пары.\n"
+                                   "• Клик по ячейке «Важность» переключает флаг (True/False).\n"
+                                   "• Изменения сохраняются автоматически и влияют на фильтрацию истории в стадии 8.1.",
+                 justify=tk.LEFT).pack(padx=5, pady=5)
+
+    def _get_pairs_and_flags(self):
+        history = self.app.conversation_history
+        pairs = []
+        for i in range(0, len(history) - 1, 2):
+            if history[i]['role'] == 'user' and history[i+1]['role'] == 'assistant':
+                pairs.append((history[i]['content'], history[i+1]['content']))
+        flags = self.app.significant_changes_flags[:]
+        if len(flags) > len(pairs):
+            flags = flags[:len(pairs)]
+        elif len(flags) < len(pairs):
+            flags += [False] * (len(pairs) - len(flags))
+        return pairs, flags
+
+    def refresh(self):
+        if not self.tree:
+            return
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        pairs, flags = self._get_pairs_and_flags()
+        for idx, ((user_msg, asst_msg), flag) in enumerate(zip(pairs, flags), start=1):
+            user_short = user_msg[:80] + "..." if len(user_msg) > 80 else user_msg
+            asst_short = asst_msg[:80] + "..." if len(asst_msg) > 80 else asst_msg
+            flag_str = "True" if flag else "False"
+            self.tree.insert("", tk.END, iid=str(idx), values=(idx, user_short, asst_short, flag_str))
+
+    def _on_click_importance(self, event):
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+        column = self.tree.identify_column(event.x)
+        if column != "#4":
+            return
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        idx = int(item) - 1
+        pairs, flags = self._get_pairs_and_flags()
+        if idx < 0 or idx >= len(flags):
+            return
+        new_flag = not flags[idx]
+        if idx < len(self.app.significant_changes_flags):
+            self.app.significant_changes_flags[idx] = new_flag
+        else:
+            while len(self.app.significant_changes_flags) <= idx:
+                self.app.significant_changes_flags.append(False)
+            self.app.significant_changes_flags[idx] = new_flag
+        self.app._save_current_session_safe()
+        self.refresh()
+        self.app.center_panel.display_system_message(f"Важность пары #{idx+1} изменена на {new_flag}.\n")
+
+    def _on_double_click(self, event):
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        idx = int(item) - 1
+        pairs, flags = self._get_pairs_and_flags()
+        if idx < 0 or idx >= len(pairs):
+            return
+        user_msg, asst_msg = pairs[idx]
+        flag = flags[idx]
+
+        win = tk.Toplevel(self)
+        win.title(f"Редактирование пары #{idx+1}")
+        win.geometry("700x500")
+        win.transient(self)
+        win.grab_set()
+        center_window(win, self.app)
+
+        ttk.Label(win, text="Сообщение пользователя:", font=('TkDefaultFont', 10, 'bold')).pack(anchor='w', padx=10, pady=(10,0))
+        user_text = scrolledtext.ScrolledText(win, wrap=tk.WORD, height=8)
+        user_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        user_text.insert(tk.END, user_msg)
+        user_text.config(state=tk.DISABLED)
+
+        ttk.Label(win, text="Ответ ассистента:", font=('TkDefaultFont', 10, 'bold')).pack(anchor='w', padx=10)
+        asst_text = scrolledtext.ScrolledText(win, wrap=tk.WORD, height=8)
+        asst_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        asst_text.insert(tk.END, asst_msg)
+        asst_text.config(state=tk.DISABLED)
+
+        flag_var = tk.BooleanVar(value=flag)
+        flag_cb = ttk.Checkbutton(win, text="Важная пара (значительные изменения)", variable=flag_var)
+        flag_cb.pack(anchor='w', padx=10, pady=5)
+
+        def save_flag():
+            new_flag = flag_var.get()
+            if idx < len(self.app.significant_changes_flags):
+                self.app.significant_changes_flags[idx] = new_flag
+            else:
+                while len(self.app.significant_changes_flags) <= idx:
+                    self.app.significant_changes_flags.append(False)
+                self.app.significant_changes_flags[idx] = new_flag
+            self.app._save_current_session_safe()
+            self.refresh()
+            win.destroy()
+            self.app.center_panel.display_system_message(f"Важность пары #{idx+1} изменена на {new_flag}.\n")
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill=tk.X, pady=10)
+        ttk.Button(btn_frame, text="Сохранить", command=save_flag).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Отмена", command=win.destroy).pack(side=tk.LEFT, padx=10)

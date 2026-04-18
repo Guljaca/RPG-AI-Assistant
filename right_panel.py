@@ -1,6 +1,7 @@
+# right_panel.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
-from ui_tabs import ProfileTab, BaseEditorTab, SystemPromptsTab, TranslatorPromptsTab, StagePromptsTab
+from ui_tabs import ProfileTab, BaseEditorTab, SystemPromptsTab, TranslatorPromptsTab, StagePromptsTab, HistoryTab
 from models import Narrator, Character, Location, Item
 
 class RightPanel(ttk.Frame):
@@ -22,9 +23,17 @@ class RightPanel(ttk.Frame):
         row2.pack(fill=tk.X, pady=2)
         row3 = ttk.Frame(self.button_container)
         row3.pack(fill=tk.X, pady=2)
-        buttons = [("profile", "Профиль", row1), ("narrators", "Рассказчики", row1), ("characters", "Персонажи", row1), 
-            ("locations", "Локации", row2), ("items", "Предметы", row2), ("prompts", "Системные промты", row2), 
-            ("translator_prompts", "Промты перевода", row3), ("stage_prompts", "Этапы", row3)]
+        buttons = [
+            ("profile", "Профиль", row1),
+            ("narrators", "Рассказчики", row1),
+            ("characters", "Персонажи", row1),
+            ("locations", "Локации", row2),
+            ("items", "Предметы", row2),
+            ("prompts", "Системные промты", row2),
+            ("translator_prompts", "Промты перевода", row3),
+            ("stage_prompts", "Этапы", row3),
+            ("history", "История", row3)
+        ]
         self.tab_buttons = {}
         for tab_name, text, parent_row in buttons:
             btn = ttk.Button(parent_row, text=text, command=lambda n=tab_name: self.show_tab(n))
@@ -42,6 +51,7 @@ class RightPanel(ttk.Frame):
         self.tab_frames["prompts"] = SystemPromptsTab(self.content_frame, self.app)
         self.tab_frames["translator_prompts"] = TranslatorPromptsTab(self.content_frame, self.app)
         self.tab_frames["stage_prompts"] = StagePromptsTab(self.content_frame, self.app)
+        self.tab_frames["history"] = HistoryTab(self.content_frame, self.app)
         
     def show_tab(self, tab_name: str):
         if self.current_tab == tab_name:
@@ -64,7 +74,6 @@ class RightPanel(ttk.Frame):
                 frame.refresh()
                 
     def cleanup_inactive_narrators(self):
-        """Пробрасывает вызов к вкладке StagePromptsTab для очистки неактивных рассказчиков."""
         stage_frame = self.tab_frames.get("stage_prompts")
         if stage_frame and hasattr(stage_frame, "cleanup_inactive_narrators"):
             stage_frame.cleanup_inactive_narrators()

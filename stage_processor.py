@@ -1327,6 +1327,8 @@ class StageProcessor:
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage3_final' not found.")
 
+        characters_context = self._get_characters_context()
+
         last_assistant_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
@@ -1344,14 +1346,15 @@ class StageProcessor:
             event_description=event_desc,
             npcs_actions=npc_actions_text,
             dice_results=dice_summary,
-            dice_rules=dice_rules
+            dice_rules=dice_rules,
+            characters_context=characters_context
         )
         user_data += anti_repeat_warning
 
         if not self.stage_data.get("npc_actions") and not self.stage_data.get("event_occurred"):
             user_data += (
                 "\n\n**ВАЖНО:** В этой сцене нет активных NPC и не произошло случайного события. "
-                "Ты ОБЯЗАН продвинуть сюжет: опиши, как проходит 5-10 минут, или добавь внешнее изменение "
+                "Ты ОБЯЗАН продвинуть сюжет: опиши, как проходит некоторое время, или добавь внешнее изменение "
                 "(звук, скрип, чей-то голос), или заставь NPC (если он есть) совершить простое действие. "
                 "Не оставляй сцену замороженной."
             )
@@ -1367,7 +1370,8 @@ class StageProcessor:
             "event_description": event_desc,
             "npcs_actions": npc_actions_text,
             "dice_results": dice_summary,
-            "dice_rules": dice_rules
+            "dice_rules": dice_rules,
+            "characters_context": characters_context
         }
         full_context = {**self.stage_data, **extra_context}
 
@@ -1488,16 +1492,9 @@ class StageProcessor:
 
         # Удаляем оставшиеся вызовы функций
         final = re.sub(r'\b(check_history|validate_response|act|report_\w+)\s*\([^)]*\)', '', final, flags=re.DOTALL)
+        final = re.sub(r'\n{3,}', '\n\n', final)
 
-        # Убираем лишние множественные переносы строк (заменяем 2+ переносов на один пробел,
-        # чтобы текст был сплошным, без пустых строк)
-        final = re.sub(r'\n{2,}', ' ', final)
-        # Убираем единичные переносы внутри предложений (опционально, чтобы не разрывать строки)
-        final = re.sub(r'\n', ' ', final)
-        # Сжимаем множественные пробелы
-        final = re.sub(r' +', ' ', final)
-
-        # Проверка на повтор предыдущего ответа (без изменений)
+        # Проверка на повтор предыдущего ответа
         last_assistant_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
@@ -1514,20 +1511,7 @@ class StageProcessor:
             else:
                 final = final + " (События не изменились, но момент застыл.)"
 
-        # Дополнительная фильтрация запрещённых начал (без изменений)
-        forbidden_starts = [
-            r'^Ты можешь\b', r'^Можешь\b', r'^Попробуй\b',
-            r'^Ты можешь выбрать\b', r'^Ты лежишь\b', r'^Ты просыпаешься\b',
-            r'^Ты открываешь глаза\b', r'^Ты видишь\b', r'^Ты чувствуешь\b',
-            r'^Ты понимаешь\b', r'^Кажется\b', r'^Словно\b', r'^Игрок\b'
-        ]
-        lines = final.split('\n')
-        filtered_lines = []
-        for line in lines:
-            if any(re.match(p, line.strip(), re.IGNORECASE) for p in forbidden_starts):
-                continue
-            filtered_lines.append(line)
-        final = '\n'.join(filtered_lines)
+        # УДАЛЕН БЛОК forbidden_starts — он нарушает универсальность и может обрезать валидные ответы
 
         self.stage_data["final_response"] = final
         self.original_final_response = final
@@ -1625,6 +1609,47 @@ class StageProcessor:
     def _after_stage8_history_check(self, content, extra, retry_count):
         self._log_full_response("stage8_history_check", content)
         extracted = self._extract_check_history_content(content)
+
+        # --- ДОПОЛНИТЕЛЬНАЯ ЛОГИКА: проверка на невыполненные обещания ---
+        if extracted is None or extracted.strip() == "":
+            current_response = self.stage_data.get("final_response", "")
+            # Получаем предыдущие пары с флагом True
+            history = self.main_app.conversation_history
+            pairs = []
+            for i in range(len(history) - 1):
+                if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
+                    pairs.append((history[i]["content"], history[i+1]["content"]))
+            flags = getattr(self.main_app, 'significant_changes_flags', [])
+            prev_promises = []
+            for idx, (user_msg, asst_msg) in enumerate(pairs):
+                if idx < len(flags) and flags[idx]:
+                    lower = asst_msg.lower()
+                    # Универсальные фразы-маркеры обещаний/планов
+                    if any(phrase in lower for phrase in [
+                        "пойдём", "давай", "нужно", "должен", "сделаем", 
+                        "приготовлю", "скоро будет", "собираюсь", "планирую",
+                        "надо", "обязательно", "пора", "время"
+                    ]):
+                        prev_promises.append(asst_msg)
+            if prev_promises and current_response:
+                current_lower = current_response.lower()
+                promise_kept = False
+                for promise in prev_promises:
+                    # Извлекаем ключевые слова (первые 3-5 значимых слов)
+                    words = [w for w in promise.split() if len(w) > 3][:5]
+                    if any(w in current_lower for w in words):
+                        promise_kept = True
+                        break
+                if not promise_kept:
+                    self._display_system("⚠️ Обнаружено невыполненное обещание из предыдущей истории. Требуется исправление.\n")
+                    max_retries = self._get_retry_limit("stage8_history_check")
+                    if retry_count < max_retries:
+                        self._stage8_history_check(retry_count + 1)
+                        return
+                    else:
+                        # Добавляем нейтральное продолжение, чтобы сцена не застыла
+                        self.stage_data["final_response"] += " (Продолжение следует ожидаемым действиям.)"
+        # --- КОНЕЦ ДОПОЛНИТЕЛЬНОЙ ЛОГИКИ ---
 
         if extracted is not None and extracted.strip() != "" and extracted.strip() != "check_history([\"\"])":
             if extracted.strip() == "":
@@ -1951,41 +1976,97 @@ class StageProcessor:
     def _after_stage4_summary(self, content, extra):
         retry_count = extra.get("retry_count", 0)
         self._log_full_response("stage4_summary", content)
-        self.main_app.center_panel.clear_temp_response()
-
-        summary = content.strip() if content else ""
-
-        forbidden_starts = [
-            "игрок сделал", "игрок сказал", "рассказчик сказал",
-            "кажется", "возможно", "вероятно", "наверное"
-        ]
-        summary_lower = summary.lower()
-        if any(summary_lower.startswith(fs) for fs in forbidden_starts):
-            summary = ""
-
-        if not summary or len(summary) > 200:
-            limit = self._get_retry_limit("stage4_summary")
-            if retry_count < limit:
-                self._display_error(f"⚠️ Некорректный ответ краткой памяти. Повтор ({retry_count+1}/{limit})...\n")
-                self._stage4_summary(retry_count+1)
-                return
-            final = self.stage_data.get("final_response", "")
-            movement_match = re.search(r'(сделал(?:а)? шаг|вош(?:ёл|ла)|выш(?:ел|ла)|подош(?:ёл|ла)|сел(?:а)?|встал(?:а)?)', final)
-            if movement_match:
-                summary = f"Персонаж {movement_match.group(0)}"
-            else:
-                summary = "Персонажи взаимодействовали."
-
-        summary = re.sub(r'^(Краткий факт:\s*)', '', summary, flags=re.IGNORECASE)
-        summary = summary.strip()
-
-        if len(summary) > 150:
-            summary = summary[:147] + "..."
-
-        self.main_app.record_added_summary(summary)
-        self._display_system(f"🧠 Память: {summary[:100]}\n")
+        summary = content.strip()
+        if summary and len(summary) > 10:
+            self.main_app.record_added_summary(summary)
+            self._display_system(f"📝 Добавлена запись в краткую память.\n")
+        else:
+            self._display_system("⚠️ Не удалось получить краткую память.\n")
         self._stage10_associative_memory()
 
+    def _stage8_history_check(self, retry_count=0):
+        if not self.main_app.enabled_stages.get("stage8_history_check", True):
+            self._log_debug("STAGE8_HISTORY_SKIPPED", "Stage8 (history_check) disabled")
+            self._stage11_validation()
+            return
+
+        self._log_debug(f"=== STAGE8.1: history_check (attempt {retry_count+1}) ===")
+        self._display_system(f"📜 Этап 8.1/11: Проверка истории (попытка {retry_count+1})...\n")
+
+        # Собираем пары user-assistant из истории
+        history = self.main_app.conversation_history
+        pairs = []
+        for i in range(len(history) - 1):
+            if history[i]["role"] == "user" and history[i+1]["role"] == "assistant":
+                pairs.append((history[i]["content"], history[i+1]["content"]))
+        
+        # Если текущий ответ уже добавлен в историю (обычно ещё нет), исключаем последнюю пару
+        if pairs and self.stage_data.get("final_response"):
+            last_pair = pairs[-1]
+            if last_pair[1] == self.stage_data["final_response"]:
+                pairs = pairs[:-1]
+
+        max_history = self.main_app.stage_memory_config.get("stage8_history_check", {}).get("max_history", 10)
+        
+        # Фильтрация пар в зависимости от включённости стадии 11
+        if self.main_app.enabled_stages.get("stage11_significant_changes", True):
+            flags = self.main_app.significant_changes_flags
+            filtered_pairs = []
+            for idx, pair in enumerate(pairs):
+                if idx < len(flags) and flags[idx]:
+                    filtered_pairs.append(pair)
+            # Если после фильтрации не осталось пар, берём последнюю пару (даже с False)
+            if not filtered_pairs and pairs:
+                filtered_pairs = [pairs[-1]]
+            if len(filtered_pairs) > max_history:
+                filtered_pairs = filtered_pairs[-max_history:]
+            pairs = filtered_pairs
+        else:
+            if len(pairs) > max_history:
+                pairs = pairs[-max_history:]
+
+        old_histories_text = ""
+        for idx, (user_msg, asst_msg) in enumerate(pairs):
+            old_histories_text += f"История {idx+1}:\nПользователь: {user_msg}\nАссистент: {asst_msg}\n\n"
+
+        if not old_histories_text:
+            old_histories_text = "Нет предыдущих историй."
+
+        current_response = self.stage_data.get("final_response", "")
+        if not current_response:
+            self._stage11_validation()
+            return
+
+        # Получаем результат стадии 11 для предыдущего ответа (если есть)
+        prev_significant = "неизвестно"
+        if hasattr(self.main_app, 'significant_changes_flags') and self.main_app.significant_changes_flags:
+            prev_significant = "да" if self.main_app.significant_changes_flags[-1] else "нет"
+
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage8_history_check")
+        if not prompt_template:
+            raise FileNotFoundError("Prompt 'stage8_history_check' not found.")
+        user_data = prompt_template.format(
+            assoc_memory=old_histories_text,
+            new_histories=f"Новый ответ ассистента:\n{current_response}",
+            significant_changes_previous=prev_significant
+        )
+
+        extra_context = {
+            "old_histories": old_histories_text,
+            "current_response": current_response,
+            "significant_changes_previous": prev_significant
+        }
+        full_context = {**self.stage_data, **extra_context}
+
+        self._send_request(
+            user_data=user_data,
+            callback=lambda content, extra: self._after_stage8_history_check(content, extra, retry_count),
+            extra={"retry_count": retry_count},
+            stage_name="stage8_history_check",
+            use_temp=False,
+            show_in_thinking=True,
+            context_data=full_context
+        )
     # --------------------------------------------------------------------------
     # СТАДИЯ 10: ассоциативная память объектов
     # --------------------------------------------------------------------------
@@ -2084,3 +2165,34 @@ class StageProcessor:
         if any(phrase in lower_text for phrase in forbidden):
             return False
         return True
+
+    def _get_characters_context(self) -> str:
+        """Формирует строку со списком персонажей сцены (ID, имя, роль, краткое описание). Без привязки к конкретным ID."""
+        lines = []
+        # Добавляем игрока
+        player_id = None
+        for cid in self.stage_data.get("scene_character_ids", []):
+            char = self.main_app.characters.get(cid)
+            if char and char.is_player:
+                player_id = cid
+                break
+        if player_id:
+            char = self.main_app.characters.get(player_id)
+            if char:
+                desc = self.stage_data["descriptions"].get(player_id, "Нет описания")
+                lines.append(f"• {player_id} – {char.name} (ИГРОК) – {desc[:100]}")
+        # Добавляем NPC
+        for cid in self.stage_data.get("scene_character_ids", []):
+            char = self.main_app.characters.get(cid)
+            if char and not char.is_player:
+                desc = self.stage_data["descriptions"].get(cid, "Нет описания")
+                # Определяем роль из отношений, если есть (универсально)
+                role = "NPC"
+                if hasattr(char, 'relationship') and char.relationship:
+                    role = char.relationship
+                elif hasattr(char, 'role') and char.role:
+                    role = char.role
+                lines.append(f"• {cid} – {char.name} ({role}) – {desc[:100]}")
+        if not lines:
+            return "Нет персонажей."
+        return "\n".join(lines)
