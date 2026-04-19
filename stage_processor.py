@@ -203,6 +203,7 @@ class StageProcessor:
             "scene_location_id": None,
             "scene_character_ids": [],
             "scene_item_ids": [],
+            "scene_scenario_ids": [],      # НОВОЕ
             "scene_summary": "",
             "player_action_dice": None,
             "player_action_desc": "",
@@ -285,6 +286,7 @@ class StageProcessor:
             "scene_location_id": None,
             "scene_character_ids": [],
             "scene_item_ids": [],
+            "scene_scenario_ids": [],
             "scene_summary": "",
             "player_action_dice": None,
             "player_action_desc": "",
@@ -424,7 +426,6 @@ class StageProcessor:
             self._display_system(f"📦 Получение описания для {obj_id}...\n")
             try:
                 desc = self._get_object_description_with_local(obj_id)
-                # Добавляем метку (ИГРОК) для персонажа-игрока, если её нет
                 obj = self.main_app._get_object_by_id(obj_id)
                 if obj and hasattr(obj, 'is_player') and obj.is_player:
                     if "(ИГРОК)" not in desc:
@@ -437,7 +438,7 @@ class StageProcessor:
         self._display_system("✅ Все описания объектов получены.\n")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 1.1: запрос описаний объектов (кандидатов)
+    # СТАДИЯ 1.1: запрос описаний объектов (кандидатов) + сценарии
     # --------------------------------------------------------------------------
     def _stage1_request_descriptions(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_request_descriptions", True):
@@ -452,31 +453,41 @@ class StageProcessor:
             self.stage_data["descriptions"] = {}
 
         objects_text = []
+        # Локации
         for lid in self.main_app.current_profile.enabled_locations:
             loc = self.main_app.locations.get(lid)
             if loc:
                 assoc = self.main_app.get_associative_memory_for_object(lid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Локация: {lid} - {loc.name}{assoc_str}")
+        # Персонажи
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
             if char:
                 assoc = self.main_app.get_associative_memory_for_object(cid)
                 assoc_str = f" ({assoc})" if assoc else ""
-                is_player = char.is_player   # прямой флаг из объекта
+                is_player = char.is_player
                 player_tag = ' (ИГРОК)' if is_player else ''
                 objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
+        # Предметы
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
             if item:
                 assoc = self.main_app.get_associative_memory_for_object(iid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
+        # Сценарии (НОВОЕ)
+        for sid in self.main_app.current_profile.enabled_scenarios:
+            scen = self.main_app.scenarios.get(sid)
+            if scen:
+                objects_text.append(f"Сценарий: {sid} - {scen.name} (описание: {scen.description[:100]}...)")
+
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
         max_locs = self.main_app.max_locations_per_scene
         max_chars = self.main_app.max_characters_per_scene
         max_items = self.main_app.max_items_per_scene
+        max_scenarios = self.main_app.max_scenarios_per_scene
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_request_descriptions")
         if not prompt_template:
@@ -486,7 +497,8 @@ class StageProcessor:
             available_objects=available,
             max_locations=max_locs,
             max_characters=max_chars,
-            max_items=max_items
+            max_items=max_items,
+            max_scenarios=max_scenarios
         )
 
         extra_context = {
@@ -494,6 +506,7 @@ class StageProcessor:
             "max_locations": max_locs,
             "max_characters": max_chars,
             "max_items": max_items,
+            "max_scenarios": max_scenarios,
             "user_message": self.stage_data['user_message']
         }
         full_context = {**self.stage_data, **extra_context}
@@ -566,20 +579,24 @@ class StageProcessor:
         if player_id:
             character_ids.insert(0, player_id)
         item_ids = self.main_app.current_profile.enabled_items[:3]
+        scenario_ids = self.main_app.current_profile.enabled_scenarios[:self.main_app.max_scenarios_per_scene]   # НОВОЕ
 
         location_id = str(location_id) if location_id else None
         character_ids = [str(cid) for cid in character_ids]
         item_ids = [str(iid) for iid in item_ids]
+        scenario_ids = [str(sid) for sid in scenario_ids]
 
         self.stage_data["scene_location_id"] = location_id
         self.stage_data["scene_character_ids"] = character_ids
         self.stage_data["scene_item_ids"] = item_ids
+        self.stage_data["scene_scenario_ids"] = scenario_ids
 
         all_ids = []
         if location_id:
             all_ids.append(location_id)
         all_ids.extend(character_ids)
         all_ids.extend(item_ids)
+        all_ids.extend(scenario_ids)
 
         scene_parts = []
         if location_id:
@@ -598,6 +615,12 @@ class StageProcessor:
                 item = self.main_app.items.get(iid)
                 item_names.append(f"{item.name} (ID: {iid})" if item else iid)
             scene_parts.append(f"Предметы: {', '.join(item_names)}")
+        if scenario_ids:
+            scen_names = []
+            for sid in scenario_ids:
+                scen = self.main_app.scenarios.get(sid)
+                scen_names.append(f"{scen.name} (ID: {sid})" if scen else sid)
+            scene_parts.append(f"Сценарии: {', '.join(scen_names)}")
         summary = "\n".join(scene_parts)
         self.stage_data["scene_summary"] = summary
         self._display_system(f"🔄 Сцена создана автоматически:\n{summary}\n")
@@ -606,7 +629,7 @@ class StageProcessor:
         self._stage1_truth_check()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 1.2: создание сцены на основе полученных описаний
+    # СТАДИЯ 1.2: создание сцены на основе полученных описаний (включая сценарии)
     # --------------------------------------------------------------------------
     def _stage1_create_scene(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_create_scene", True):
@@ -659,7 +682,7 @@ class StageProcessor:
             except Exception as e:
                 self._log_debug("ERROR", f"confirm_scene parse error: {e}")
 
-        match = re.search(r'\[(l\d+(?:\s*,\s*(?:c\d+|i\d+))*)\]', content)
+        match = re.search(r'\[(l\d+(?:\s*,\s*(?:c\d+|i\d+|s\d+))*)\]', content)
         if match:
             ids_str = match.group(1)
             ids = [id.strip() for id in ids_str.split(',')]
@@ -676,7 +699,75 @@ class StageProcessor:
             self._create_default_scene()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 2: проверка правдивости
+    # Обработка confirm_scene с поддержкой сценариев
+    # --------------------------------------------------------------------------
+    def _handle_confirm_scene(self, obj_ids: list):
+        location_id = None
+        character_ids = []
+        item_ids = []
+        scenario_ids = []   # НОВОЕ
+        for obj_id in obj_ids:
+            obj_id = str(obj_id)
+            if obj_id.startswith('l'):
+                if location_id is None:
+                    location_id = obj_id
+            elif obj_id.startswith('c'):
+                character_ids.append(obj_id)
+            elif obj_id.startswith('i'):
+                item_ids.append(obj_id)
+            elif obj_id.startswith('s'):
+                scenario_ids.append(obj_id)
+
+        if location_id is None and self.main_app.current_profile.enabled_locations:
+            location_id = self.main_app.current_profile.enabled_locations[0]
+            self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
+
+        # Определяем игрока по флагу is_player
+        player_id = None
+        for cid in self.main_app.current_profile.enabled_characters:
+            char = self.main_app.characters.get(cid)
+            if char and char.is_player:
+                player_id = cid
+                break
+        if player_id and player_id not in character_ids:
+            character_ids.insert(0, player_id)
+            self._display_system(f"➕ Добавлен игрок {player_id} в сцену.\n")
+
+        self.stage_data["scene_location_id"] = location_id
+        self.stage_data["scene_character_ids"] = character_ids
+        self.stage_data["scene_item_ids"] = item_ids
+        self.stage_data["scene_scenario_ids"] = scenario_ids
+
+        scene_parts = []
+        if location_id:
+            loc = self.main_app.locations.get(location_id)
+            loc_name = loc.name if loc else location_id
+            scene_parts.append(f"Локация: {loc_name} (ID: {location_id})")
+        if character_ids:
+            char_names = []
+            for cid in character_ids:
+                char = self.main_app.characters.get(cid)
+                char_names.append(f"{char.name} (ID: {cid})" if char else cid)
+            scene_parts.append(f"Персонажи: {', '.join(char_names)}")
+        if item_ids:
+            item_names = []
+            for iid in item_ids:
+                item = self.main_app.items.get(iid)
+                item_names.append(f"{item.name} (ID: {iid})" if item else iid)
+            scene_parts.append(f"Предметы: {', '.join(item_names)}")
+        if scenario_ids:
+            scen_names = []
+            for sid in scenario_ids:
+                scen = self.main_app.scenarios.get(sid)
+                scen_names.append(f"{scen.name} (ID: {sid})" if scen else sid)
+            scene_parts.append(f"Сценарии: {', '.join(scen_names)}")
+        summary = "\n".join(scene_parts)
+        self.stage_data["scene_summary"] = summary
+        self._display_system(f"✅ Сцена создана:\n{summary}\n")
+        self._stage1_truth_check()
+
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 2: проверка правдивости (без изменений)
     # --------------------------------------------------------------------------
     def _stage1_truth_check(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_truth_check", True):
@@ -766,7 +857,7 @@ class StageProcessor:
                 self._stage1_player_action()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 3: действие игрока
+    # СТАДИЯ 3: действие игрока (без изменений)
     # --------------------------------------------------------------------------
     def _stage1_player_action(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_player_action", True):
@@ -873,7 +964,7 @@ class StageProcessor:
                 self._stage1_random_event_determine()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 4: определение случайного события (произошло ли)
+    # СТАДИЯ 4: определение случайного события (произошло ли) (без изменений)
     # --------------------------------------------------------------------------
     def _stage1_random_event_determine(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_random_event_determine", True):
@@ -974,7 +1065,7 @@ class StageProcessor:
                 self._stage2_npc_action()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 5.1: запрос недостающих объектов для случайного события
+    # СТАДИЯ 5.1: запрос недостающих объектов для случайного события (без изменений)
     # --------------------------------------------------------------------------
     def _stage1_random_event_request_objects(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_random_event_request_objects", True):
@@ -1006,6 +1097,7 @@ class StageProcessor:
                 assoc = self.main_app.get_associative_memory_for_object(iid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
+        # Сценарии для события не запрашиваем, но можно добавить при необходимости
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
@@ -1086,7 +1178,7 @@ class StageProcessor:
         self._stage1_random_event_details()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 5.2: описание случайного события (с броском качества d20)
+    # СТАДИЯ 5.2: описание случайного события (с броском качества d20) (без изменений)
     # --------------------------------------------------------------------------
     def _stage1_random_event_details(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_random_event_details", True):
@@ -1173,7 +1265,7 @@ class StageProcessor:
             self._stage2_npc_action()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 6: обработка NPC (действия) – ИСПРАВЛЕНА: добавлено явное предупреждение модели не описывать игрока
+    # СТАДИЯ 6: обработка NPC (действия) (без изменений, кроме возможного учёта сценариев, но не обязательно)
     # --------------------------------------------------------------------------
     def _stage2_npc_action(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage2_npc_action", True):
@@ -1189,14 +1281,12 @@ class StageProcessor:
         self._display_system(f"🎭 Этап 6/11: Обработка NPC (попытка {retry_count+1})...\n")
 
         all_chars = self.stage_data.get("scene_character_ids", [])
-        # Определяем NPC – персонажи, у которых is_player == False
         npc_ids = []
         for cid in all_chars:
             char = self.main_app.characters.get(str(cid))
             if char and not char.is_player:
                 npc_ids.append(cid)
             elif char is None:
-                # если персонаж не найден, считаем NPC (на всякий случай)
                 npc_ids.append(cid)
 
         if not npc_ids:
@@ -1221,7 +1311,6 @@ class StageProcessor:
             self._stage2_npc_action(0)
             return
 
-        # Находим игрока для запрещающей инструкции
         player_id = None
         player_name = "игрок"
         for cid in all_chars:
@@ -1254,7 +1343,6 @@ class StageProcessor:
             previous_actions=previous_text
         )
 
-        # Добавляем явное предупреждение, чтобы модель не описывала действия игрока
         warning = f"\n\n**ВАЖНО:** Ты описываешь действие только персонажа {npc.name}. Не описывай действия, мысли или речь игрока {player_name}. Не пиши от лица игрока."
         user_data += warning
 
@@ -1316,7 +1404,7 @@ class StageProcessor:
         self._stage2_npc_action(0)
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 7: финальный рассказ
+    # СТАДИЯ 7: финальный рассказ (с учётом сценариев)
     # --------------------------------------------------------------------------
     def _stage3_final(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage3_final", True):
@@ -1338,7 +1426,6 @@ class StageProcessor:
         else:
             location_full_name = "Неизвестно"
 
-        # Формируем описание действий NPC
         npc_actions_lines = []
         for cid, action in self.stage_data.get("npc_actions", {}).items():
             char = self.main_app.characters.get(cid)
@@ -1348,7 +1435,6 @@ class StageProcessor:
 
         event_desc = self.stage_data["event_desc"] if self.stage_data.get("event_occurred", False) else ""
 
-        # Получаем словарь бросков NPC только для NPC (не игроков)
         npc_dice_map = self.stage_data.get("npc_dice_map")
         if npc_dice_map is None:
             npc_dice_map = {}
@@ -1358,13 +1444,24 @@ class StageProcessor:
                     npc_dice_map[cid] = self._pop_dice('d20')
             self.stage_data["npc_dice_map"] = npc_dice_map
 
-        # Формируем сводку по броскам NPC
         npc_dice_lines = []
         for cid, dice_val in npc_dice_map.items():
             char = self.main_app.characters.get(cid)
             if char:
                 npc_dice_lines.append(f"{char.name}: d20={dice_val}")
         dice_summary = "\n".join(npc_dice_lines) if npc_dice_lines else "Нет NPC"
+
+        # Добавляем информацию о сценариях
+        scenario_ids = self.stage_data.get("scene_scenario_ids", [])
+        scenarios_text = ""
+        if scenario_ids:
+            scen_descs = []
+            for sid in scenario_ids:
+                scen = self.main_app.scenarios.get(sid)
+                if scen:
+                    scen_descs.append(f"Сценарий: {scen.name}\n{scen.description}")
+            if scen_descs:
+                scenarios_text = "Активные сценарии (направления повествования, не обязательны к строгому следованию):\n" + "\n\n".join(scen_descs)
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage3_final")
         if not prompt_template:
@@ -1379,6 +1476,9 @@ class StageProcessor:
             dice_results=dice_summary
         )
 
+        if scenarios_text:
+            user_data += "\n\n" + scenarios_text
+
         if not self.stage_data.get("npc_actions") and not self.stage_data.get("event_occurred"):
             user_data += "\n\n**ВАЖНО:** В этой сцене нет активных NPC и не произошло случайного события. Опиши изменение окружения или продвижение времени."
 
@@ -1391,7 +1491,8 @@ class StageProcessor:
             "event_description": event_desc,
             "npcs_actions": npc_actions_text,
             "dice_results": dice_summary,
-            "characters_context": characters_context
+            "characters_context": characters_context,
+            "scenarios_text": scenarios_text
         }
         full_context = {**self.stage_data, **extra_context}
 
@@ -1448,61 +1549,6 @@ class StageProcessor:
         inner = inner.replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
         return inner
 
-    def _handle_confirm_scene(self, obj_ids: list):
-        location_id = None
-        character_ids = []
-        item_ids = []
-        for obj_id in obj_ids:
-            obj_id = str(obj_id)
-            if obj_id.startswith('l'):
-                if location_id is None:
-                    location_id = obj_id
-            elif obj_id.startswith('c'):
-                character_ids.append(obj_id)
-            elif obj_id.startswith('i'):
-                item_ids.append(obj_id)
-
-        if location_id is None and self.main_app.current_profile.enabled_locations:
-            location_id = self.main_app.current_profile.enabled_locations[0]
-            self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
-
-        # Определяем игрока по флагу is_player
-        player_id = None
-        for cid in self.main_app.current_profile.enabled_characters:
-            char = self.main_app.characters.get(cid)
-            if char and char.is_player:
-                player_id = cid
-                break
-        if player_id and player_id not in character_ids:
-            character_ids.insert(0, player_id)
-            self._display_system(f"➕ Добавлен игрок {player_id} в сцену.\n")
-
-        self.stage_data["scene_location_id"] = location_id
-        self.stage_data["scene_character_ids"] = character_ids
-        self.stage_data["scene_item_ids"] = item_ids
-
-        scene_parts = []
-        if location_id:
-            loc = self.main_app.locations.get(location_id)
-            loc_name = loc.name if loc else location_id
-            scene_parts.append(f"Локация: {loc_name} (ID: {location_id})")
-        if character_ids:
-            char_names = []
-            for cid in character_ids:
-                char = self.main_app.characters.get(cid)
-                char_names.append(f"{char.name} (ID: {cid})" if char else cid)
-            scene_parts.append(f"Персонажи: {', '.join(char_names)}")
-        if item_ids:
-            item_names = []
-            for iid in item_ids:
-                item = self.main_app.items.get(iid)
-                item_names.append(f"{item.name} (ID: {iid})" if item else iid)
-            scene_parts.append(f"Предметы: {', '.join(item_names)}")
-        summary = "\n".join(scene_parts)
-        self.stage_data["scene_summary"] = summary
-        self._display_system(f"✅ Сцена создана:\n{summary}\n")
-        self._stage1_truth_check()
-
     def _after_stage3_final(self, content, extra):
         retry_count = extra.get("retry_count", 0)
         self._log_full_response("stage3_final", content)
@@ -1550,7 +1596,7 @@ class StageProcessor:
         self._stage8_history_check()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 8.1: Проверка истории
+    # Остальные стадии (8.1, 11, 9, 10) без изменений, кроме возможного учёта сценариев в будущем
     # --------------------------------------------------------------------------
     def _stage8_history_check(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage8_history_check", True):
@@ -1653,9 +1699,6 @@ class StageProcessor:
 
         self._stage11_validation()
 
-    # --------------------------------------------------------------------------
-    # СТАДИЯ 11 (старая) - валидация
-    # --------------------------------------------------------------------------
     def _stage11_validation(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_validation", True):
             self._log_debug("STAGE11_SKIPPED", "Stage11 (validation) disabled")
@@ -1813,9 +1856,6 @@ class StageProcessor:
             self._display_system("⚠️ Не удалось получить корректный ответ валидатора. Пропускаем.\n")
             self._stage11_significant_changes()
 
-    # --------------------------------------------------------------------------
-    # НОВАЯ СТАДИЯ 11: Проверка значительных изменений в истории
-    # --------------------------------------------------------------------------
     def _stage11_significant_changes(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_significant_changes", True):
             self._log_debug("STAGE11_SIGNIFICANT_SKIPPED", "Stage11 (significant changes) disabled")
@@ -1906,9 +1946,6 @@ class StageProcessor:
         self._display_system(f"{'✅' if significant else '❌'} Значительные изменения: {'да' if significant else 'нет'}\n")
         self._stage4_summary()
 
-    # --------------------------------------------------------------------------
-    # СТАДИЯ 9: краткая память (summary)
-    # --------------------------------------------------------------------------
     def _stage4_summary(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage4_summary", True):
             self._log_debug("STAGE9_SKIPPED", "Stage9 (summary) disabled")
@@ -1961,9 +1998,6 @@ class StageProcessor:
             self._display_system("⚠️ Не удалось получить краткую память.\n")
         self._stage10_associative_memory()
 
-    # --------------------------------------------------------------------------
-    # СТАДИЯ 10: ассоциативная память объектов
-    # --------------------------------------------------------------------------
     def _stage10_associative_memory(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage10_associative_memory", True) or not self.main_app.enable_associative_memory:
             self._log_debug("STAGE10_SKIPPED", "Stage10 (associative) disabled")

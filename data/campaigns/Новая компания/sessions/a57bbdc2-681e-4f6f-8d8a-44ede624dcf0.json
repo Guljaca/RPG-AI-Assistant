@@ -1,0 +1,22 @@
+{
+  "name": "Чат 2026-04-19 11:44",
+  "profile": {
+    "name": "Profile_a57bbdc2",
+    "enabled_narrators": [],
+    "enabled_characters": [],
+    "enabled_locations": [],
+    "enabled_items": [],
+    "enabled_events": [],
+    "enabled_scenarios": [],
+    "player_character_id": null
+  },
+  "history": [],
+  "created": "2026-04-19T11:44:04.700613",
+  "last_used": "2026-04-19T11:44:05.191951",
+  "local_descriptions": {},
+  "memory_summaries": [],
+  "associative_memory": {},
+  "memory_turn_index": [],
+  "assoc_turn_changes": [],
+  "significant_changes_flags": []
+}

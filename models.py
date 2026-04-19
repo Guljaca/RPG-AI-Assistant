@@ -35,13 +35,28 @@ class Item(BaseObject):
     pass
 
 @dataclass
+class Event(BaseObject):
+    """Событие — описание возможной ситуации, действия, происшествия."""
+    pass
+
+@dataclass
+class Scenario(BaseObject):
+    """
+    Сценарий — описание общей последовательности событий (например, «Сегодня мы идём в школу»).
+    Модель не обязана строго следовать сценарию, но может использовать его как направляющую.
+    """
+    pass
+
+@dataclass
 class GameProfile:
     name: str = "Default"
     enabled_narrators: List[str] = field(default_factory=list)
     enabled_characters: List[str] = field(default_factory=list)
     enabled_locations: List[str] = field(default_factory=list)
     enabled_items: List[str] = field(default_factory=list)
-    player_character_id: Optional[str] = None   # <-- ДОБАВЛЕНО
+    enabled_events: List[str] = field(default_factory=list)
+    enabled_scenarios: List[str] = field(default_factory=list)   # НОВОЕ
+    player_character_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -50,7 +65,9 @@ class GameProfile:
             "enabled_characters": self.enabled_characters,
             "enabled_locations": self.enabled_locations,
             "enabled_items": self.enabled_items,
-            "player_character_id": self.player_character_id   # <--
+            "enabled_events": self.enabled_events,
+            "enabled_scenarios": self.enabled_scenarios,
+            "player_character_id": self.player_character_id
         }
 
     @classmethod
@@ -61,5 +78,7 @@ class GameProfile:
             enabled_characters=data.get("enabled_characters", []),
             enabled_locations=data.get("enabled_locations", []),
             enabled_items=data.get("enabled_items", []),
-            player_character_id=data.get("player_character_id")   # <--
+            enabled_events=data.get("enabled_events", []),
+            enabled_scenarios=data.get("enabled_scenarios", []),
+            player_character_id=data.get("player_character_id")
         )

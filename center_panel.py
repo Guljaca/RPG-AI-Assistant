@@ -92,12 +92,6 @@ class CenterPanel(ttk.Frame):
         self.clear_btn = ttk.Button(btn_frame_top, text="Очистить", command=lambda: self.app.update("clear_chat"))
         self.clear_btn.pack(side=tk.LEFT, padx=2)
 
-        # ========= НОВАЯ КНОПКА РЕДАКТИРОВАНИЯ СЕССИИ =========
-        self.edit_session_btn = ttk.Button(btn_frame_top, text="Редактировать сессию",
-                                        command=lambda: self.app.update("edit_session"))
-        self.edit_session_btn.pack(side=tk.LEFT, padx=2)
-        # ======================================================
-
         self.regenerate_btn = ttk.Button(btn_frame_bottom, text="Перегенерировать", command=self._regenerate_last)
         self.regenerate_btn.pack(side=tk.LEFT, padx=2)
         self.regenerate_translation_btn = ttk.Button(btn_frame_bottom, text="Перегенерировать перевод", command=self._regenerate_translation)

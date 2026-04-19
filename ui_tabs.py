@@ -2,9 +2,9 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
 import re
-from models import Narrator, Character, Location, Item
+from models import Narrator, Character, Location, Item, Event, Scenario
 
-# ---------- Вспомогательная функция контекстного меню (копия из основного файла) ----------
+# ---------- Вспомогательная функция контекстного меню ----------
 def add_context_menu(widget):
     """Добавляет контекстное меню (Вырезать/Копировать/Вставить/Выделить всё) для текстовых виджетов."""
     menu = tk.Menu(widget, tearoff=0)
@@ -40,7 +40,7 @@ def center_window(window, parent):
     y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (window.winfo_height() // 2)
     window.geometry(f"+{x}+{y}")
 
-# ---------- Вкладка "Профиль" ----------
+# ---------- Вкладка "Профиль" (с поддержкой событий и сценариев) ----------
 class ProfileTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -89,12 +89,14 @@ class ProfileTab(ttk.Frame):
         self.char_vars = {}
         self.loc_vars = {}
         self.item_vars = {}
+        self.event_vars = {}
+        self.scenario_vars = {}   # НОВОЕ
 
     def refresh(self):
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
         profile = self.app.current_profile
-        profiles = self.app.storage.list_profiles()
+        profiles = self.app.list_profiles()
         self.profile_combo['values'] = profiles
         self.profile_name_var.set(profile.name)
 
@@ -134,6 +136,24 @@ class ProfileTab(ttk.Frame):
                 cb = ttk.Checkbutton(self.scrollable_frame, text=item.name, variable=var, command=self._on_checkbox_change)
                 cb.pack(anchor='w', padx=20)
 
+        if self.app.events:
+            ttk.Label(self.scrollable_frame, text="События", font=('Arial', 10, 'bold')).pack(anchor='w', pady=(10,0))
+            self.event_vars.clear()
+            for eid, ev in self.app.events.items():
+                var = tk.BooleanVar(value=(eid in profile.enabled_events))
+                self.event_vars[eid] = var
+                cb = ttk.Checkbutton(self.scrollable_frame, text=ev.name, variable=var, command=self._on_checkbox_change)
+                cb.pack(anchor='w', padx=20)
+
+        if self.app.scenarios:
+            ttk.Label(self.scrollable_frame, text="Сценарии", font=('Arial', 10, 'bold')).pack(anchor='w', pady=(10,0))
+            self.scenario_vars.clear()
+            for sid, sc in self.app.scenarios.items():
+                var = tk.BooleanVar(value=(sid in profile.enabled_scenarios))
+                self.scenario_vars[sid] = var
+                cb = ttk.Checkbutton(self.scrollable_frame, text=sc.name, variable=var, command=self._on_checkbox_change)
+                cb.pack(anchor='w', padx=20)
+
         self.scrollable_frame.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
@@ -146,11 +166,15 @@ class ProfileTab(ttk.Frame):
         profile.enabled_characters = [cid for cid, var in self.char_vars.items() if var.get()]
         profile.enabled_locations = [lid for lid, var in self.loc_vars.items() if var.get()]
         profile.enabled_items = [iid for iid, var in self.item_vars.items() if var.get()]
+        profile.enabled_events = [eid for eid, var in self.event_vars.items() if var.get()]
+        profile.enabled_scenarios = [sid for sid, var in self.scenario_vars.items() if var.get()]
         self.app.update("update_profile", {
             "enabled_narrators": profile.enabled_narrators,
             "enabled_characters": profile.enabled_characters,
             "enabled_locations": profile.enabled_locations,
-            "enabled_items": profile.enabled_items
+            "enabled_items": profile.enabled_items,
+            "enabled_events": profile.enabled_events,
+            "enabled_scenarios": profile.enabled_scenarios
         })
         messagebox.showinfo("Профиль", "Настройки применены.")
 
@@ -174,7 +198,7 @@ class ProfileTab(ttk.Frame):
             return
         self.app.update("new_profile", {"name": name})
 
-# ---------- Базовый редактор для объектов (Рассказчики, Персонажи, Локации, Предметы) ----------
+# ---------- Базовый редактор для объектов (Рассказчики, Персонажи, Локации, Предметы, События, Сценарии) ----------
 class BaseEditorTab(ttk.Frame):
     def __init__(self, parent, app, obj_type: str, obj_class, title: str):
         super().__init__(parent)
@@ -240,6 +264,10 @@ class BaseEditorTab(ttk.Frame):
             return self.app.locations
         elif self.obj_type == "items":
             return self.app.items
+        elif self.obj_type == "events":
+            return self.app.events
+        elif self.obj_type == "scenarios":
+            return self.app.scenarios
         return {}
 
     def _extract_num(self, obj_id: str) -> int:
@@ -329,6 +357,10 @@ class BaseEditorTab(ttk.Frame):
             self.app.update("create_location", data)
         elif self.obj_type == "items":
             self.app.update("create_item", data)
+        elif self.obj_type == "events":
+            self.app.update("create_event", data)
+        elif self.obj_type == "scenarios":
+            self.app.update("create_scenario", data)
 
     def _delete_selected(self):
         if not self.current_obj_id:
@@ -345,6 +377,10 @@ class BaseEditorTab(ttk.Frame):
                 self.app.update("delete_location", {"id": self.current_obj_id})
             elif self.obj_type == "items":
                 self.app.update("delete_item", {"id": self.current_obj_id})
+            elif self.obj_type == "events":
+                self.app.update("delete_event", {"id": self.current_obj_id})
+            elif self.obj_type == "scenarios":
+                self.app.update("delete_scenario", {"id": self.current_obj_id})
 
     def _save_current(self):
         name = self.name_entry.get().strip()
@@ -365,6 +401,10 @@ class BaseEditorTab(ttk.Frame):
                     self.app.update("create_location", data)
                 elif self.obj_type == "items":
                     self.app.update("create_item", data)
+                elif self.obj_type == "events":
+                    self.app.update("create_event", data)
+                elif self.obj_type == "scenarios":
+                    self.app.update("create_scenario", data)
             else:
                 data = {"id": self.current_obj_id, "name": name, "description": desc}
                 if self.obj_type == "characters":
@@ -377,6 +417,10 @@ class BaseEditorTab(ttk.Frame):
                     self.app.update("update_location", data)
                 elif self.obj_type == "items":
                     self.app.update("update_item", data)
+                elif self.obj_type == "events":
+                    self.app.update("update_event", data)
+                elif self.obj_type == "scenarios":
+                    self.app.update("update_scenario", data)
         else:
             if self.current_obj_id:
                 self.app.update("set_local_description", {"obj_id": self.current_obj_id, "description": desc})
@@ -433,7 +477,7 @@ class BaseEditorTab(ttk.Frame):
                 }
                 self.app.update("update_character", data)
 
-# ---------- Вкладка "Системные промты" ----------
+# ---------- Вкладка "Системные промты" (без изменений) ----------
 class SystemPromptsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -545,12 +589,12 @@ class SystemPromptsTab(ttk.Frame):
     def _delete_selected(self):
         if not self.current_prompt_name:
             return
-        if self.current_prompt_name in self.app.prompt_manager.default_prompts:
+        if self.current_prompt_name in self.app.prompt_manager.REQUIRED_PROMPTS:
             messagebox.showwarning("Удаление", "Нельзя удалить стандартный промт.")
             return
         self.app.update("delete_prompt", {"name": self.current_prompt_name})
 
-# ---------- Вкладка "Промты переводчика" ----------
+# ---------- Вкладка "Промты переводчика" (без изменений) ----------
 class TranslatorPromptsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -674,7 +718,7 @@ class TranslatorPromptsTab(ttk.Frame):
             return
         self.app.update("delete_prompt", {"name": self.current_prompt_name})
 
-# ---------- Вкладка "Этапы" (исправленная: выбор рассказчиков через диалог с множественным выбором) ----------
+# ---------- Вкладка "Этапы" (без изменений, кроме добавления возможной поддержки сценариев в будущем) ----------
 class StagePromptsTab(ttk.Frame):
     STAGE_MAPPING = [
         ("1.1 Запрос описаний объектов", "stage1_request_descriptions"),
@@ -1017,11 +1061,8 @@ class StagePromptsTab(ttk.Frame):
             if self.current_stage:
                 self._refresh_prompts_list()
 
-# ========== ДОБАВИТЬ В КОНЕЦ ФАЙЛА ui_tabs.py ==========
-
-# ========== HistoryTab (исправленная версия с работающей прокруткой) ==========
+# ---------- Вкладка "История" (без изменений) ----------
 class HistoryTab(ttk.Frame):
-    """Вкладка для просмотра и редактирования важности пар сообщений."""
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
@@ -1086,14 +1127,12 @@ class HistoryTab(ttk.Frame):
             flags = flags[:len(pairs)]
         elif len(flags) < len(pairs):
             flags += [False] * (len(pairs) - len(flags))
-        # Синхронизируем оригинальный список, если он изменился
         if len(self.app.significant_changes_flags) != len(flags):
             self.app.significant_changes_flags = flags
             self.app._save_current_session_safe()
         return pairs, flags
 
     def refresh(self):
-        """Обновляет таблицу, синхронизируя флаги с текущей историей."""
         if not self.tree:
             return
         for row in self.tree.get_children():
@@ -1120,7 +1159,6 @@ class HistoryTab(ttk.Frame):
         if idx < 0 or idx >= len(flags):
             return
         new_flag = not flags[idx]
-        # Обновляем флаг в основном списке приложения
         if idx < len(self.app.significant_changes_flags):
             self.app.significant_changes_flags[idx] = new_flag
         else:

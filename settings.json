@@ -19,9 +19,7 @@
     ],
     "stage1_create_scene": [
       "stage1_create_scene",
-      "history:auto",
-      "narrator:n1",
-      "narrator:n6"
+      "history:auto"
     ],
     "stage1_truth_check": [
       "stage1_truth_check",
@@ -32,8 +30,7 @@
       "stage1_player_action"
     ],
     "stage1_random_event_determine": [
-      "stage1_random_event",
-      "narrator:n6"
+      "stage1_random_event"
     ],
     "stage1_random_event_request_objects": [
       "stage1_random_event_request_objects",
@@ -41,24 +38,16 @@
     ],
     "stage1_random_event_details": [
       "stage1_random_event_continue",
-      "history:auto",
-      "narrator:n1",
-      "narrator:n2",
-      "narrator:n3"
+      "history:auto"
     ],
     "stage2_npc_action": [
       "stage2_npc_action",
-      "history:auto",
-      "narrator:n1"
+      "history:auto"
     ],
     "stage3_final": [
       "stage3_final",
       "dice_rules",
-      "history:auto",
-      "narrator:n1",
-      "narrator:n2",
-      "narrator:n3",
-      "narrator:n6"
+      "history:auto"
     ],
     "stage11_validation": [
       "stage11_validation",
@@ -80,6 +69,8 @@
   "max_memory_summaries": 5,
   "enable_associative_memory": true,
   "max_associative_memory_entries": 5,
+  "max_events_per_scene": 5,
+  "max_scenarios_per_scene": 5,
   "enabled_stages": {
     "stage1_request_descriptions": true,
     "stage1_create_scene": true,
@@ -186,6 +177,7 @@
     "stage4_summary": 0.5,
     "stage10_associative_memory": 0.65
   },
+  "last_campaign": "\u0414\u0435\u0440\u0435\u0432\u043d\u044f \u0432 \u0433\u043e\u0440\u0430\u0445",
   "random_event_chance": 30,
   "stage_retry_limits": {
     "stage1_request_descriptions": 2,
