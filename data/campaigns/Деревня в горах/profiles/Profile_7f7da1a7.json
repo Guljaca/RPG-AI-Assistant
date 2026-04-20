@@ -7,7 +7,6 @@
     "n6"
   ],
   "enabled_characters": [
-    "c1",
     "c2",
     "c3",
     "c4"
@@ -18,9 +17,7 @@
     "l3",
     "l4",
     "l5",
-    "l6",
-    "l7",
-    "l8"
+    "l7"
   ],
   "enabled_items": [
     "i1",
@@ -32,5 +29,12 @@
   ],
   "enabled_events": [],
   "enabled_scenarios": [],
-  "player_character_id": null
+  "enabled_emotions": [
+    "em1",
+    "em2",
+    "em3",
+    "em4",
+    "em5"
+  ],
+  "player_character_id": "c2"
 }

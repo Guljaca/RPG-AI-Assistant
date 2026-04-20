@@ -2,7 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, simpledialog
 from ui_tabs import ProfileTab, BaseEditorTab, SystemPromptsTab, TranslatorPromptsTab, StagePromptsTab, HistoryTab
-from models import Narrator, Character, Location, Item, Event, Scenario
+from models import Narrator, Character, Location, Item, Event, Scenario, Emotion
 
 class RightPanel(ttk.Frame):
     def __init__(self, parent, app):         
@@ -25,6 +25,8 @@ class RightPanel(ttk.Frame):
         row3.pack(fill=tk.X, pady=2)
         row4 = ttk.Frame(self.button_container)
         row4.pack(fill=tk.X, pady=2)
+        row5 = ttk.Frame(self.button_container)
+        row5.pack(fill=tk.X, pady=2)
         buttons = [
             ("profile", "Профиль", row1),
             ("narrators", "Рассказчики", row1),
@@ -32,11 +34,12 @@ class RightPanel(ttk.Frame):
             ("locations", "Локации", row2),
             ("items", "Предметы", row2),
             ("events", "События", row2),
-            ("scenarios", "Сценарии", row3),          # НОВОЕ
+            ("scenarios", "Сценарии", row3),
+            ("emotions", "Эмоции", row3),
             ("prompts", "Системные промты", row3),
-            ("translator_prompts", "Промты перевода", row3),
+            ("translator_prompts", "Промты перевода", row4),
             ("stage_prompts", "Этапы", row4),
-            ("history", "История", row4)
+            ("history", "История", row5)
         ]
         self.tab_buttons = {}
         for tab_name, text, parent_row in buttons:
@@ -53,7 +56,8 @@ class RightPanel(ttk.Frame):
         self.tab_frames["locations"] = BaseEditorTab(self.content_frame, self.app, "locations", Location, "Локации")
         self.tab_frames["items"] = BaseEditorTab(self.content_frame, self.app, "items", Item, "Предметы")
         self.tab_frames["events"] = BaseEditorTab(self.content_frame, self.app, "events", Event, "События")
-        self.tab_frames["scenarios"] = BaseEditorTab(self.content_frame, self.app, "scenarios", Scenario, "Сценарии")   # НОВОЕ
+        self.tab_frames["scenarios"] = BaseEditorTab(self.content_frame, self.app, "scenarios", Scenario, "Сценарии")
+        self.tab_frames["emotions"] = BaseEditorTab(self.content_frame, self.app, "emotions", Emotion, "Эмоции")
         self.tab_frames["prompts"] = SystemPromptsTab(self.content_frame, self.app)
         self.tab_frames["translator_prompts"] = TranslatorPromptsTab(self.content_frame, self.app)
         self.tab_frames["stage_prompts"] = StagePromptsTab(self.content_frame, self.app)

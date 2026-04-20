@@ -104,7 +104,7 @@ class LeftPanel(ttk.Frame):
         self.session_listbox.delete(0, tk.END)
         sessions = self.app.list_sessions()
         for sid in sessions:
-            data = self.app._load_session_data(sid)
+            data = self.app.storage.load_session(sid)
             if data:
                 name = data.get("name", "Без имени")
                 display = f"{name} ({sid[:8]})"
@@ -122,7 +122,7 @@ class LeftPanel(ttk.Frame):
                     break
 
     def get_session_name(self, session_id: str) -> str:
-        data = self.app._load_session_data(session_id)
+        data = self.app.storage.load_session(session_id)
         return data.get("name", "Без имени") if data else "Без имени"
 
     def _on_session_select(self, event):
@@ -170,7 +170,7 @@ class LeftPanel(ttk.Frame):
         self._rename_session_by_id(session_id)
 
     def _rename_session_by_id(self, session_id: str):
-        data = self.app._load_session_data(session_id)
+        data = self.app.storage.load_session(session_id)
         if not data:
             return
         old_name = data.get("name", "Без имени")

@@ -1,10 +1,10 @@
 {
   "api_url": "http://localhost:1234/v1",
-  "model_name": "google/gemma-4-e4b",
+  "model_name": "gemma-4-e4b-uncensored-hauhaucs-aggressive@?",
   "max_history_messages": 10,
   "use_two_models": false,
-  "primary_model": "qwen3.5-9b-claude-4.6-os-auto-variable-heretic-uncensored-thinking-max-neocode-imatrix@q4_k_s",
-  "translator_model": "qwen/qwen3.5-9b",
+  "primary_model": "google/gemma-4-e4b",
+  "translator_model": "local-model",
   "enable_assistant_translation": false,
   "max_tokens": 8192,
   "temperature": 0.95,
@@ -63,6 +63,13 @@
     ],
     "stage11_significant_changes": [
       "stage11_significant_changes"
+    ],
+    "stage12_emotions": [
+      "stage12_emotions",
+      "history:auto"
+    ],
+    "stage8_history_check": [
+      "stage8_history_check"
     ]
   },
   "enable_memory_summary": true,
@@ -83,6 +90,7 @@
     "stage3_final": true,
     "stage8_history_check": true,
     "stage11_validation": true,
+    "stage12_emotions": true,
     "stage11_significant_changes": true,
     "stage4_summary": true,
     "stage10_associative_memory": true
@@ -132,6 +140,10 @@
       "max_history": 2,
       "max_summaries": 0
     },
+    "stage12_emotions": {
+      "max_history": 2,
+      "max_summaries": 5
+    },
     "stage11_significant_changes": {
       "max_history": 2,
       "max_summaries": 0
@@ -157,6 +169,7 @@
     "stage3_final": "primary",
     "stage8_history_check": "primary",
     "stage11_validation": "primary",
+    "stage12_emotions": "primary",
     "stage11_significant_changes": "primary",
     "stage4_summary": "primary",
     "stage10_associative_memory": "primary"
@@ -173,6 +186,7 @@
     "stage3_final": 1.0,
     "stage8_history_check": 0.3,
     "stage11_validation": 0.25,
+    "stage12_emotions": 0.3,
     "stage11_significant_changes": 0.3,
     "stage4_summary": 0.5,
     "stage10_associative_memory": 0.65
@@ -191,6 +205,7 @@
     "stage3_final": 3,
     "stage8_history_check": 2,
     "stage11_validation": 2,
+    "stage12_emotions": 2,
     "stage11_significant_changes": 2,
     "stage4_summary": 2,
     "stage10_associative_memory": 2

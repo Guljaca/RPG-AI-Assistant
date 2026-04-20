@@ -1,0 +1,16 @@
+{
+  "id": "c2",
+  "name": "Кён (Игрок)",
+  "description": "За него играет игрок.\nИмя Кён. 16 лет. Школьник. \nВнешний вид: худой, бледный парень\nСлабый, ум выше среднего\nХарактер: спокойный, избегающий конфликтов, любящий одиночество, аскетичный",
+  "inventory": [],
+  "equipped": [],
+  "is_player": true,
+  "avatar_image": "characters/avatars/cropped_avatar_ch_sho_0_1_1_0_c2.png.png",
+  "sprite_image": "characters/sprites/ch_sho_0_1_1_0_c2.png",
+  "emotion_images": {
+    "em1": {
+      "avatar": "characters/avatars/cropped_avatar_ch_sho_0_1_1_2.png.png",
+      "sprite": "characters/emotions/em1/ch_sho_0_1_1_2.png"
+    }
+  }
+}

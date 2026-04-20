@@ -2,8 +2,10 @@
 import os
 import json
 import re
-from typing import Dict, List, Optional, Type, TypeVar, Any
-from models import BaseObject, Narrator, Character, Location, Item, Event, Scenario
+import shutil
+from typing import Dict, List, Optional, Any, TypeVar
+from datetime import datetime
+from models import BaseObject, Narrator, Character, Location, Item, Event, Scenario, Emotion, GameProfile
 
 T = TypeVar('T', bound=BaseObject)
 
@@ -14,9 +16,8 @@ def sanitize_filename(name: str) -> str:
 class CampaignStorageManager:
     """
     Хранит данные по кампаниям в папке data/campaigns/<campaign_name>/
-    Каждый тип объектов имеет свою подпапку: narrators, characters, locations, items, events, scenarios.
-    Имя файла = sanitize(object.name) + '.json'
-    Внутри файла хранится полный словарь объекта, включая поле 'id'.
+    Каждый тип объектов имеет свою подпапку: narrators, characters, locations, items, events, scenarios, emotions.
+    Также управляет сессиями и профилями внутри кампании.
     """
     OBJ_TYPES = {
         "narrators": Narrator,
@@ -25,6 +26,7 @@ class CampaignStorageManager:
         "items": Item,
         "events": Event,
         "scenarios": Scenario,
+        "emotions": Emotion,
     }
     PREFIX_MAP = {
         "narrators": "n",
@@ -33,6 +35,7 @@ class CampaignStorageManager:
         "items": "i",
         "events": "e",
         "scenarios": "s",
+        "emotions": "em",
     }
 
     def __init__(self, base_dir: str = "data"):
@@ -43,6 +46,7 @@ class CampaignStorageManager:
         # Кэш мета-информации (счётчики ID) по кампаниям
         self._meta_cache: Dict[str, Dict[str, Dict]] = {}
 
+    # ---------- Управление кампаниями ----------
     def set_campaign(self, campaign_name: str):
         """Устанавливает активную кампанию. Если папки нет – создаёт."""
         self.current_campaign = sanitize_filename(campaign_name)
@@ -50,7 +54,8 @@ class CampaignStorageManager:
         os.makedirs(campaign_path, exist_ok=True)
         for obj_type in self.OBJ_TYPES:
             os.makedirs(os.path.join(campaign_path, obj_type), exist_ok=True)
-        # Инициализируем мета-данные для кампании
+        os.makedirs(os.path.join(campaign_path, "sessions"), exist_ok=True)
+        os.makedirs(os.path.join(campaign_path, "profiles"), exist_ok=True)
         self._load_meta()
 
     def _get_campaign_path(self) -> str:
@@ -118,19 +123,17 @@ class CampaignStorageManager:
             safe_name = "unnamed"
         return f"{safe_name}.json"
 
+    # ---------- Работа с объектами (NPC, локации и т.д.) ----------
     def save_object(self, obj_type: str, obj: BaseObject):
         """Сохраняет объект. Если у объекта нет ID, генерирует новый."""
         if not obj.id:
             obj.id = self._get_next_id(obj_type)
         filename = self._get_filename(obj)
         filepath = os.path.join(self._get_type_path(obj_type), filename)
-        # Проверяем, не существует ли уже файл с таким именем, но другим ID
         if os.path.exists(filepath):
-            # Загружаем существующий объект, чтобы проверить ID
             with open(filepath, "r", encoding="utf-8") as f:
                 existing_data = json.load(f)
             if existing_data.get("id") != obj.id:
-                # Конфликт имён: добавляем ID в имя файла
                 base, ext = os.path.splitext(filename)
                 filename = f"{base}_{obj.id}{ext}"
                 filepath = os.path.join(self._get_type_path(obj_type), filename)
@@ -138,7 +141,7 @@ class CampaignStorageManager:
             json.dump(obj.to_dict(), f, ensure_ascii=False, indent=2)
 
     def load_object(self, obj_type: str, obj_id: str) -> Optional[BaseObject]:
-        """Загружает объект по ID. Поиск по всем файлам в папке."""
+        """Загружает объект по ID."""
         type_path = self._get_type_path(obj_type)
         if not os.path.exists(type_path):
             return None
@@ -154,25 +157,44 @@ class CampaignStorageManager:
         return None
 
     def load_all_objects(self, obj_type: str) -> List[BaseObject]:
-        """Загружает все объекты данного типа в текущей кампании."""
         type_path = self._get_type_path(obj_type)
         objects = []
         if not os.path.exists(type_path):
+            print(f"DEBUG: Папка {type_path} не существует")
             return objects
+        
+        print(f"\n=== DEBUG: Загрузка {obj_type} из {type_path} ===")
+        
         for filename in os.listdir(type_path):
             if filename.endswith(".json") and filename != "_meta.json":
                 filepath = os.path.join(type_path, filename)
                 try:
                     with open(filepath, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                    
+                    print(f"\n--- Файл: {filename} ---")
+                    print(f"Содержимое data: {data}")
+                    print(f"Ключи data: {list(data.keys())}")
+                    if "background_image" in data:
+                        print(f"background_image = '{data['background_image']}'")
+                    else:
+                        print("Ключ 'background_image' ОТСУТСТВУЕТ в data!")
+                    
                     cls = self.OBJ_TYPES[obj_type]
                     obj = cls.from_dict(data)
+                    
+                    print(f"Объект после from_dict: id={obj.id}, name={obj.name}")
+                    if obj_type == "locations":
+                        print(f"obj.background_image = '{getattr(obj, 'background_image', 'НЕТ АТРИБУТА')}'")
+                    
                     objects.append(obj)
                 except Exception as e:
-                    print(f"Error loading {filename}: {e}")
-        # Сортировка по числовой части ID (или по имени)
+                    print(f"Ошибка загрузки {filename}: {e}")
+        
+        print(f"\n=== Итого загружено {len(objects)} объектов {obj_type} ===\n")
         objects.sort(key=lambda x: x.id)
         return objects
+
 
     def delete_object(self, obj_type: str, obj_id: str):
         """Удаляет объект по ID."""
@@ -198,7 +220,7 @@ class CampaignStorageManager:
                 if os.path.isdir(os.path.join(self.campaigns_dir, d))]
 
     def create_campaign(self, name: str) -> bool:
-        """Создаёт новую кампанию (папку)."""
+        """Создаёт новую кампанию."""
         safe_name = sanitize_filename(name)
         if not safe_name:
             return False
@@ -208,20 +230,108 @@ class CampaignStorageManager:
         os.makedirs(path)
         for obj_type in self.OBJ_TYPES:
             os.makedirs(os.path.join(path, obj_type), exist_ok=True)
+        os.makedirs(os.path.join(path, "sessions"), exist_ok=True)
+        os.makedirs(os.path.join(path, "profiles"), exist_ok=True)
         return True
 
     def delete_campaign(self, name: str):
-        """Удаляет кампанию и все её данные (осторожно)."""
+        """Удаляет кампанию и все её данные."""
         safe_name = sanitize_filename(name)
         path = os.path.join(self.campaigns_dir, safe_name)
         if os.path.exists(path):
-            import shutil
             shutil.rmtree(path)
-            # Очищаем кэш, если удалена текущая кампания
             if self.current_campaign == safe_name:
                 self.current_campaign = None
                 self._meta_cache.pop(safe_name, None)
 
-    # Методы для работы с сессиями и профилями остаются без изменений,
-    # но их можно адаптировать для кампаний при необходимости.
-    # Здесь они опущены для краткости, так как в задании их переделка не требуется.
+    # ---------- Работа с сессиями ----------
+    def _get_sessions_dir(self) -> str:
+        return os.path.join(self._get_campaign_path(), "sessions")
+
+    def _session_file_path(self, session_id: str) -> str:
+        return os.path.join(self._get_sessions_dir(), f"{session_id}.json")
+
+    def save_session(self, session_id: str, data: dict):
+        """Сохраняет данные сессии."""
+        os.makedirs(self._get_sessions_dir(), exist_ok=True)
+        filepath = self._session_file_path(session_id)
+        temp_path = filepath + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, filepath)
+
+    def load_session(self, session_id: str) -> Optional[dict]:
+        """Загружает данные сессии."""
+        filepath = self._session_file_path(session_id)
+        if not os.path.exists(filepath):
+            return None
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError, IOError):
+            return None
+
+    def delete_session(self, session_id: str):
+        """Удаляет файл сессии."""
+        filepath = self._session_file_path(session_id)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    def list_sessions(self) -> List[str]:
+        """Возвращает список ID сессий в текущей кампании."""
+        sessions_dir = self._get_sessions_dir()
+        if not os.path.exists(sessions_dir):
+            return []
+        sessions = []
+        for f in os.listdir(sessions_dir):
+            if f.endswith(".json"):
+                sessions.append(f[:-5])
+        return sessions
+
+    def rename_session(self, session_id: str, new_name: str):
+        """Переименовывает сессию (изменяет поле 'name' в JSON)."""
+        data = self.load_session(session_id)
+        if data:
+            data["name"] = new_name
+            self.save_session(session_id, data)
+
+    # ---------- Работа с профилями ----------
+    def _get_profiles_dir(self) -> str:
+        return os.path.join(self._get_campaign_path(), "profiles")
+
+    def _profile_file_path(self, profile_name: str) -> str:
+        safe_name = sanitize_filename(profile_name)
+        return os.path.join(self._get_profiles_dir(), f"{safe_name}.json")
+
+    def save_profile(self, profile: GameProfile):
+        """Сохраняет профиль в файл."""
+        os.makedirs(self._get_profiles_dir(), exist_ok=True)
+        filepath = self._profile_file_path(profile.name)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(profile.to_dict(), f, ensure_ascii=False, indent=2)
+
+    def load_profile(self, profile_name: str) -> Optional[GameProfile]:
+        """Загружает профиль по имени."""
+        filepath = self._profile_file_path(profile_name)
+        if not os.path.exists(filepath):
+            return None
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return GameProfile.from_dict(data)
+
+    def delete_profile(self, profile_name: str):
+        """Удаляет файл профиля."""
+        filepath = self._profile_file_path(profile_name)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+    def list_profiles(self) -> List[str]:
+        """Возвращает список имён профилей в текущей кампании."""
+        profiles_dir = self._get_profiles_dir()
+        if not os.path.exists(profiles_dir):
+            return []
+        profiles = []
+        for f in os.listdir(profiles_dir):
+            if f.endswith(".json"):
+                profiles.append(f[:-5])
+        return profiles

@@ -1,0 +1,35 @@
+{
+  "name": "Profile_72a203cb",
+  "enabled_narrators": [
+    "n1",
+    "n2",
+    "n3",
+    "n6"
+  ],
+  "enabled_characters": [
+    "c2",
+    "c3",
+    "c4"
+  ],
+  "enabled_locations": [
+    "l1",
+    "l4",
+    "l7"
+  ],
+  "enabled_items": [
+    "i1",
+    "i2",
+    "i3",
+    "i4",
+    "i5",
+    "i6"
+  ],
+  "enabled_events": [],
+  "enabled_scenarios": [],
+  "enabled_emotions": [
+    "em1",
+    "em2",
+    "em3"
+  ],
+  "player_character_id": null
+}

@@ -186,6 +186,7 @@ class StageProcessor:
         "stage3_final",
         "stage8_history_check",
         "stage11_validation",
+        "stage12_emotions",
         "stage11_significant_changes",
         "stage4_summary",
         "stage10_associative_memory"
@@ -203,7 +204,7 @@ class StageProcessor:
             "scene_location_id": None,
             "scene_character_ids": [],
             "scene_item_ids": [],
-            "scene_scenario_ids": [],      # НОВОЕ
+            "scene_scenario_ids": [],
             "scene_summary": "",
             "player_action_dice": None,
             "player_action_desc": "",
@@ -216,6 +217,7 @@ class StageProcessor:
             "current_npc_index": 0,
             "final_response": "",
             "truth_violation": "",
+            "emotion_map": {},           # НОВОЕ: {character_id: emotion_name}
             "scene_generation_retries": 0,
             "random_event_retries": 0,
             "npc_retry_count": 0
@@ -251,6 +253,7 @@ class StageProcessor:
             "stage10_associative_memory",
             "stage11_validation",
             "stage11_significant_changes",
+            "stage12_emotions",
             "compress_description",
             "dice_rules",
             "translator_system"
@@ -299,6 +302,7 @@ class StageProcessor:
             "current_npc_index": 0,
             "final_response": "",
             "truth_violation": "",
+            "emotion_map": {},
             "scene_generation_retries": 0,
             "random_event_retries": 0,
             "npc_retry_count": 0
@@ -308,6 +312,33 @@ class StageProcessor:
     # --------------------------------------------------------------------------
     # Вспомогательные методы
     # --------------------------------------------------------------------------
+    def _safe_format(self, template: str, **kwargs) -> str:
+        """
+        Безопасно подставляет значения в шаблон, экранируя все фигурные скобки,
+        которые не являются именованными параметрами {param}.
+        """
+        import re
+        # Временно заменяем известные параметры на уникальные маркеры
+        def replacer(match):
+            key = match.group(1)
+            if key in kwargs:
+                return f"%%%{key}%%%"
+            else:
+                # Экранируем одиночные скобки для неизвестных ключей
+                return f"{{{{{key}}}}}"
+        
+        pattern = re.compile(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}')
+        template = pattern.sub(replacer, template)
+        
+        # Экранируем все оставшиеся одиночные { и }
+        template = template.replace('{', '{{').replace('}', '}}')
+        
+        # Возвращаем маркеры обратно в значения параметров
+        for key, value in kwargs.items():
+            template = template.replace(f"%%%{key}%%%", str(value))
+        
+        return template
+
     def _log_debug(self, step: str, content: str = "", error: str = None):
         if self.main_app.current_debug_log_path:
             self.main_app._log_debug(step, content, error)
@@ -376,12 +407,19 @@ class StageProcessor:
 
         final_response = self.stage_data.get("final_response", "")
         if final_response:
+            # Проверяем, нет ли уже такого ответа в истории (чтобы не дублировать)
             last_msg = self.main_app.conversation_history[-1] if self.main_app.conversation_history else None
             if not (last_msg and last_msg["role"] == "assistant" and last_msg["content"] == final_response):
+                # Отображаем ответ в интерфейсе
                 self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
+                # Добавляем в историю
                 self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
                 self.main_app._finalize_generation_memory_turn()
                 self._save_current_session()
+            else:
+                # Если по какой-то причине ответ уже есть в истории, но не был отображён,
+                # отображаем его принудительно (без дублирования в истории)
+                self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
 
         if hasattr(self.main_app, 'right_panel') and self.main_app.right_panel:
             self.main_app.right_panel.refresh()
@@ -389,11 +427,17 @@ class StageProcessor:
         if total_time:
             self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
 
+        self._update_vn_view()
+
         self.main_app.is_generating = False
         self.main_app.center_panel.set_input_state("normal")
         self.main_app.center_panel.update_translation_button_state()
         self.main_app.current_debug_log_path = None
         self.main_app.display_generation_memory_summary()
+
+        # Размораживаем визуальную новеллу (если активна)
+        if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
+            self.main_app.vn_frame.set_freeze(False)
 
     def _save_current_session(self):
         self.main_app._save_current_session_safe()
@@ -432,6 +476,7 @@ class StageProcessor:
                         desc += " (ИГРОК)"
                 self.stage_data["descriptions"][obj_id] = desc
                 self._display_system(f"✅ Описание {obj_id} получено.\n")
+                # Убрано: self._update_vn_view()
             except Exception as e:
                 self._display_error(f"❌ Ошибка получения описания {obj_id}: {e}\n")
                 self.stage_data["descriptions"][obj_id] = f"Ошибка: {e}"
@@ -476,11 +521,16 @@ class StageProcessor:
                 assoc = self.main_app.get_associative_memory_for_object(iid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
-        # Сценарии (НОВОЕ)
+        # Сценарии
         for sid in self.main_app.current_profile.enabled_scenarios:
             scen = self.main_app.scenarios.get(sid)
             if scen:
                 objects_text.append(f"Сценарий: {sid} - {scen.name} (описание: {scen.description[:100]}...)")
+        # Эмоции (для справки модели)
+        for eid in self.main_app.current_profile.enabled_emotions:
+            em = self.main_app.emotions.get(eid)
+            if em:
+                objects_text.append(f"Эмоция: {eid} - {em.name}")
 
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
@@ -492,7 +542,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_request_descriptions")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_request_descriptions' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             user_message=self.stage_data['user_message'],
             available_objects=available,
             max_locations=max_locs,
@@ -579,7 +630,7 @@ class StageProcessor:
         if player_id:
             character_ids.insert(0, player_id)
         item_ids = self.main_app.current_profile.enabled_items[:3]
-        scenario_ids = self.main_app.current_profile.enabled_scenarios[:self.main_app.max_scenarios_per_scene]   # НОВОЕ
+        scenario_ids = self.main_app.current_profile.enabled_scenarios[:self.main_app.max_scenarios_per_scene]
 
         location_id = str(location_id) if location_id else None
         character_ids = [str(cid) for cid in character_ids]
@@ -626,6 +677,7 @@ class StageProcessor:
         self._display_system(f"🔄 Сцена создана автоматически:\n{summary}\n")
         if all_ids:
             self._fetch_descriptions_sync(all_ids)
+        # Убрано: self._update_vn_view()
         self._stage1_truth_check()
 
     # --------------------------------------------------------------------------
@@ -644,7 +696,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_create_scene")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_create_scene' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             user_message=self.stage_data['user_message'],
             descriptions=descriptions_text
         )
@@ -698,14 +751,11 @@ class StageProcessor:
             self._display_system("⚠️ Не удалось получить confirm_scene. Создаём сцену по умолчанию.\n")
             self._create_default_scene()
 
-    # --------------------------------------------------------------------------
-    # Обработка confirm_scene с поддержкой сценариев
-    # --------------------------------------------------------------------------
     def _handle_confirm_scene(self, obj_ids: list):
         location_id = None
         character_ids = []
         item_ids = []
-        scenario_ids = []   # НОВОЕ
+        scenario_ids = []
         for obj_id in obj_ids:
             obj_id = str(obj_id)
             if obj_id.startswith('l'):
@@ -764,6 +814,7 @@ class StageProcessor:
         summary = "\n".join(scene_parts)
         self.stage_data["scene_summary"] = summary
         self._display_system(f"✅ Сцена создана:\n{summary}\n")
+        # Убрано: self._update_vn_view()
         self._stage1_truth_check()
 
     # --------------------------------------------------------------------------
@@ -782,7 +833,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_truth_check")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_truth_check' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             user_message=self.stage_data['user_message'],
             descriptions=descriptions_text
         )
@@ -886,7 +938,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_player_action")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_player_action' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             user_message=self.stage_data['user_message'],
             descriptions=descriptions_text,
             dice_rules=dice_rules,
@@ -987,7 +1040,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_random_event' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             player_action=player_action,
             descriptions=descriptions_text,
             dice_value=dice_value,
@@ -1097,7 +1151,6 @@ class StageProcessor:
                 assoc = self.main_app.get_associative_memory_for_object(iid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
-        # Сценарии для события не запрашиваем, но можно добавить при необходимости
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
@@ -1111,7 +1164,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_request_objects")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_random_event_request_objects' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             event_dice=event_dice,
             player_action=player_action,
             descriptions=descriptions_text,
@@ -1200,7 +1254,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage1_random_event_continue")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage1_random_event_continue' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             player_action=self.stage_data['player_action_desc'],
             descriptions=descriptions_text,
             dice_value=quality_dice
@@ -1265,7 +1320,7 @@ class StageProcessor:
             self._stage2_npc_action()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 6: обработка NPC (действия) (без изменений, кроме возможного учёта сценариев, но не обязательно)
+    # СТАДИЯ 6: обработка NPC (действия)
     # --------------------------------------------------------------------------
     def _stage2_npc_action(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage2_npc_action", True):
@@ -1334,7 +1389,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage2_npc_action")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage2_npc_action' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             npc_name=npc.name,
             npc_id=npc_id,
             descriptions=descriptions_text,
@@ -1451,7 +1507,6 @@ class StageProcessor:
                 npc_dice_lines.append(f"{char.name}: d20={dice_val}")
         dice_summary = "\n".join(npc_dice_lines) if npc_dice_lines else "Нет NPC"
 
-        # Добавляем информацию о сценариях
         scenario_ids = self.stage_data.get("scene_scenario_ids", [])
         scenarios_text = ""
         if scenario_ids:
@@ -1463,17 +1518,46 @@ class StageProcessor:
             if scen_descs:
                 scenarios_text = "Активные сценарии (направления повествования, не обязательны к строгому следованию):\n" + "\n\n".join(scen_descs)
 
+        player_dice = self.stage_data.get("player_action_dice", "?")
+        player_action_desc = self.stage_data.get("player_action_desc", "")
+        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
+
+        # --- ВЫЧИСЛЕНИЕ ВЕРДИКТА ТОЛЬКО ДЛЯ ЛОГИРОВАНИЯ (НЕ ПЕРЕДАЁТСЯ В ПРОМТ) ---
+        dice_val = self.stage_data.get("player_action_dice")
+        if dice_val is not None:
+            if dice_val == 1:
+                verdict = "Критический провал"
+            elif 2 <= dice_val <= 4:
+                verdict = "Провал"
+            elif 5 <= dice_val <= 15:
+                verdict = "Успех"
+            elif 16 <= dice_val <= 19:
+                verdict = "Большой успех"
+            elif dice_val == 20:
+                verdict = "Критический успех"
+            else:
+                verdict = "Неизвестно"
+        else:
+            verdict = "Нет броска"
+        self._log_debug("PLAYER_DICE_VERDICT", f"d20={dice_val} -> {verdict}")
+        # --- КОНЕЦ БЛОКА ЛОГИРОВАНИЯ ---
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage3_final")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage3_final' not found.")
 
         characters_context = self._get_characters_context_with_presence()
 
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             location_desc=location_full_name,
             event_description=event_desc,
             npcs_actions=npc_actions_text,
-            dice_results=dice_summary
+            dice_results=dice_summary,
+            dice_rules=dice_rules,
+            player_dice_value=player_dice,
+            player_action_desc=player_action_desc
+            # player_result_text НЕ ПЕРЕДАЁТСЯ — он отсутствует в промте
         )
 
         if scenarios_text:
@@ -1492,7 +1576,10 @@ class StageProcessor:
             "npcs_actions": npc_actions_text,
             "dice_results": dice_summary,
             "characters_context": characters_context,
-            "scenarios_text": scenarios_text
+            "scenarios_text": scenarios_text,
+            "dice_rules": dice_rules,
+            "player_dice_value": player_dice,
+            "player_action_desc": player_action_desc
         }
         full_context = {**self.stage_data, **extra_context}
 
@@ -1506,6 +1593,7 @@ class StageProcessor:
             show_in_thinking=True,
             context_data=full_context
         )
+
 
     def _strip_function_wrapper(self, text: str) -> str:
         if not text:
@@ -1560,6 +1648,7 @@ class StageProcessor:
         final = re.sub(r'\b(check_history|validate_response|act|report_\w+)\s*\([^)]*\)', '', final, flags=re.DOTALL)
         final = re.sub(r'\n{3,}', '\n\n', final)
 
+        # Проверка повтора предыдущего ответа ассистента
         last_assistant_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
@@ -1575,6 +1664,7 @@ class StageProcessor:
             else:
                 final = final + " (События не изменились, но момент застыл.)"
 
+        # Проверка повтора сообщения пользователя
         last_user_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
@@ -1590,13 +1680,18 @@ class StageProcessor:
             else:
                 final = final + " (Рассказчик продолжает повествование.)"
 
+        # Сохраняем финальный ответ, НО НЕ ДОБАВЛЯЕМ В ИСТОРИЮ
         self.stage_data["final_response"] = final
         self.original_final_response = final
+
+        # Очищаем временный вывод (теперь это безопасно)
         self.main_app.center_panel.clear_temp_response()
+
+        # Переходим к следующим этапам
         self._stage8_history_check()
 
     # --------------------------------------------------------------------------
-    # Остальные стадии (8.1, 11, 9, 10) без изменений, кроме возможного учёта сценариев в будущем
+    # СТАДИЯ 8.1: проверка истории
     # --------------------------------------------------------------------------
     def _stage8_history_check(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage8_history_check", True):
@@ -1654,7 +1749,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage8_history_check")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage8_history_check' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             assoc_memory=old_histories_text,
             new_histories=f"Новый ответ ассистента:\n{current_response}",
             significant_changes_previous=prev_significant
@@ -1699,10 +1795,13 @@ class StageProcessor:
 
         self._stage11_validation()
 
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 8.2: валидация результата
+    # --------------------------------------------------------------------------
     def _stage11_validation(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_validation", True):
             self._log_debug("STAGE11_SKIPPED", "Stage11 (validation) disabled")
-            self._stage11_significant_changes()
+            self._stage12_emotions()
             return
 
         self._log_debug(f"=== STAGE11: validation (attempt {retry_count+1}) ===")
@@ -1710,7 +1809,7 @@ class StageProcessor:
 
         final_response = self.stage_data.get("final_response", "")
         if not final_response:
-            self._stage11_significant_changes()
+            self._stage12_emotions()
             return
 
         scene_location_id = self.stage_data.get('scene_location_id', '')
@@ -1742,6 +1841,11 @@ class StageProcessor:
                 npc_dice_lines.append(f"{char.name}: d20={dice_val}")
         dice_summary_npc = "\n".join(npc_dice_lines)
 
+        # --- ДОБАВЛЕННЫЙ БЛОК: данные о броске игрока ---
+        dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
+        player_dice = self.stage_data.get("player_action_dice", "?")
+        # --- конец добавленного блока ---
+
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage11_validation")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage11_validation' not found.")
@@ -1759,7 +1863,9 @@ class StageProcessor:
             "event_desc": event_desc,
             "npc_actions": npc_actions,
             "dice_summary_npc": dice_summary_npc,
-            "final_response": final_response
+            "final_response": final_response,
+            "dice_rules": dice_rules,
+            "player_dice": player_dice
         }
         if "{prev_user_message}" in prompt_template:
             prev_user_msg = ""
@@ -1771,7 +1877,7 @@ class StageProcessor:
             format_args["prev_user_message"] = prev_user_msg
 
         try:
-            user_data = prompt_template.format(**format_args)
+            user_data = self._safe_format(prompt_template, **format_args)
         except KeyError as e:
             self._log_debug("ERROR", f"Missing key in stage11_validation format: {e}")
             user_data = prompt_template
@@ -1798,7 +1904,7 @@ class StageProcessor:
         if extracted is not None:
             if extracted.strip() == "":
                 self._display_system("✅ Валидация пройдена, ответ корректен.\n")
-                self._stage11_significant_changes()
+                self._stage12_emotions()
                 return
             else:
                 corrected = extracted.replace('\\n', '\n')
@@ -1827,7 +1933,7 @@ class StageProcessor:
                     self._display_system("✅ Ответ исправлен по результатам валидации.\n")
                 else:
                     self._display_system("⚠️ Валидатор вернул некорректный текст. Изменения отклонены.\n")
-                self._stage11_significant_changes()
+                self._stage12_emotions()
                 return
 
         cleaned = self._strip_function_wrapper(content)
@@ -1845,7 +1951,7 @@ class StageProcessor:
                     return
             self.stage_data["final_response"] = cleaned
             self._display_system("✅ Ответ очищен от функций.\n")
-            self._stage11_significant_changes()
+            self._stage12_emotions()
             return
 
         if retry_count < max_retries:
@@ -1854,8 +1960,165 @@ class StageProcessor:
             return
         else:
             self._display_system("⚠️ Не удалось получить корректный ответ валидатора. Пропускаем.\n")
-            self._stage11_significant_changes()
+            self._stage12_emotions()
 
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 12: определение эмоций персонажей (НОВАЯ)
+    # --------------------------------------------------------------------------
+    def _stage12_emotions(self, retry_count=0):
+        if not self.main_app.enabled_stages.get("stage12_emotions", True):
+            self._log_debug("STAGE12_SKIPPED", "Stage12 (emotions) disabled")
+            self._stage11_significant_changes()
+            return
+
+        self._log_debug(f"=== STAGE12: emotions (attempt {retry_count+1}) ===")
+        self._display_system(f"😊 Этап 12/12: Определение эмоций персонажей (попытка {retry_count+1})...\n")
+
+        character_ids = self.stage_data.get("scene_character_ids", [])
+        if not character_ids:
+            self._display_system("Нет персонажей для определения эмоций.\n")
+            self._stage11_significant_changes()
+            return
+
+        final_response = self.stage_data.get("final_response", "")
+        if not final_response:
+            final_response = "Нет финального ответа."
+
+        emotions_list = []
+        for eid in self.main_app.current_profile.enabled_emotions:
+            em = self.main_app.emotions.get(eid)
+            if em:
+                emotions_list.append(f'"{em.name}"')
+        emotions_text = "[\n" + ",\n".join(emotions_list) + "\n]" if emotions_list else "[]"
+
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage12_emotions")
+        if not prompt_template:
+            raise FileNotFoundError("Prompt 'stage12_emotions' not found.")
+
+        # Сохраняем данные для последовательной обработки
+        self._emotion_queue = character_ids.copy()
+        self._emotion_results = {}
+        self._emotion_retry_count = retry_count
+
+        self._process_next_emotion()
+
+    def _process_next_emotion(self):
+        """Обрабатывает следующего персонажа из очереди"""
+        if not self._emotion_queue:
+            # Все обработаны
+            self.stage_data["emotion_map"] = self._emotion_results
+            self._display_system(f"✅ Эмоции определены: {self._emotion_results}\n")
+            self._update_vn_view()
+            # Очищаем временные переменные
+            delattr(self, '_emotion_queue')
+            delattr(self, '_emotion_results')
+            delattr(self, '_emotion_retry_count')
+            self._stage11_significant_changes()
+            return
+
+        cid = self._emotion_queue.pop(0)
+        char = self.main_app.characters.get(cid)
+        if not char:
+            self._emotion_results[cid] = "Нейтрально"
+            self._process_next_emotion()
+            return
+
+        final_response = self.stage_data.get("final_response", "")
+        desc = self.stage_data["descriptions"].get(cid, char.description)
+        if len(desc) > 300:
+            desc = desc[:300] + "..."
+
+        char_text = f"ID: {cid}\nИмя: {char.name}\nОписание: {desc}"
+
+        emotions_list = []
+        for eid in self.main_app.current_profile.enabled_emotions:
+            em = self.main_app.emotions.get(eid)
+            if em:
+                emotions_list.append(f'"{em.name}"')
+        emotions_text = "[\n" + ",\n".join(emotions_list) + "\n]" if emotions_list else "[]"
+
+        prompt_template = self.main_app.prompt_manager.get_prompt_content("stage12_emotions")
+        if not prompt_template:
+            raise FileNotFoundError("Prompt 'stage12_emotions' not found.")
+
+        user_data = self._safe_format(
+            prompt_template,
+            final_response=final_response,
+            characters=char_text,
+            available_emotions=emotions_text
+        )
+
+        extra_context = {
+            "character_id": cid,
+            "character_name": char.name,
+            "final_response": final_response,
+            "character_desc": desc
+        }
+        full_context = {**self.stage_data, **extra_context}
+
+        self._send_request(
+            user_data=user_data,
+            callback=lambda content, extra, cid=cid: self._after_stage12_emotions(content, extra, cid),
+            extra={"retry_count": self._emotion_retry_count, "character_id": cid},
+            stage_name="stage12_emotions",
+            use_temp=False,
+            show_in_thinking=True,
+            context_data=full_context
+        )
+
+    def _after_stage12_emotions(self, content, extra, character_id):
+        retry_count = extra.get("retry_count", 0)
+        self._log_full_response(f"stage12_emotions_{character_id}", content)
+
+        tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_emotions"])
+        emotion = "Нейтрально"
+
+        if tool_calls:
+            report_call = tool_calls[-1]
+            try:
+                args = json.loads(report_call["function"]["arguments"])
+                if isinstance(args, list):
+                    if len(args) >= 2 and isinstance(args[0], list):
+                        if args[0][0] == character_id:
+                            emotion = args[0][1]
+                        else:
+                            emotion = args[0][1] if len(args[0]) > 1 else "Нейтрально"
+                    elif len(args) >= 2:
+                        if args[0] == character_id:
+                            emotion = args[1]
+                        else:
+                            emotion = args[1] if len(args) > 1 else "Нейтрально"
+                elif isinstance(args, dict):
+                    if args.get("id") == character_id:
+                        emotion = args.get("emotion", "Нейтрально")
+                    else:
+                        emotion = args.get("emotion", "Нейтрально")
+                self._display_system(f"🎭 {character_id}: {emotion}\n")
+            except Exception as e:
+                self._log_debug("ERROR", f"report_emotions parse error for {character_id}: {e}")
+                emotion = "Нейтрально"
+        else:
+            # fallback: извлечение из текста
+            if "Смущение" in content:
+                emotion = "Смущение"
+            elif "Плач" in content:
+                emotion = "Плач"
+            elif "Ярость" in content or "злоба" in content:
+                emotion = "Ярость, сильная злоба"
+            elif "Ухмылка" in content:
+                emotion = "Ухмылка"
+            else:
+                emotion = "Нейтрально"
+            self._display_system(f"🎭 {character_id}: {emotion} (извлечено из текста)\n")
+
+        self._emotion_results[character_id] = emotion
+        # Переходим к следующему персонажу
+        self._process_next_emotion()
+
+
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 11: проверка значительных изменений (перемещена после эмоций)
+    # --------------------------------------------------------------------------
     def _stage11_significant_changes(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_significant_changes", True):
             self._log_debug("STAGE11_SIGNIFICANT_SKIPPED", "Stage11 (significant changes) disabled")
@@ -1896,7 +2159,7 @@ class StageProcessor:
             "curr_assistant_message": curr_pair[1]
         }
         try:
-            user_data = prompt_template.format(**format_args)
+            user_data = self._safe_format(prompt_template, **format_args)
         except KeyError as e:
             self._log_debug("ERROR", f"Missing key in stage11_significant_changes format: {e}")
             user_data = prompt_template
@@ -1917,7 +2180,7 @@ class StageProcessor:
 
     def _after_stage11_significant_changes(self, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_full_response("stage11_significant_changes", content)
+        self._log_full_response("stage11_significant_changes", content)   # ДОБАВЛЕНО
 
         significant = False
         tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_significant_changes"])
@@ -1931,6 +2194,7 @@ class StageProcessor:
             except Exception as e:
                 self._log_debug("ERROR", f"Failed to parse report_significant_changes: {e}")
         else:
+            self._log_debug("WARNING", "report_significant_changes not called, using fallback")  # ДОБАВЛЕНО
             content_lower = content.lower()
             if "true" in content_lower or "yes" in content_lower or "да" in content_lower:
                 significant = True
@@ -1946,6 +2210,9 @@ class StageProcessor:
         self._display_system(f"{'✅' if significant else '❌'} Значительные изменения: {'да' if significant else 'нет'}\n")
         self._stage4_summary()
 
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 9: краткая память
+    # --------------------------------------------------------------------------
     def _stage4_summary(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage4_summary", True):
             self._log_debug("STAGE9_SKIPPED", "Stage9 (summary) disabled")
@@ -1966,7 +2233,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage4_summary")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage4_summary' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             last_user_msg=last_user,
             last_assistant_msg=last_assistant
         )
@@ -1998,6 +2266,9 @@ class StageProcessor:
             self._display_system("⚠️ Не удалось получить краткую память.\n")
         self._stage10_associative_memory()
 
+    # --------------------------------------------------------------------------
+    # СТАДИЯ 10: ассоциативная память
+    # --------------------------------------------------------------------------
     def _stage10_associative_memory(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage10_associative_memory", True) or not self.main_app.enable_associative_memory:
             self._log_debug("STAGE10_SKIPPED", "Stage10 (associative) disabled")
@@ -2023,7 +2294,8 @@ class StageProcessor:
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage10_associative_memory")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage10_associative_memory' not found.")
-        user_data = prompt_template.format(
+        user_data = self._safe_format(
+            prompt_template,
             final_response=final,
             objects=objects_text
         )
@@ -2104,3 +2376,34 @@ class StageProcessor:
                     desc = desc[:300] + "..."
                 lines.append(f"• {char.name} – {desc}")
         return "\n".join(lines) if lines else "Нет других персонажей."
+    
+    def _update_vn_view(self):
+        """Обновляет интерфейс визуальной новеллы, если он активен."""
+        if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
+            self.main_app.vn_frame.refresh_from_current_state()
+
+    def restore_scene_from_session(self, session_data: dict):
+        """
+        Восстанавливает данные сцены из загруженной сессии.
+        Вызывается после загрузки сессии, до первого обновления VN фрейма.
+        """
+        # Поля, которые нужно восстановить
+        scene_keys = [
+            "scene_location_id",
+            "scene_character_ids",
+            "scene_item_ids",
+            "scene_scenario_ids",
+            "descriptions",
+            "scene_summary",
+            "emotion_map"
+        ]
+        for key in scene_keys:
+            if key in session_data:
+                self.stage_data[key] = session_data[key]
+            else:
+                # Если данных нет, оставляем значение по умолчанию
+                self.stage_data[key] = self.stage_data.get(key)
+
+        # Принудительно обновляем VN представление (если активно)
+        if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame:
+            self.main_app.vn_frame.refresh_from_current_state()

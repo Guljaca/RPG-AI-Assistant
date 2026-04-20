@@ -1,6 +1,6 @@
 # models.py
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 @dataclass
 class BaseObject:
@@ -20,15 +20,31 @@ class Narrator(BaseObject):
     pass
 
 @dataclass
+class Emotion(BaseObject):
+    """Эмоция — например, радость, грусть, нейтральная."""
+    # Для визуальной новеллы: изображения для этой эмоции
+    avatar_image: str = ""   # путь относительно папки кампании (например, "emotions/avatars/joy.png")
+    sprite_image: str = ""   # полноростовой спрайт для этой эмоции
+    # description уже есть в BaseObject
+
+@dataclass
 class Character(BaseObject):
     inventory: List[str] = field(default_factory=list)
     equipped: List[str] = field(default_factory=list)
     is_player: bool = False
+    # Поля для визуальной новеллы (нейтральные/дефолтные)
+    avatar_image: str = ""       # путь относительно папки кампании (например, "characters/avatar_c123.png")
+    sprite_image: str = ""       # полноростовой спрайт по умолчанию (нейтральный)
+    # Привязка эмоций к конкретным изображениям
+    # Ключ: ID эмоции (например, "em1") или имя эмоции, значение: словарь с путями
+    # Пример: {"em1": {"avatar": "path", "sprite": "path"}, "em2": {...}}
+    emotion_images: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
 @dataclass
 class Location(BaseObject):
     characters: List[str] = field(default_factory=list)
     items: List[str] = field(default_factory=list)
+    background_image: str = ""   # фоновое изображение локации
 
 @dataclass
 class Item(BaseObject):
@@ -56,6 +72,7 @@ class GameProfile:
     enabled_items: List[str] = field(default_factory=list)
     enabled_events: List[str] = field(default_factory=list)
     enabled_scenarios: List[str] = field(default_factory=list)   # НОВОЕ
+    enabled_emotions: List[str] = field(default_factory=list)    # НОВОЕ: список ID включённых эмоций
     player_character_id: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -67,6 +84,7 @@ class GameProfile:
             "enabled_items": self.enabled_items,
             "enabled_events": self.enabled_events,
             "enabled_scenarios": self.enabled_scenarios,
+            "enabled_emotions": self.enabled_emotions,
             "player_character_id": self.player_character_id
         }
 
@@ -80,5 +98,6 @@ class GameProfile:
             enabled_items=data.get("enabled_items", []),
             enabled_events=data.get("enabled_events", []),
             enabled_scenarios=data.get("enabled_scenarios", []),
+            enabled_emotions=data.get("enabled_emotions", []),
             player_character_id=data.get("player_character_id")
         )

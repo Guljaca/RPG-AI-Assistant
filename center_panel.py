@@ -1,3 +1,4 @@
+# center_panel.py
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from ui_utils import add_context_menu
@@ -373,19 +374,17 @@ class CenterPanel(ttk.Frame):
         else:
             self.regenerate_translation_btn.config(state=tk.DISABLED)
 
+
     def start_temp_response(self):
-        """Начинает временный вывод (стрим) — запоминает позицию до вставки префикса"""
         self.chat_display.config(state=tk.NORMAL)
-        # Запоминаем позицию ДО вставки префикса
-        self.temp_start_index = self.chat_display.index(tk.INSERT)
+        self.clear_temp_response()
         self.chat_display.insert(tk.END, "⚙️ Генерация (временный вывод): ", "temp")
-        # Позиция после префикса (для добавления контента)
-        self.temp_response_start = self.chat_display.index(tk.INSERT)
+        self.temp_start_index = self.chat_display.index(tk.INSERT)
         self.chat_display.config(state=tk.DISABLED)
         self.update_idletasks()
 
     def append_temp_content(self, text: str):
-        if self.temp_response_start:
+        if self.temp_start_index:
             self.chat_display.config(state=tk.NORMAL)
             self.chat_display.insert(tk.END, text, "temp")
             self.chat_display.see(tk.END)
@@ -393,15 +392,16 @@ class CenterPanel(ttk.Frame):
             self.update_idletasks()
 
     def clear_temp_response(self):
-        """Удаляет весь временный блок (включая префикс)"""
-        if hasattr(self, 'temp_start_index') and self.temp_start_index:
-            self.chat_display.config(state=tk.NORMAL)
-            end_pos = self.chat_display.index(tk.END)
-            self.chat_display.delete(self.temp_start_index, end_pos)
-            self.chat_display.config(state=tk.DISABLED)
-            self.temp_start_index = None
-            self.temp_response_start = None
-            self.update_idletasks()
+        self.chat_display.config(state=tk.NORMAL)
+        ranges = list(self.chat_display.tag_ranges("temp"))
+        for i in range(0, len(ranges), 2):
+            start = ranges[i]
+            end = ranges[i+1]
+            self.chat_display.delete(start, end)
+        self.chat_display.tag_delete("temp")
+        self.temp_start_index = None
+        self.chat_display.config(state=tk.DISABLED)
+        self.update_idletasks()
 
     def _send_message(self):
         if self.app.is_generating:

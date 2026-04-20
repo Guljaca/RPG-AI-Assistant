@@ -1,0 +1,32 @@
+{
+  "id": "c4",
+  "name": "Кай (Сестра игрока. Входит в локацию без предупреждения, особенно во время разврата)",
+  "description": "Имя: Кай\nПол: Девушка\nОтношения: Младшая сестра Игрока\nВозраст: 14 лет\nВнешность: Ниже игрока, короткие волосы, маленькая грудь, багровые волосы и глаза, атлетичное тело, загар по линии школьного купальника.\nЖивет: в доме вместе с братом\nХарактер: Энергичная девочка-сорванец, бойкая, энергичная, веселая, оптимистичная, стесняется эротики\n\nЧто нравится:\nОбщаться с парнями по пацански\n(Тайно)воровать ночью трусы братика и мастурбировать.\n(Тайно)брат\nВместе с братом: играть, мыться, заниматься спортом, бороться, спать в одной кровати\n\nЧто не нравится:\nКогда кто-то привлекает внимание брата\n\nЖелания:\nЧтобы ее не воспринимали как парня\nБережет невинность брата (для себя)\n\nПривычки:\n- Кай встаёт рано. Первым делом проверяет, проснулся ли брат, и часто заглядывает к нему в комнату, даже если дверь закрыта.\n- Часто заходит в комнату брата без стука, особенно когда подозревает, что у него кто-то есть. Не любит, когда Ай или другие девушки привлекают внимание брата, и может вмешаться.",
+  "inventory": [],
+  "equipped": [],
+  "is_player": false,
+  "avatar_image": "characters/avatars/cropped_avatar_ch_ake_0_1_1_0.png.png",
+  "sprite_image": "characters/sprites/ch_ake_0_1_1_0.png",
+  "emotion_images": {
+    "em1": {
+      "avatar": "characters/avatars/cropped_avatar_ch_ake_0_1_4_2.png.png",
+      "sprite": "characters/emotions/em1/ch_ake_0_1_4_2.png"
+    },
+    "em2": {
+      "avatar": "characters/avatars/cropped_avatar_ch_ake_0_2_1_0.png.png",
+      "sprite": "characters/emotions/em2/ch_ake_0_2_1_0.png"
+    },
+    "em3": {
+      "avatar": "characters/avatars/cropped_avatar_ch_ake_0_1_8_1.png.png",
+      "sprite": "characters/emotions/em3/ch_ake_0_1_8_1.png"
+    },
+    "em4": {
+      "avatar": "characters/avatars/cropped_avatar_ch_ake_0_3_1_0.png.png",
+      "sprite": "characters/emotions/em4/ch_ake_0_3_1_0.png"
+    },
+    "em5": {
+      "avatar": "characters/avatars/cropped_avatar_ch_ake_0_1_3_1.png.png",
+      "sprite": "characters/emotions/em5/ch_ake_0_1_3_1.png"
+    }
+  }
+}
