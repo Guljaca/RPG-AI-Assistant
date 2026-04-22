@@ -1,4 +1,4 @@
-# Project_Py3_RPG_AI_main_Tools_version_V0.17.0.py (с поддержкой визуальной новеллы и эмоций)
+# Project_Py3_RPG_AI_main_Tools_version_V0.18.0.py (с поддержкой отладки, регенерации шага и сохранением состояния отладки в сессии)
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
 import json
@@ -9,6 +9,7 @@ import re
 import uuid
 import random
 import ast
+import copy
 from typing import Dict, List, Optional, Any, Generator, Tuple
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -209,9 +210,8 @@ class MainApp(tk.Tk):
         self.geometry("1200x700")
         self.minsize(900, 600)
 
-        # НОВОЕ: режим отображения (normal / visual_novel)
-        self.display_mode = tk.StringVar(value="normal")  # "normal" или "visual_novel"
-        self.vn_frame = None   # вместо visual_novel_window
+        self.display_mode = tk.StringVar(value="normal")
+        self.vn_frame = None
 
         self.memory_summary = ""
         self.settings_file = "settings.json"
@@ -240,7 +240,7 @@ class MainApp(tk.Tk):
         self.items: Dict[str, Item] = {}
         self.events: Dict[str, Event] = {}
         self.scenarios: Dict[str, Scenario] = {}
-        self.emotions: Dict[str, Emotion] = {}  # НОВОЕ
+        self.emotions: Dict[str, Emotion] = {}
 
         self.current_session_id: Optional[str] = None
         self.current_profile: GameProfile = GameProfile(name="Default")
@@ -339,6 +339,7 @@ class MainApp(tk.Tk):
             "save_current_session": self._handle_save_current_session,
             "regenerate_last_response": self._handle_regenerate_last_response,
             "regenerate_translation": self._handle_regenerate_translation,
+            "regenerate_last_step": self._handle_regenerate_last_step,
             "delete_last_user_message": self._handle_delete_last_user_message,
             "edit_session": self._handle_edit_session,
             "update_narrator": lambda data: self._handle_update_object("narrators", data),
@@ -379,6 +380,8 @@ class MainApp(tk.Tk):
             "rename_campaign": self._handle_rename_campaign,
             "delete_campaign": self._handle_delete_campaign,
             "toggle_display_mode": self._toggle_display_mode,
+            "set_debug_mode": self._handle_set_debug_mode,
+            "step_continue": self._handle_step_continue,
             "stage1_request_descriptions": lambda data: self.stage_processor._stage1_request_descriptions(data.get("retry_count", 0) if data else 0),
             "stage1_player_action": lambda data: self.stage_processor._stage1_player_action(data.get("retry_count", 0) if data else 0),
             "stage1_random_event": lambda data: self.stage_processor._stage1_random_event_determine(data.get("retry_count", 0) if data else 0),
@@ -401,7 +404,6 @@ class MainApp(tk.Tk):
 
     # ---------- Вспомогательные методы ----------
     def _delete_file_by_id(self, obj_type: str, obj_id: str):
-        """Удаляет файл объекта по ID, не освобождая ID в метаданных."""
         type_path = os.path.join(self.storage._get_campaign_path(), obj_type)
         if not os.path.exists(type_path):
             return
@@ -416,7 +418,6 @@ class MainApp(tk.Tk):
                 return
 
     def update_visual_novel(self):
-        """Обновляет отображение в режиме визуальной новеллы, если он активен."""
         if hasattr(self, 'vn_frame') and self.vn_frame and self.vn_frame.winfo_viewable():
             self.vn_frame.refresh_from_current_state()
 
@@ -432,10 +433,8 @@ class MainApp(tk.Tk):
             self.normal_frame.pack(fill=tk.BOTH, expand=True)
             self.mode_switch_btn.config(text="Визуальная новелла")
             self.center_panel.display_system_message("🖥️ Переключено в обычный режим.\n")
-        # Сбрасываем временный вывод, чтобы избежать конфликта индексов
         self.center_panel.clear_temp_response()
 
-    # ---------- Методы для работы с кампаниями ----------
     def _load_last_campaign(self):
         last_campaign = self.settings.get("last_campaign")
         campaigns = self.storage.list_campaigns()
@@ -480,7 +479,7 @@ class MainApp(tk.Tk):
         self._refresh_all_ui()
         self.center_panel.clear_chat()
         self.center_panel.display_message(f"Переключено на кампанию: {campaign_name}\n", "system")
-        self._load_last_session()   # загружаем последнюю сессию новой кампании
+        self._load_last_session()
 
     def _handle_create_campaign(self, data=None):
         if data and data.get("name"):
@@ -580,7 +579,6 @@ class MainApp(tk.Tk):
         ttk.Button(btn_frame, text="Сохранить и перезагрузить", command=save_and_reload).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Отмена", command=edit_win.destroy).pack(side=tk.LEFT, padx=5)
 
-    # ---------- Память ----------
     def record_added_summary(self, summary_text: str):
         self.current_generation_added_summaries.append(summary_text)
 
@@ -639,7 +637,6 @@ class MainApp(tk.Tk):
         else:
             return f"Описание: {global_desc}"
 
-    # ---------- Профили ----------
     def _add_to_profile_if_not_exists(self, obj_type: str, obj_id: str):
         if obj_type == "narrators":
             enabled_list = self.current_profile.enabled_narrators
@@ -685,7 +682,6 @@ class MainApp(tk.Tk):
     def _save_profile_to_file(self):
         self.storage.save_profile(self.current_profile)
 
-    # ---------- Объекты ----------
     def _handle_update_object(self, obj_type: str, data: dict):
         obj_id = data.get("id")
         name = data.get("name", "").strip()
@@ -978,7 +974,6 @@ class MainApp(tk.Tk):
         return default
 
     def _sync_significant_flags_with_history(self):
-        """Синхронизирует список флагов значительных изменений с количеством пар user+assistant в истории."""
         history = self.conversation_history
         pairs_count = 0
         i = 0
@@ -1023,7 +1018,6 @@ class MainApp(tk.Tk):
             return
         self._sync_significant_flags_with_history()
 
-        # Убеждаемся, что история не начинается с assistant
         history_to_save = self.conversation_history.copy()
         while history_to_save and history_to_save[0]["role"] == "assistant":
             history_to_save.pop(0)
@@ -1064,9 +1058,16 @@ class MainApp(tk.Tk):
         }
         session_data["scene_state"] = scene_data
 
+        # Сохраняем состояние отладки, если включена
+        if sp.debug_mode:
+            debug_state = sp.get_debug_state()
+            if debug_state:
+                session_data["debug_state"] = debug_state
+        else:
+            session_data.pop("debug_state", None)
+
         session_data["last_used"] = datetime.now().isoformat()
         self.storage.save_session(self.current_session_id, session_data)
-
 
     def list_sessions(self) -> List[str]:
         return self.storage.list_sessions()
@@ -1075,7 +1076,6 @@ class MainApp(tk.Tk):
         self.storage.delete_session(session_id)
 
     def _load_last_session(self):
-        """Загружает последнюю использованную сессию в текущей кампании."""
         sessions = self.list_sessions()
         if not sessions:
             self._handle_new_session()
@@ -1112,6 +1112,8 @@ class MainApp(tk.Tk):
 
     def _handle_clear_chat(self, data=None):
         if messagebox.askyesno("Очистить чат", "Вся история сообщений будет удалена без возможности восстановления. Продолжить?"):
+            self.stop_generation_flag = True
+            self.stage_processor.abort()
             self.associative_memory = {}
             self.memory_turn_index = []
             self.assoc_turn_changes = []
@@ -1135,16 +1137,17 @@ class MainApp(tk.Tk):
         if self.is_generating:
             messagebox.showwarning("Генерация", "Сначала остановите генерацию (кнопка Стоп).")
             return
+        self.stop_generation_flag = True
+        self.stage_processor.abort()
+
         if not self.conversation_history:
             return
 
-        # Находим последнее сообщение пользователя и соответствующего ассистента (если есть)
         last_user_index = -1
         last_assistant_index = -1
         for i in range(len(self.conversation_history) - 1, -1, -1):
             if self.conversation_history[i]["role"] == "user":
                 last_user_index = i
-                # Проверяем, есть ли ассистент сразу после него
                 if i + 1 < len(self.conversation_history) and self.conversation_history[i + 1]["role"] == "assistant":
                     last_assistant_index = i + 1
                 break
@@ -1153,11 +1156,8 @@ class MainApp(tk.Tk):
             messagebox.showinfo("Удаление", "Нет сообщений пользователя для удаления.")
             return
 
-        # Определяем, сколько сообщений удаляем (одно или два)
         if last_assistant_index != -1:
-            # Удаляем пару User + Assistant
             del self.conversation_history[last_user_index:last_assistant_index + 1]
-            # Удаляем данные памяти, соответствующие этому обороту
             if self.memory_turn_index:
                 num_summaries = self.memory_turn_index.pop()
                 for _ in range(num_summaries):
@@ -1176,17 +1176,14 @@ class MainApp(tk.Tk):
             if self.significant_changes_flags:
                 self.significant_changes_flags.pop()
         else:
-            # Удаляем только сообщение пользователя (без ассистента)
             del self.conversation_history[last_user_index]
 
-        # Обновляем last_user_message
         self._sync_last_user_message()
         self.last_original_response = None
         self.last_translated_response = None
         self._sync_significant_flags_with_history()
         self._save_current_session_safe()
 
-        # Перерисовываем чат
         self.center_panel.clear_chat()
         for msg in self.conversation_history:
             role = "Вы" if msg["role"] == "user" else "Ассистент"
@@ -1198,6 +1195,9 @@ class MainApp(tk.Tk):
 
     def _handle_new_session(self, data=None):
         def do_new():
+            self.stop_generation_flag = True
+            self.stage_processor.abort()
+
             self.associative_memory = {}
             self.memory_turn_index = []
             self.assoc_turn_changes = []
@@ -1273,6 +1273,10 @@ class MainApp(tk.Tk):
             return
 
         def do_load():
+            self.stage_processor.abort()
+            self.stop_generation_flag = True
+            self.stage_processor.abort()
+
             if self.current_session_id:
                 self._save_current_session_safe()
 
@@ -1294,10 +1298,8 @@ class MainApp(tk.Tk):
                 self.current_profile.enabled_emotions = []
 
             raw_history = session_data.get("history", [])
-            # Коррекция истории: удаляем начальные сообщения assistant, если они есть
             while raw_history and raw_history[0]["role"] == "assistant":
                 raw_history.pop(0)
-            # Также удаляем подряд идущие дубликаты assistant
             cleaned_history = []
             for i, msg in enumerate(raw_history):
                 if msg["role"] == "assistant" and cleaned_history and cleaned_history[-1]["role"] == "assistant":
@@ -1317,6 +1319,16 @@ class MainApp(tk.Tk):
                 self.stage_processor.restore_scene_from_session(scene_state)
             else:
                 self.stage_processor._create_default_scene()
+
+            # Восстановление состояния отладки
+            debug_state = session_data.get("debug_state")
+            if debug_state:
+                self.stage_processor.restore_debug_state(debug_state)
+                self.center_panel.debug_mode.set(True)
+                self.center_panel._toggle_debug_mode()
+            else:
+                self.stage_processor.debug_mode = False
+                self.center_panel.debug_mode.set(False)
 
             self._sync_significant_flags_with_history()
 
@@ -1428,17 +1440,11 @@ class MainApp(tk.Tk):
             messagebox.showinfo("Перегенерация", "Нет последнего сообщения пользователя.")
             return
 
-        # Удаляем последнюю пару (user, assistant), если она есть
         if len(self.conversation_history) >= 2 and self.conversation_history[-2]["role"] == "user" and self.conversation_history[-1]["role"] == "assistant":
-            # Удаляем assistant
             self.conversation_history.pop()
-            # Удаляем user? Нет, user оставляем, он будет использован для регенерации.
-            # Но важно: user уже есть, мы не добавляем его заново.
         elif self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
-            # Если по какой-то причине assistant один (без user), удаляем его
             self.conversation_history.pop()
 
-        # Удаляем связанные данные памяти (summary, assoc, flags)
         if self.memory_turn_index:
             num_summaries = self.memory_turn_index.pop()
             for _ in range(num_summaries):
@@ -1460,7 +1466,6 @@ class MainApp(tk.Tk):
         self._sync_significant_flags_with_history()
         self._save_current_session_safe()
 
-        # Очищаем последние ответы в интерфейсе
         self.last_original_response = None
         self.last_translated_response = None
         self.center_panel.clear_chat()
@@ -1473,6 +1478,9 @@ class MainApp(tk.Tk):
             self.right_panel.refresh()
         if hasattr(self, 'vn_frame') and self.vn_frame and self.vn_frame.winfo_viewable():
             self.vn_frame.refresh_from_current_state()
+
+        self.stop_generation_flag = False
+        self.stage_processor.reset()
 
         self._start_debug_log(f"REGENERATE: {self.last_user_message}")
         self._start_generation(self.last_user_message)
@@ -1493,12 +1501,25 @@ class MainApp(tk.Tk):
         self.center_panel.remove_last_response()
         self._translate_response_stream(self.last_original_response, response_start_index=None)
 
+    def _handle_regenerate_last_step(self, data=None):
+        """Перегенерация последнего шага в режиме отладки."""
+        if self.is_generating:
+            messagebox.showwarning("Генерация", "Сначала остановите генерацию (кнопка Стоп).")
+            return
+        if not self.stage_processor.debug_mode:
+            messagebox.showinfo("Режим отладки", "Включите режим отладки для перегенерации шага.")
+            return
+        if not self.stage_processor.regenerate_last_step():
+            # Сообщение об ошибке уже выведено в stage_processor
+            pass
+        else:
+            self._save_current_session_safe()
+
     def _handle_send_message(self, data):
         message = data.get("message", "").strip()
         if not message:
             return
 
-        # Запрещаем отправку двух сообщений пользователя подряд
         if self.conversation_history and self.conversation_history[-1]["role"] == "user":
             self.center_panel.display_message(
                 "⚠️ Нельзя отправлять два сообщения пользователя подряд. Дождитесь ответа ассистента.\n",
@@ -1506,11 +1527,9 @@ class MainApp(tk.Tk):
             )
             return
 
-        # Добавляем новое сообщение пользователя, НЕ удаляя предыдущий ответ ассистента
         self.conversation_history.append({"role": "user", "content": message})
         self.last_user_message = message
 
-        # Сбрасываем сохранённые переводы, так как будет новый ответ
         self.last_original_response = None
         self.last_translated_response = None
 
@@ -1535,7 +1554,6 @@ class MainApp(tk.Tk):
             self.center_panel.update_translation_button_state()
             self._start_debug_log("SYSTEM: Начнем игру")
             start_message = "Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит."
-            # Добавляем сообщение пользователя в историю (системное, но от лица пользователя)
             self.conversation_history.append({"role": "user", "content": start_message})
             self.last_user_message = start_message
             self._save_current_session_safe()
@@ -1543,16 +1561,18 @@ class MainApp(tk.Tk):
 
     def _handle_stop_generation(self, data=None):
         if self.is_generating:
-            self.stop_generation_flag = True
+            self.stage_processor.abort()
             self._log_debug("USER_STOPPED_GENERATION")
 
     def _start_generation(self, user_message: str):
         if self.is_generating:
             messagebox.showwarning("Генерация", "Модель уже генерирует ответ.")
             return
-        # Замораживаем визуальную новеллу (если она активна)
         if self.vn_frame and self.vn_frame.winfo_viewable():
             self.vn_frame.set_freeze(True)
+
+        self.stop_generation_flag = False
+        self.stage_processor.reset()
 
         self.current_generation_added_summaries.clear()
         self.current_generation_added_assoc.clear()
@@ -2002,7 +2022,6 @@ class MainApp(tk.Tk):
             return self.emotions.get(obj_id)
         return None
 
-    # ---------- Построение интерфейса ----------
     def _build_ui(self):
         self.container = ttk.Frame(self)
         self.container.pack(fill=tk.BOTH, expand=True)
@@ -2107,8 +2126,15 @@ class MainApp(tk.Tk):
                 self.after(0, lambda: self.center_panel.display_message(f"\n[Translation error: {e}]\n", "error"))
         threading.Thread(target=translate_stream, daemon=True).start()
 
+    def _handle_set_debug_mode(self, data):
+        enabled = data.get("enabled", False)
+        self.stage_processor.set_debug_mode(enabled)
 
-# ---------- Диалог настроек ----------
+    def _handle_step_continue(self, data=None):
+        self.stage_processor.step_continue()
+
+
+# ---------- Диалог настроек (без изменений, опущен для краткости, но он должен быть) ----------
 class SettingsDialog:
     def __init__(self, parent, current_settings, stage_memory_config, stage_model_selection, stage_temperature_config):
         self.top = tk.Toplevel(parent)

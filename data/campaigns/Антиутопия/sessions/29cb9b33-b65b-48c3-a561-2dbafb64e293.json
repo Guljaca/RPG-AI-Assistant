@@ -2,7 +2,9 @@
   "name": "Чат 2026-04-19 11:44",
   "profile": {
     "name": "Profile_29cb9b33",
-    "enabled_narrators": [],
+    "enabled_narrators": [
+      "n1"
+    ],
     "enabled_characters": [],
     "enabled_locations": [],
     "enabled_items": [],
@@ -13,7 +15,7 @@
   },
   "history": [],
   "created": "2026-04-19T11:44:35.559516",
-  "last_used": "2026-04-20T00:54:52.073864",
+  "last_used": "2026-04-22T10:40:11.649412",
   "local_descriptions": {},
   "memory_summaries": [],
   "associative_memory": {},

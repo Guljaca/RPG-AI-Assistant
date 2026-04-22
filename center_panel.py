@@ -1,4 +1,4 @@
-# center_panel.py
+# center_panel.py (с поддержкой отладки, кнопкой регенерации шага и отдельным рядом кнопок отладки)
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from ui_utils import add_context_menu
@@ -24,7 +24,7 @@ class CenterPanel(ttk.Frame):
         self.grid_rowconfigure(0, weight=0, minsize=0)
         self.grid_rowconfigure(1, weight=0, minsize=0)
         self.grid_rowconfigure(2, weight=1, minsize=50)
-        self.grid_rowconfigure(3, weight=0, minsize=80)
+        self.grid_rowconfigure(3, weight=0, minsize=120)  # увеличен для двух рядов кнопок
         self.grid_columnconfigure(0, weight=1)
 
         self.info_frame = ttk.LabelFrame(self, text="Информация о промте")
@@ -79,10 +79,9 @@ class CenterPanel(ttk.Frame):
         self.input_text.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
         add_context_menu(self.input_text)
 
+        # --- Ряд 1: Основные кнопки ---
         btn_frame_top = ttk.Frame(self.input_container)
         btn_frame_top.pack(fill=tk.X, pady=2)
-        btn_frame_bottom = ttk.Frame(self.input_container)
-        btn_frame_bottom.pack(fill=tk.X, pady=2)
 
         self.send_btn = ttk.Button(btn_frame_top, text="Отправить", command=self._send_message)
         self.send_btn.pack(side=tk.LEFT, padx=2)
@@ -93,16 +92,65 @@ class CenterPanel(ttk.Frame):
         self.clear_btn = ttk.Button(btn_frame_top, text="Очистить", command=lambda: self.app.update("clear_chat"))
         self.clear_btn.pack(side=tk.LEFT, padx=2)
 
-        self.regenerate_btn = ttk.Button(btn_frame_bottom, text="Перегенерировать", command=self._regenerate_last)
+        # --- Ряд 2: Кнопки управления ответами и переводом ---
+        btn_frame_mid = ttk.Frame(self.input_container)
+        btn_frame_mid.pack(fill=tk.X, pady=2)
+
+        self.regenerate_btn = ttk.Button(btn_frame_mid, text="Перегенерировать", command=self._regenerate_last)
         self.regenerate_btn.pack(side=tk.LEFT, padx=2)
-        self.regenerate_translation_btn = ttk.Button(btn_frame_bottom, text="Перегенерировать перевод", command=self._regenerate_translation)
+        self.regenerate_translation_btn = ttk.Button(btn_frame_mid, text="Перегенерировать перевод", command=self._regenerate_translation)
         self.regenerate_translation_btn.pack(side=tk.LEFT, padx=2)
-        self.delete_last_btn = ttk.Button(btn_frame_bottom, text="Удалить последнее", command=self._delete_last_user_message)
+        self.delete_last_btn = ttk.Button(btn_frame_mid, text="Удалить последнее", command=self._delete_last_user_message)
         self.delete_last_btn.pack(side=tk.LEFT, padx=2)
+
+        # --- Ряд 3: Кнопки отладки и пошагового выполнения ---
+        btn_frame_debug = ttk.Frame(self.input_container)
+        btn_frame_debug.pack(fill=tk.X, pady=2)
+
+        self.debug_mode = tk.BooleanVar(value=False)
+        self.debug_check = ttk.Checkbutton(btn_frame_debug, text="Режим отладки", variable=self.debug_mode,
+                                           command=self._toggle_debug_mode)
+        self.debug_check.pack(side=tk.LEFT, padx=2)
+
+        self.step_btn = ttk.Button(btn_frame_debug, text="Следующий шаг", command=self._step_continue, state=tk.DISABLED)
+        self.step_btn.pack(side=tk.LEFT, padx=2)
+
+        self.regenerate_step_btn = ttk.Button(btn_frame_debug, text="Перегенерировать шаг", command=self._regenerate_last_step, state=tk.DISABLED)
+        self.regenerate_step_btn.pack(side=tk.LEFT, padx=2)
 
         self.input_text.bind("<Control-Return>", lambda e: self._send_message())
 
         self.temp_response_start = None
+
+    def _toggle_debug_mode(self):
+        """Переключает режим отладки в приложении."""
+        self.app.update("set_debug_mode", {"enabled": self.debug_mode.get()})
+        if self.debug_mode.get():
+            self.regenerate_step_btn.config(state=tk.NORMAL)
+        else:
+            self.step_btn.config(state=tk.DISABLED)
+            self.regenerate_step_btn.config(state=tk.DISABLED)
+
+    def set_step_button_state(self, enabled: bool):
+        """Включает/выключает кнопку 'Следующий шаг' (вызывается из stage_processor)."""
+        if self.debug_mode.get():
+            self.step_btn.config(state=tk.NORMAL if enabled else tk.DISABLED)
+        else:
+            self.step_btn.config(state=tk.DISABLED)
+
+    def _step_continue(self):
+        """Вызывается при нажатии 'Следующий шаг'."""
+        self.app.update("step_continue")
+
+    def _regenerate_last_step(self):
+        """Вызывается при нажатии 'Перегенерировать шаг'."""
+        if self.app.is_generating:
+            messagebox.showwarning("Генерация", "Сначала остановите генерацию (кнопка Стоп).")
+            return
+        if not self.debug_mode.get():
+            messagebox.showinfo("Режим отладки", "Включите режим отладки для перегенерации шага.")
+            return
+        self.app.update("regenerate_last_step")
 
     def update_token_count(self, token_str: str, total_str: str = None):
         self.token_count_var.set(token_str)
@@ -167,26 +215,20 @@ class CenterPanel(ttk.Frame):
         Отображает полный промт, отправленный модели, с цветовым выделением ролей.
         Если stage_name указан, промт сохраняется в словарь prompts_by_stage.
         """
-        # Сохраняем промт по этапу
         if stage_name:
             self.prompts_by_stage[stage_name] = prompt
-            # Обновляем список этапов в комбобоксе
             self._update_stage_combobox()
-            # Если текущий выбранный этап совпадает с сохранённым, обновляем отображение
             if self.current_selected_stage == stage_name:
                 self._display_prompt(prompt)
         else:
-            # Если этап не указан (например, перевод), сохраняем как "other"
             self.prompts_by_stage["other"] = prompt
             if self.current_selected_stage == "other":
                 self._display_prompt(prompt)
 
     def _update_stage_combobox(self):
-        """Обновляет список этапов в комбобоксе на основе сохранённых промтов."""
         stages = list(self.prompts_by_stage.keys())
         if not stages:
             return
-        # Добавляем "other", если его ещё нет
         if "other" not in stages and "other" in self.prompts_by_stage:
             stages.append("other")
         self.stage_combo['values'] = stages
@@ -197,7 +239,6 @@ class CenterPanel(ttk.Frame):
                 self._display_prompt(self.prompts_by_stage[self.current_selected_stage])
 
     def _display_prompt(self, prompt: str):
-        """Отображает промт в info_text с форматированием."""
         self.info_text.config(state=tk.NORMAL)
         self.info_text.delete(1.0, tk.END)
         
@@ -223,14 +264,12 @@ class CenterPanel(ttk.Frame):
         self.info_text.see("1.0")
 
     def _on_stage_select(self, event=None):
-        """Обработчик выбора этапа из комбобокса."""
         selected = self.stage_combo.get()
         if selected and selected in self.prompts_by_stage:
             self.current_selected_stage = selected
             self._display_prompt(self.prompts_by_stage[selected])
                                  
     def _configure_tags_for_info(self):
-        """Добавить теги для панели информации (вызывается при инициализации)"""
         self.info_text.tag_config("header", foreground="darkblue", font=("Arial", 10, "bold"))
         self.info_text.tag_config("system_role", foreground="green", font=("Arial", 9, "bold"))
         self.info_text.tag_config("user_role", foreground="blue", font=("Arial", 9, "bold"))
@@ -373,7 +412,6 @@ class CenterPanel(ttk.Frame):
             self.regenerate_translation_btn.config(state=tk.NORMAL)
         else:
             self.regenerate_translation_btn.config(state=tk.DISABLED)
-
 
     def start_temp_response(self):
         self.chat_display.config(state=tk.NORMAL)

@@ -1,7 +1,8 @@
-# stage_processor.py
+# stage_processor.py (исправленная полная версия с отладочным выводом и выделением переменных)
 import json
 import random
 import re
+import copy
 from typing import Dict, List, Optional, Any, Tuple
 
 from models import Character
@@ -206,6 +207,7 @@ class StageProcessor:
             "scene_item_ids": [],
             "scene_scenario_ids": [],
             "scene_summary": "",
+            "scene_narrative": "",
             "player_action_dice": None,
             "player_action_desc": "",
             "event_occurrence_dice": None,
@@ -217,7 +219,7 @@ class StageProcessor:
             "current_npc_index": 0,
             "final_response": "",
             "truth_violation": "",
-            "emotion_map": {},           # НОВОЕ: {character_id: emotion_name}
+            "emotion_map": {},
             "scene_generation_retries": 0,
             "random_event_retries": 0,
             "npc_retry_count": 0
@@ -232,7 +234,72 @@ class StageProcessor:
         self.history_check_iteration_count = 0
         self.HISTORY_CHECK_MAX_ITERATIONS = 50
 
+        # Режим отладки и пошаговое выполнение
+        self.debug_mode = False
+        self.pending_step = False
+        self.pending_callback = None
+        self.pending_callback_extra = None
+        self.pending_stage_name = None
+        self.pending_debug_inputs = None  # сохранённые входные данные для вывода после нажатия
+        self.pending_state_snapshot = None  # сохранённый снимок состояния
+
+        # История шагов для регенерации
+        self.step_history = []
+        self.current_step_index = -1
+
         self._validate_prompts()
+
+    # ---------- Вспомогательные методы ----------
+    def _refill_dice_queues(self):
+        self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
+        self.dice_queue_d100 = [random.randint(1, 100) for _ in range(5)]
+
+    def _pop_dice(self, dice_type: str) -> int:
+        if dice_type == 'd20':
+            if not self.dice_queue_d20:
+                self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
+            return self.dice_queue_d20.pop(0)
+        elif dice_type == 'd100':
+            if not self.dice_queue_d100:
+                self.dice_queue_d100 = [random.randint(1, 100) for _ in range(5)]
+            return self.dice_queue_d100.pop(0)
+        else:
+            return random.randint(1, 20)
+
+    def _get_retry_limit(self, stage_name: str) -> int:
+        return self.main_app.stage_retry_limits.get(stage_name, 2)
+
+    def abort(self):
+        """Экстренная остановка генерации."""
+        if not self.main_app.is_generating:
+            return
+        self.main_app.stop_generation_flag = True
+        if self.pending_step:
+            self.pending_step = False
+            self.pending_callback = None
+            self.pending_callback_extra = None
+            self.pending_stage_name = None
+            self.pending_debug_inputs = None
+            self.pending_state_snapshot = None
+            self.main_app.center_panel.set_step_button_state(False)
+        self.main_app.is_generating = False
+        self.main_app.center_panel.set_input_state("normal")
+        self.main_app.center_panel.update_translation_button_state()
+        self.main_app.current_debug_log_path = None
+        self._display_system("🛑 Генерация прервана пользователем.\n")
+        if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
+            self.main_app.vn_frame.set_freeze(False)
+
+    def reset(self):
+        self.main_app.stop_generation_flag = False
+        if self.pending_step:
+            self.pending_step = False
+            self.pending_callback = None
+            self.pending_callback_extra = None
+            self.pending_stage_name = None
+            self.pending_debug_inputs = None
+            self.pending_state_snapshot = None
+            self.main_app.center_panel.set_step_button_state(False)
 
     def _validate_prompts(self):
         required_prompts = [
@@ -263,80 +330,192 @@ class StageProcessor:
             if content is None or content.strip() == "":
                 raise FileNotFoundError(f"Required prompt file '{prompt_name}.json' not found or empty.")
 
-    def _refill_dice_queues(self):
-        self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
-        self.dice_queue_d100 = [random.randint(1, 100) for _ in range(5)]
+    def set_debug_mode(self, enabled: bool):
+        self.debug_mode = enabled
+        if not enabled:
+            self.pending_step = False
+            self.pending_callback = None
+            self.pending_callback_extra = None
+            self.pending_stage_name = None
+            self.pending_debug_inputs = None
+            self.pending_state_snapshot = None
+            self.main_app.center_panel.set_step_button_state(False)
 
-    def _pop_dice(self, dice_type: str) -> int:
-        if dice_type == 'd20':
-            if not self.dice_queue_d20:
-                self.dice_queue_d20 = [random.randint(1, 20) for _ in range(5)]
-            return self.dice_queue_d20.pop(0)
-        elif dice_type == 'd100':
-            if not self.dice_queue_d100:
-                self.dice_queue_d100 = [random.randint(1, 100) for _ in range(5)]
-            return self.dice_queue_d100.pop(0)
-        else:
-            return random.randint(1, 20)
+    def step_continue(self):
+        if self.pending_step and self.pending_callback:
+            # Перед вызовом колбэка выводим сохранённые состояние и входные данные
+            if self.pending_state_snapshot:
+                self._print_debug_section("Текущее состояние перед отправкой запроса", self.pending_state_snapshot, blank_lines_before=1, blank_lines_after=1)
+            if self.pending_debug_inputs and self.pending_stage_name:
+                self._print_debug_section(f"Входные данные для этапа {self.pending_stage_name}", self.pending_debug_inputs, blank_lines_before=0, blank_lines_after=1)
+            cb = self.pending_callback
+            extra = self.pending_callback_extra
+            self.pending_step = False
+            self.pending_callback = None
+            self.pending_callback_extra = None
+            self.pending_stage_name = None
+            self.pending_debug_inputs = None
+            self.pending_state_snapshot = None
+            self.main_app.center_panel.set_step_button_state(False)
+            cb(extra)
 
-    def start_generation(self, user_message: str):
-        self.generation_start_time = time.time()
-        self._refill_dice_queues()
-        self.stage_data.update({
-            "user_message": user_message,
-            "original_user_message": user_message,
-            "descriptions": {},
-            "scene_location_id": None,
-            "scene_character_ids": [],
-            "scene_item_ids": [],
-            "scene_scenario_ids": [],
-            "scene_summary": "",
-            "player_action_dice": None,
-            "player_action_desc": "",
-            "event_occurrence_dice": None,
-            "event_quality_dice": None,
-            "event_occurred": False,
-            "event_desc": "",
-            "event_additional_ids": [],
-            "npc_actions": {},
-            "current_npc_index": 0,
-            "final_response": "",
-            "truth_violation": "",
-            "emotion_map": {},
-            "scene_generation_retries": 0,
-            "random_event_retries": 0,
-            "npc_retry_count": 0
-        })
-        self._stage1_request_descriptions()
+    def _wait_for_step(self, callback, extra=None, stage_name=None, debug_inputs=None, state_snapshot=None):
+        """Приостанавливает выполнение до нажатия 'Следующий шаг'."""
+        if not self.debug_mode:
+            callback(extra)
+            return
+        if self.main_app.stop_generation_flag:
+            self._display_system("🛑 Генерация остановлена. Ожидание отменено.\n")
+            return
+        # Сохраняем данные для вывода после нажатия
+        self.pending_debug_inputs = debug_inputs
+        self.pending_state_snapshot = state_snapshot
+        self.pending_step = True
+        self.pending_callback = callback
+        self.pending_callback_extra = extra
+        self.pending_stage_name = stage_name
+        self.main_app.center_panel.set_step_button_state(True)
 
     # --------------------------------------------------------------------------
-    # Вспомогательные методы
+    # Отладочный вывод в требуемом формате с выделением переменных цветом
+    # --------------------------------------------------------------------------
+    def _print_debug_section(self, title: str, items: Dict[str, Any], blank_lines_before: int = 2, blank_lines_after: int = 1):
+        """Выводит в центральную панель отформатированный блок с входными или выходными данными.
+        Переменные выделяются символом '>>> ' и цветом."""
+        if not self.debug_mode:
+            return
+        output_lines = []
+        for _ in range(blank_lines_before):
+            output_lines.append("")
+        # Заголовок цветом (например, жёлтый)
+        output_lines.append(f"=== {title} ===")
+        for key, value in items.items():
+            value_str = str(value)
+            if len(value_str) > 500:
+                value_str = value_str[:500] + "..."
+            # Переменные цветом (например, зелёный)
+            output_lines.append(f">>> {key}: {value_str}")
+        for _ in range(blank_lines_after):
+            output_lines.append("")
+        # Используем разные теги для заголовка и переменных, если панель поддерживает
+        # Для простоты выводим всё одним блоком, но с возможностью раскрасить в центральной панели
+        # Здесь передаём обычный текст, раскраска будет в центральной панели при отображении
+        self.main_app.center_panel.display_message("\n".join(output_lines), "system")
+
+    def _get_state_snapshot(self):
+        """Возвращает словарь с текущим состоянием stage_data и очередей для отладки."""
+        snapshot = {}
+        for key, value in self.stage_data.items():
+            if value is None:
+                continue
+            if isinstance(value, (str, list, dict)):
+                if not value:
+                    continue
+            if isinstance(value, str) and len(value) > 300:
+                snapshot[key] = value[:300] + "..."
+            else:
+                snapshot[key] = value
+        snapshot["dice_queue_d20"] = self.dice_queue_d20.copy()
+        snapshot["dice_queue_d100"] = self.dice_queue_d100.copy()
+        return snapshot
+
+    # --------------------------------------------------------------------------
+    # Сохранение чекпоинтов
+    # --------------------------------------------------------------------------
+    def _save_checkpoint(self, stage_name: str):
+        if not self.debug_mode:
+            return
+        snapshot = {
+            "stage": stage_name,
+            "stage_data": copy.deepcopy(self.stage_data),
+            "dice_queue_d20": self.dice_queue_d20.copy(),
+            "dice_queue_d100": self.dice_queue_d100.copy(),
+        }
+        if self.current_step_index < len(self.step_history) - 1:
+            self.step_history = self.step_history[:self.current_step_index + 1]
+        self.step_history.append(snapshot)
+        self.current_step_index += 1
+
+    def regenerate_last_step(self):
+        if not self.debug_mode:
+            self._display_system("Режим отладки не включён. Перегенерация шага недоступна.\n")
+            return False
+        if self.current_step_index <= 0:
+            self._display_system("Нет предыдущего шага для перегенерации.\n")
+            return False
+        self.step_history.pop()
+        self.current_step_index -= 1
+        prev = self.step_history[self.current_step_index]
+        self.stage_data = copy.deepcopy(prev["stage_data"])
+        self.dice_queue_d20 = prev["dice_queue_d20"].copy()
+        self.dice_queue_d100 = prev["dice_queue_d100"].copy()
+        stage_to_rerun = prev["stage"]
+        self.pending_step = False
+        self.pending_callback = None
+        self.pending_callback_extra = None
+        self.pending_stage_name = None
+        self.pending_debug_inputs = None
+        self.pending_state_snapshot = None
+        self.main_app.center_panel.set_step_button_state(False)
+        self.main_app.center_panel.clear_temp_response()
+        self.main_app.center_panel.display_system_message(f"🔄 Перегенерация этапа {stage_to_rerun}...\n")
+        method_name = f"_{stage_to_rerun}"
+        if hasattr(self, method_name):
+            getattr(self, method_name)(retry_count=0)
+            return True
+        else:
+            self._display_system(f"❌ Неизвестный этап {stage_to_rerun}\n")
+            return False
+
+    def get_debug_state(self) -> dict:
+        if not self.debug_mode:
+            return {}
+        return {
+            "debug_mode": True,
+            "stage_data": copy.deepcopy(self.stage_data),
+            "dice_queue_d20": self.dice_queue_d20.copy(),
+            "dice_queue_d100": self.dice_queue_d100.copy(),
+            "step_history": copy.deepcopy(self.step_history),
+            "current_step_index": self.current_step_index,
+            "pending_stage_name": self.pending_stage_name,
+            "pending_callback_name": self.pending_callback.__name__ if self.pending_callback else None,
+            "pending_extra": self.pending_callback_extra,
+        }
+
+    def restore_debug_state(self, state: dict):
+        if not state.get("debug_mode"):
+            return
+        self.debug_mode = True
+        self.stage_data = copy.deepcopy(state["stage_data"])
+        self.dice_queue_d20 = state["dice_queue_d20"].copy()
+        self.dice_queue_d100 = state["dice_queue_d100"].copy()
+        self.step_history = copy.deepcopy(state["step_history"])
+        self.current_step_index = state["current_step_index"]
+        self.pending_stage_name = state.get("pending_stage_name")
+        self.pending_step = False
+        self.pending_callback = None
+        self.pending_callback_extra = None
+        self.pending_debug_inputs = None
+        self.pending_state_snapshot = None
+        self.main_app.center_panel.set_step_button_state(False)
+        self.main_app.center_panel.display_system_message("🔁 Восстановлено состояние отладки. Используйте 'Следующий шаг' для продолжения.\n")
+
+    # --------------------------------------------------------------------------
+    # Вспомогательные методы для логирования и отправки запросов
     # --------------------------------------------------------------------------
     def _safe_format(self, template: str, **kwargs) -> str:
-        """
-        Безопасно подставляет значения в шаблон, экранируя все фигурные скобки,
-        которые не являются именованными параметрами {param}.
-        """
         import re
-        # Временно заменяем известные параметры на уникальные маркеры
         def replacer(match):
             key = match.group(1)
             if key in kwargs:
                 return f"%%%{key}%%%"
             else:
-                # Экранируем одиночные скобки для неизвестных ключей
                 return f"{{{{{key}}}}}"
-        
         pattern = re.compile(r'\{([a-zA-Z_][a-zA-Z0-9_]*)\}')
         template = pattern.sub(replacer, template)
-        
-        # Экранируем все оставшиеся одиночные { и }
         template = template.replace('{', '{{').replace('}', '}}')
-        
-        # Возвращаем маркеры обратно в значения параметров
         for key, value in kwargs.items():
             template = template.replace(f"%%%{key}%%%", str(value))
-        
         return template
 
     def _log_debug(self, step: str, content: str = "", error: str = None):
@@ -361,7 +540,15 @@ class StageProcessor:
 
     def _send_request(self, user_data: str, callback, extra=None, stage_name: str = None,
                     use_temp: bool = False, show_in_thinking: bool = False,
-                    context_data: Dict = None, temperature_override: float = None):
+                    context_data: Dict = None, temperature_override: float = None,
+                    debug_inputs: Dict = None):
+        """
+        Отправляет запрос модели. В режиме отладки сначала выводится сообщение ожидания,
+        затем после нажатия кнопки выводятся состояние и входные данные, затем отправка.
+        """
+        if debug_inputs is None:
+            debug_inputs = {}
+
         if context_data is None:
             context_data = self.stage_data
 
@@ -375,6 +562,37 @@ class StageProcessor:
             if temp_val is not None:
                 temp_override = float(temp_val)
 
+        if self.main_app.stop_generation_flag:
+            self._display_system("🛑 Генерация остановлена. Запрос не отправлен.\n")
+            return
+
+        # Если режим отладки и этап не из исключённых, показываем сообщение ожидания и ждём
+        if self.debug_mode and stage_name not in (None, "stage10_associative_memory", "stage4_summary", "stage11_significant_changes"):
+            # Сообщение ожидания с двумя пустыми строками перед ним
+            self._display_system(f"\n\n⏸️ Режим отладки: ожидание нажатия 'Следующий шаг' (этап: {stage_name})\n")
+            # Логируем промт
+            self.main_app.center_panel.log_system_prompt(f"=== ПРОМТ ЭТАПА {stage_name} ===\n{user_data}", stage_name)
+            # Сохраняем снимок состояния и входные данные для вывода после нажатия
+            state_snapshot = self._get_state_snapshot()
+            # Ждём кнопку, передавая сохранённые данные
+            self._wait_for_step(lambda _: self._do_send_request(user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override),
+                                extra=extra, stage_name=stage_name, debug_inputs=debug_inputs, state_snapshot=state_snapshot)
+        else:
+            # Не отладка или исключённый этап – выводим входные данные (без ожидания) и отправляем
+            if self.debug_mode and stage_name:
+                # Для исключённых этапов в отладке показываем состояние и входные данные, но без ожидания
+                state_snapshot = self._get_state_snapshot()
+                self._print_debug_section("Текущее состояние перед отправкой запроса", state_snapshot, blank_lines_before=1, blank_lines_after=1)
+                self._print_debug_section(f"Входные данные для этапа {stage_name}", debug_inputs, blank_lines_before=0, blank_lines_after=1)
+            elif stage_name and debug_inputs:
+                # Обычный режим (без отладки) – только входные данные без пустых строк
+                self._print_debug_section(f"Входные данные для этапа {stage_name}", debug_inputs, blank_lines_before=0, blank_lines_after=1)
+            self._do_send_request(user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override)
+
+    def _do_send_request(self, user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override):
+        if self.main_app.stop_generation_flag:
+            self._display_system("🛑 Генерация остановлена. Запрос не отправлен.\n")
+            return
         self.main_app._send_model_request(
             user_content=user_data,
             callback=callback,
@@ -407,18 +625,13 @@ class StageProcessor:
 
         final_response = self.stage_data.get("final_response", "")
         if final_response:
-            # Проверяем, нет ли уже такого ответа в истории (чтобы не дублировать)
             last_msg = self.main_app.conversation_history[-1] if self.main_app.conversation_history else None
             if not (last_msg and last_msg["role"] == "assistant" and last_msg["content"] == final_response):
-                # Отображаем ответ в интерфейсе
                 self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
-                # Добавляем в историю
                 self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
                 self.main_app._finalize_generation_memory_turn()
                 self._save_current_session()
             else:
-                # Если по какой-то причине ответ уже есть в истории, но не был отображён,
-                # отображаем его принудительно (без дублирования в истории)
                 self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
 
         if hasattr(self.main_app, 'right_panel') and self.main_app.right_panel:
@@ -435,7 +648,6 @@ class StageProcessor:
         self.main_app.current_debug_log_path = None
         self.main_app.display_generation_memory_summary()
 
-        # Размораживаем визуальную новеллу (если активна)
         if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
             self.main_app.vn_frame.set_freeze(False)
 
@@ -458,11 +670,8 @@ class StageProcessor:
             })
         return tool_calls
 
-    def _get_retry_limit(self, stage_name: str) -> int:
-        return self.main_app.stage_retry_limits.get(stage_name, 2)
-
     # --------------------------------------------------------------------------
-    # Синхронное получение описаний объектов с добавлением метки (ИГРОК)
+    # Синхронное получение описаний объектов
     # --------------------------------------------------------------------------
     def _fetch_descriptions_sync(self, obj_ids: List[str]):
         for obj_id in obj_ids:
@@ -476,14 +685,13 @@ class StageProcessor:
                         desc += " (ИГРОК)"
                 self.stage_data["descriptions"][obj_id] = desc
                 self._display_system(f"✅ Описание {obj_id} получено.\n")
-                # Убрано: self._update_vn_view()
             except Exception as e:
                 self._display_error(f"❌ Ошибка получения описания {obj_id}: {e}\n")
                 self.stage_data["descriptions"][obj_id] = f"Ошибка: {e}"
         self._display_system("✅ Все описания объектов получены.\n")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 1.1: запрос описаний объектов (кандидатов) + сценарии
+    # СТАДИЯ 1.1: запрос описаний объектов
     # --------------------------------------------------------------------------
     def _stage1_request_descriptions(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_request_descriptions", True):
@@ -498,14 +706,12 @@ class StageProcessor:
             self.stage_data["descriptions"] = {}
 
         objects_text = []
-        # Локации
         for lid in self.main_app.current_profile.enabled_locations:
             loc = self.main_app.locations.get(lid)
             if loc:
                 assoc = self.main_app.get_associative_memory_for_object(lid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Локация: {lid} - {loc.name}{assoc_str}")
-        # Персонажи
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
             if char:
@@ -514,19 +720,16 @@ class StageProcessor:
                 is_player = char.is_player
                 player_tag = ' (ИГРОК)' if is_player else ''
                 objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
-        # Предметы
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
             if item:
                 assoc = self.main_app.get_associative_memory_for_object(iid)
                 assoc_str = f" ({assoc})" if assoc else ""
                 objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
-        # Сценарии
         for sid in self.main_app.current_profile.enabled_scenarios:
             scen = self.main_app.scenarios.get(sid)
             if scen:
                 objects_text.append(f"Сценарий: {sid} - {scen.name} (описание: {scen.description[:100]}...)")
-        # Эмоции (для справки модели)
         for eid in self.main_app.current_profile.enabled_emotions:
             em = self.main_app.emotions.get(eid)
             if em:
@@ -562,13 +765,23 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "user_message": self.stage_data['user_message'],
+            "available_objects": available,
+            "max_locations": max_locs,
+            "max_characters": max_chars,
+            "max_items": max_items,
+            "max_scenarios": max_scenarios
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage1_request_descriptions(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_request_descriptions",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_request_descriptions(self, content, extra):
@@ -580,10 +793,10 @@ class StageProcessor:
             self._log_debug("WARNING", f"Найдено несколько вызовов send_object_info ({len(tool_calls)}), беру последний")
         send_call = tool_calls[-1] if tool_calls else None
 
+        object_ids = None
         if send_call:
             try:
                 args = json.loads(send_call["function"]["arguments"])
-                object_ids = None
                 if isinstance(args, list):
                     object_ids = args
                 elif "object_ids" in args:
@@ -592,17 +805,31 @@ class StageProcessor:
                     object_ids = args["ids"]
                 elif len(args) == 1 and isinstance(list(args.values())[0], list):
                     object_ids = list(args.values())[0]
-
-                if object_ids is not None and isinstance(object_ids, list) and object_ids:
-                    normalized_ids = [str(oid) for oid in object_ids]
-                    self._display_system(f"📦 Запрошены объекты: {normalized_ids}\n")
-                    self._fetch_descriptions_sync(normalized_ids)
-                    self._stage1_create_scene()
-                    return
-                else:
-                    self._display_error("⚠️ send_object_info вызван без корректного списка object_ids.\n")
             except Exception as e:
                 self._log_debug("ERROR", f"send_object_info parse error: {e}")
+
+        if object_ids is not None and isinstance(object_ids, list) and object_ids:
+            objects_display = []
+            for oid in object_ids:
+                obj = self.main_app._get_object_by_id(oid)
+                name = obj.name if obj else oid
+                objects_display.append(f"{oid} ({name})")
+            display_str = ", ".join(objects_display)
+            self._display_system(f"📦 Запрошены объекты: {display_str}\n")
+            self._fetch_descriptions_sync(object_ids)
+
+            if self.debug_mode:
+                output_items = {
+                    "object_ids": object_ids,
+                    "descriptions": self.stage_data["descriptions"]
+                }
+                self._print_debug_section("Выходные данные этапа stage1_request_descriptions", output_items, blank_lines_before=1, blank_lines_after=1)
+
+            self._stage1_create_scene()
+            self._save_checkpoint("stage1_request_descriptions")
+            return
+        else:
+            self._display_error("⚠️ send_object_info вызван без корректного списка object_ids.\n")
 
         limit = self._get_retry_limit("stage1_request_descriptions")
         if retry_count < limit:
@@ -611,12 +838,12 @@ class StageProcessor:
         else:
             self._display_system("⚠️ Модель не запросила объекты. Создаём сцену по умолчанию.\n")
             self._create_default_scene()
+            self._save_checkpoint("stage1_request_descriptions")
 
     def _create_default_scene(self):
         location_id = None
         if self.main_app.current_profile.enabled_locations:
             location_id = self.main_app.current_profile.enabled_locations[0]
-        # Определяем ID игрока по флагу is_player
         player_id = None
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
@@ -677,11 +904,10 @@ class StageProcessor:
         self._display_system(f"🔄 Сцена создана автоматически:\n{summary}\n")
         if all_ids:
             self._fetch_descriptions_sync(all_ids)
-        # Убрано: self._update_vn_view()
         self._stage1_truth_check()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 1.2: создание сцены на основе полученных описаний (включая сценарии)
+    # СТАДИЯ 1.2: создание сцены
     # --------------------------------------------------------------------------
     def _stage1_create_scene(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_create_scene", True):
@@ -708,18 +934,34 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "user_message": self.stage_data['user_message'],
+            "descriptions": descriptions_text
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage1_create_scene(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_create_scene",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_create_scene(self, content, extra):
         retry_count = extra.get("retry_count", 0)
         self._log_full_response("stage1_create_scene", content)
+
+        scene_narrative = ""
+        if content and "confirm_scene(" in content:
+            parts = content.split("confirm_scene(", 1)
+            scene_narrative = parts[0].strip()
+            if scene_narrative:
+                self.stage_data["scene_narrative"] = scene_narrative
+                self._display_system(f"🎬 Описание сцены:\n{scene_narrative}\n")
+            else:
+                self._display_system("⚠️ Модель не предоставила текстового описания сцены.\n")
 
         tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["confirm_scene"])
         if len(tool_calls) > 1:
@@ -731,6 +973,16 @@ class StageProcessor:
                 args = json.loads(confirm_call["function"]["arguments"])
                 if isinstance(args, list):
                     self._handle_confirm_scene(args)
+                    if self.debug_mode:
+                        output_items = {
+                            "scene_location_id": self.stage_data["scene_location_id"],
+                            "scene_character_ids": self.stage_data["scene_character_ids"],
+                            "scene_item_ids": self.stage_data["scene_item_ids"],
+                            "scene_scenario_ids": self.stage_data["scene_scenario_ids"],
+                            "scene_narrative": self.stage_data.get("scene_narrative", "")
+                        }
+                        self._print_debug_section("Выходные данные этапа stage1_create_scene", output_items, blank_lines_before=1, blank_lines_after=1)
+                    self._save_checkpoint("stage1_create_scene")
                     return
             except Exception as e:
                 self._log_debug("ERROR", f"confirm_scene parse error: {e}")
@@ -741,6 +993,16 @@ class StageProcessor:
             ids = [id.strip() for id in ids_str.split(',')]
             self._display_system("⚠️ Модель не вызвала confirm_scene, но указала ID. Использую их.\n")
             self._handle_confirm_scene(ids)
+            if self.debug_mode:
+                output_items = {
+                    "scene_location_id": self.stage_data["scene_location_id"],
+                    "scene_character_ids": self.stage_data["scene_character_ids"],
+                    "scene_item_ids": self.stage_data["scene_item_ids"],
+                    "scene_scenario_ids": self.stage_data["scene_scenario_ids"],
+                    "scene_narrative": self.stage_data.get("scene_narrative", "")
+                }
+                self._print_debug_section("Выходные данные этапа stage1_create_scene", output_items, blank_lines_before=1, blank_lines_after=1)
+            self._save_checkpoint("stage1_create_scene")
             return
 
         limit = self._get_retry_limit("stage1_create_scene")
@@ -750,6 +1012,7 @@ class StageProcessor:
         else:
             self._display_system("⚠️ Не удалось получить confirm_scene. Создаём сцену по умолчанию.\n")
             self._create_default_scene()
+            self._save_checkpoint("stage1_create_scene")
 
     def _handle_confirm_scene(self, obj_ids: list):
         location_id = None
@@ -772,7 +1035,6 @@ class StageProcessor:
             location_id = self.main_app.current_profile.enabled_locations[0]
             self._display_system(f"⚠️ Локация не указана, беру '{location_id}' по умолчанию.\n")
 
-        # Определяем игрока по флагу is_player
         player_id = None
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
@@ -814,11 +1076,15 @@ class StageProcessor:
         summary = "\n".join(scene_parts)
         self.stage_data["scene_summary"] = summary
         self._display_system(f"✅ Сцена создана:\n{summary}\n")
-        # Убрано: self._update_vn_view()
+
+        if not self.stage_data.get("scene_narrative"):
+            self.stage_data["scene_narrative"] = summary
+            self._display_system(f"⚠️ Автоматическое описание сцены (из ID):\n{summary}\n")
+
         self._stage1_truth_check()
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 2: проверка правдивости (без изменений)
+    # СТАДИЯ 2: проверка правдивости
     # --------------------------------------------------------------------------
     def _stage1_truth_check(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_truth_check", True):
@@ -845,13 +1111,19 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "user_message": self.stage_data['user_message'],
+            "descriptions": descriptions_text
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage1_truth_check(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_truth_check",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_truth_check(self, content, extra):
@@ -873,6 +1145,7 @@ class StageProcessor:
                 self._display_system("⚠️ Пропускаем проверку правдивости.\n")
                 self.stage_data["truth_violation"] = ""
                 self._stage1_player_action()
+                self._save_checkpoint("stage1_truth_check")
                 return
 
         try:
@@ -897,7 +1170,15 @@ class StageProcessor:
             else:
                 self._display_system("✅ Нарушений не найдено.\n")
 
+            if self.debug_mode:
+                output_items = {
+                    "truth_violation": violation,
+                    "edited_user_message": edited if edited else "(не изменено)"
+                }
+                self._print_debug_section("Выходные данные этапа stage1_truth_check", output_items, blank_lines_before=1, blank_lines_after=1)
+
             self._stage1_player_action()
+            self._save_checkpoint("stage1_truth_check")
 
         except Exception as e:
             self._log_debug("ERROR", f"truth_check parse error: {e}")
@@ -907,9 +1188,10 @@ class StageProcessor:
             else:
                 self.stage_data["truth_violation"] = ""
                 self._stage1_player_action()
+                self._save_checkpoint("stage1_truth_check")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 3: действие игрока (без изменений)
+    # СТАДИЯ 3: действие игрока
     # --------------------------------------------------------------------------
     def _stage1_player_action(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_player_action", True):
@@ -956,6 +1238,14 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "user_message": self.stage_data['user_message'],
+            "descriptions": descriptions_text,
+            "dice_value": dice_value,
+            "dice_rules": dice_rules,
+            "truth_violation": violation_section
+        }
+
         temp_override = 0.7
         self._send_request(
             user_data=user_data,
@@ -964,7 +1254,8 @@ class StageProcessor:
             stage_name="stage1_player_action",
             show_in_thinking=True,
             context_data=full_context,
-            temperature_override=temp_override
+            temperature_override=temp_override,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_player_action(self, content, extra):
@@ -985,7 +1276,11 @@ class StageProcessor:
             else:
                 self.stage_data["player_action_desc"] = content.strip()[:500] if content else "Действие выполнено."
                 self._display_system(f"⚠️ Использую текст как описание: {self.stage_data['player_action_desc'][:100]}...\n")
+                if self.debug_mode:
+                    output_items = {"player_action_desc": self.stage_data["player_action_desc"]}
+                    self._print_debug_section("Выходные данные этапа stage1_player_action", output_items, blank_lines_before=1, blank_lines_after=1)
                 self._stage1_random_event_determine()
+                self._save_checkpoint("stage1_player_action")
                 return
 
         if len(tool_calls) > 1:
@@ -1005,8 +1300,12 @@ class StageProcessor:
                 description = str(args)
 
             self.stage_data["player_action_desc"] = description or "Действие выполнено."
-            self._display_system(f"✍️ Результат: {description[:100]}...\n")
+            self._display_system(f"✍️ Результат: {description}\n")
+            if self.debug_mode:
+                output_items = {"player_action_desc": self.stage_data["player_action_desc"]}
+                self._print_debug_section("Выходные данные этапа stage1_player_action", output_items, blank_lines_before=1, blank_lines_after=1)
             self._stage1_random_event_determine()
+            self._save_checkpoint("stage1_player_action")
         except Exception as e:
             self._log_debug("ERROR", f"act parsing error: {e}")
             limit = self._get_retry_limit("stage1_player_action")
@@ -1015,9 +1314,10 @@ class StageProcessor:
             else:
                 self.stage_data["player_action_desc"] = "Действие выполнено."
                 self._stage1_random_event_determine()
+                self._save_checkpoint("stage1_player_action")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 4: определение случайного события (произошло ли) (без изменений)
+    # СТАДИЯ 4: определение случайного события
     # --------------------------------------------------------------------------
     def _stage1_random_event_determine(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_random_event_determine", True):
@@ -1056,13 +1356,21 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "player_action": player_action,
+            "descriptions": descriptions_text,
+            "dice_value": dice_value,
+            "event_chance": event_chance
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage1_random_event_determine(content, extra),
             extra={"retry_count": retry_count, "dice_value": dice_value, "event_chance": event_chance},
             stage_name="stage1_random_event_determine",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_random_event_determine(self, content, extra):
@@ -1080,7 +1388,11 @@ class StageProcessor:
             else:
                 self._display_system("⚠️ Модель не определила событие. Считаем, что событие не произошло.\n")
                 self.stage_data["event_occurred"] = False
+                if self.debug_mode:
+                    output_items = {"event_occurred": False}
+                    self._print_debug_section("Выходные данные этапа stage1_random_event_determine", output_items, blank_lines_before=1, blank_lines_after=1)
                 self._stage2_npc_action()
+                self._save_checkpoint("stage1_random_event_determine")
                 return
 
         if len(tool_calls) > 1:
@@ -1105,10 +1417,15 @@ class StageProcessor:
             self.stage_data["event_occurred"] = event_occurred
             self._display_system(f"✨ Событие: {'произошло' if event_occurred else 'НЕ произошло'} (d100={expected_dice})\n")
 
+            if self.debug_mode:
+                output_items = {"event_occurred": event_occurred}
+                self._print_debug_section("Выходные данные этапа stage1_random_event_determine", output_items, blank_lines_before=1, blank_lines_after=1)
+
             if event_occurred:
                 self._stage1_random_event_request_objects()
             else:
                 self._stage2_npc_action()
+            self._save_checkpoint("stage1_random_event_determine")
         except Exception as e:
             self._log_debug("ERROR", f"report_random_event parse error: {e}")
             limit = self._get_retry_limit("stage1_random_event_determine")
@@ -1117,9 +1434,10 @@ class StageProcessor:
             else:
                 self.stage_data["event_occurred"] = False
                 self._stage2_npc_action()
+                self._save_checkpoint("stage1_random_event_determine")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 5.1: запрос недостающих объектов для случайного события (без изменений)
+    # СТАДИЯ 5.1: запрос дополнительных объектов для события
     # --------------------------------------------------------------------------
     def _stage1_random_event_request_objects(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_random_event_request_objects", True):
@@ -1186,13 +1504,24 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "event_dice": event_dice,
+            "player_action": player_action,
+            "descriptions": descriptions_text,
+            "available_objects": available,
+            "max_locations": max_locs,
+            "max_characters": max_chars,
+            "max_items": max_items
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage1_random_event_request_objects(content, extra),
             extra={"retry_count": retry_count},
             stage_name="stage1_random_event_request_objects",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_random_event_request_objects(self, content, extra):
@@ -1221,7 +1550,14 @@ class StageProcessor:
                     self._display_system(f"📦 Запрошены дополнительные объекты для события: {object_ids}\n")
                     self.stage_data["event_additional_ids"] = object_ids
                     self._fetch_descriptions_sync(object_ids)
+                    if self.debug_mode:
+                        output_items = {
+                            "event_additional_ids": object_ids,
+                            "updated_descriptions": {oid: self.stage_data["descriptions"].get(oid) for oid in object_ids}
+                        }
+                        self._print_debug_section("Выходные данные этапа stage1_random_event_request_objects", output_items, blank_lines_before=1, blank_lines_after=1)
                     self._stage1_random_event_details()
+                    self._save_checkpoint("stage1_random_event_request_objects")
                     return
                 else:
                     self._display_error("⚠️ send_object_info вызван без корректного списка object_ids.\n")
@@ -1229,10 +1565,14 @@ class StageProcessor:
                 self._log_debug("ERROR", f"send_object_info parse error: {e}")
 
         self._display_system("✅ Дополнительные объекты не требуются.\n")
+        if self.debug_mode:
+            output_items = {"event_additional_ids": []}
+            self._print_debug_section("Выходные данные этапа stage1_random_event_request_objects", output_items, blank_lines_before=1, blank_lines_after=1)
         self._stage1_random_event_details()
+        self._save_checkpoint("stage1_random_event_request_objects")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 5.2: описание случайного события (с броском качества d20) (без изменений)
+    # СТАДИЯ 5.2: описание события
     # --------------------------------------------------------------------------
     def _stage1_random_event_details(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage1_random_event_details", True):
@@ -1268,13 +1608,20 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "player_action": self.stage_data['player_action_desc'],
+            "descriptions": descriptions_text,
+            "dice_value": quality_dice
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage1_random_event_details(content, extra),
             extra={"retry_count": retry_count, "dice_value": quality_dice},
             stage_name="stage1_random_event_details",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage1_random_event_details(self, content, extra):
@@ -1298,16 +1645,25 @@ class StageProcessor:
                 elif isinstance(args, dict):
                     description = args.get("description", "")
                 self.stage_data["event_desc"] = description
-                self._display_system(f"✨ Событие: {description[:100]}...\n")
+                self._display_system(f"✨ Событие: {description}\n")
+                if self.debug_mode:
+                    output_items = {"event_desc": description}
+                    self._print_debug_section("Выходные данные этапа stage1_random_event_details", output_items, blank_lines_before=1, blank_lines_after=1)
                 self._stage2_npc_action()
+                self._save_checkpoint("stage1_random_event_details")
                 return
             except Exception as e:
                 self._log_debug("ERROR", f"event parse error: {e}")
 
         if content and len(content.strip()) > 5:
-            self.stage_data["event_desc"] = content.strip()[:300]
-            self._display_system(f"⚠️ Событие (из текста без вызова): {self.stage_data['event_desc'][:100]}...\n")
+            full_desc = content.strip()
+            self.stage_data["event_desc"] = full_desc
+            self._display_system(f"⚠️ Событие (из текста без вызова):\n{full_desc}\n")
+            if self.debug_mode:
+                output_items = {"event_desc": full_desc}
+                self._print_debug_section("Выходные данные этапа stage1_random_event_details", output_items, blank_lines_before=1, blank_lines_after=1)
             self._stage2_npc_action()
+            self._save_checkpoint("stage1_random_event_details")
             return
 
         limit = self._get_retry_limit("stage1_random_event_details")
@@ -1317,10 +1673,14 @@ class StageProcessor:
         else:
             self.stage_data["event_desc"] = "Произошло что-то неожиданное."
             self._display_system("⚠️ Событие сгенерировано автоматически.\n")
+            if self.debug_mode:
+                output_items = {"event_desc": self.stage_data["event_desc"]}
+                self._print_debug_section("Выходные данные этапа stage1_random_event_details", output_items, blank_lines_before=1, blank_lines_after=1)
             self._stage2_npc_action()
+            self._save_checkpoint("stage1_random_event_details")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 6: обработка NPC (действия)
+    # СТАДИЯ 6: обработка NPC
     # --------------------------------------------------------------------------
     def _stage2_npc_action(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage2_npc_action", True):
@@ -1412,20 +1772,30 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "npc_name": npc.name,
+            "npc_id": npc_id,
+            "descriptions": descriptions_text,
+            "player_action": player_action,
+            "event_description": event_desc,
+            "previous_actions": previous_text
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage2_npc_action(content, extra),
             extra={"npc_id": npc_id, "npc_name": npc.name, "retry_count": retry_count},
             stage_name="stage2_npc_action",
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage2_npc_action(self, content, extra):
         npc_id = extra["npc_id"]
         npc_name = extra.get("npc_name", "NPC")
         retry_count = extra.get("retry_count", 0)
-        self._log_full_response(f"stage2_npc_action_{npc_id}", content)
+        self._log_debug(f"stage2_npc_action_{npc_id}", f"Content:\n{content}")
 
         intent = None
         if content:
@@ -1455,12 +1825,16 @@ class StageProcessor:
                 intent = f"{npc_name} наблюдает."
 
         self.stage_data["npc_actions"][npc_id] = intent
-        self._display_system(f"✍️ {npc_name}: {intent[:100]}\n")
+        self._display_system(f"✍️ {npc_name}: {intent}\n")
+        if self.debug_mode:
+            output_items = {f"npc_action_{npc_id}": intent}
+            self._print_debug_section(f"Выходные данные этапа stage2_npc_action для {npc_name}", output_items, blank_lines_before=1, blank_lines_after=1)
         self.stage_data["current_npc_index"] += 1
         self._stage2_npc_action(0)
+        self._save_checkpoint("stage2_npc_action")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 7: финальный рассказ (с учётом сценариев)
+    # СТАДИЯ 7: финальный рассказ
     # --------------------------------------------------------------------------
     def _stage3_final(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage3_final", True):
@@ -1522,7 +1896,6 @@ class StageProcessor:
         player_action_desc = self.stage_data.get("player_action_desc", "")
         dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
 
-        # --- ВЫЧИСЛЕНИЕ ВЕРДИКТА ТОЛЬКО ДЛЯ ЛОГИРОВАНИЯ (НЕ ПЕРЕДАЁТСЯ В ПРОМТ) ---
         dice_val = self.stage_data.get("player_action_dice")
         if dice_val is not None:
             if dice_val == 1:
@@ -1540,7 +1913,6 @@ class StageProcessor:
         else:
             verdict = "Нет броска"
         self._log_debug("PLAYER_DICE_VERDICT", f"d20={dice_val} -> {verdict}")
-        # --- КОНЕЦ БЛОКА ЛОГИРОВАНИЯ ---
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage3_final")
         if not prompt_template:
@@ -1557,8 +1929,11 @@ class StageProcessor:
             dice_rules=dice_rules,
             player_dice_value=player_dice,
             player_action_desc=player_action_desc
-            # player_result_text НЕ ПЕРЕДАЁТСЯ — он отсутствует в промте
         )
+
+        scene_narrative = self.stage_data.get("scene_narrative", "")
+        if scene_narrative:
+            user_data += f"\n\n**Контекст сцены (начало):**\n{scene_narrative}\n"
 
         if scenarios_text:
             user_data += "\n\n" + scenarios_text
@@ -1583,6 +1958,16 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "location_desc": location_full_name,
+            "event_description": event_desc,
+            "npcs_actions": npc_actions_text,
+            "dice_results": dice_summary,
+            "player_dice_value": player_dice,
+            "player_action_desc": player_action_desc,
+            "scenarios_text": scenarios_text[:200] + "..." if len(scenarios_text) > 200 else scenarios_text
+        }
+
         self.main_app.center_panel.start_temp_response()
         self._send_request(
             user_data=user_data,
@@ -1591,9 +1976,9 @@ class StageProcessor:
             stage_name="stage3_final",
             use_temp=False,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
-
 
     def _strip_function_wrapper(self, text: str) -> str:
         if not text:
@@ -1648,7 +2033,6 @@ class StageProcessor:
         final = re.sub(r'\b(check_history|validate_response|act|report_\w+)\s*\([^)]*\)', '', final, flags=re.DOTALL)
         final = re.sub(r'\n{3,}', '\n\n', final)
 
-        # Проверка повтора предыдущего ответа ассистента
         last_assistant_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
@@ -1664,7 +2048,6 @@ class StageProcessor:
             else:
                 final = final + " (События не изменились, но момент застыл.)"
 
-        # Проверка повтора сообщения пользователя
         last_user_msg = ""
         if self.main_app.conversation_history:
             for msg in reversed(self.main_app.conversation_history):
@@ -1680,15 +2063,17 @@ class StageProcessor:
             else:
                 final = final + " (Рассказчик продолжает повествование.)"
 
-        # Сохраняем финальный ответ, НО НЕ ДОБАВЛЯЕМ В ИСТОРИЮ
         self.stage_data["final_response"] = final
         self.original_final_response = final
 
-        # Очищаем временный вывод (теперь это безопасно)
+        if self.debug_mode:
+            output_items = {"final_response": final}
+            self._print_debug_section("Выходные данные этапа stage3_final", output_items, blank_lines_before=1, blank_lines_after=1)
+
         self.main_app.center_panel.clear_temp_response()
 
-        # Переходим к следующим этапам
         self._stage8_history_check()
+        self._save_checkpoint("stage3_final")
 
     # --------------------------------------------------------------------------
     # СТАДИЯ 8.1: проверка истории
@@ -1763,6 +2148,12 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "old_histories": old_histories_text[:500] + "..." if len(old_histories_text) > 500 else old_histories_text,
+            "current_response": current_response[:300] + "..." if len(current_response) > 300 else current_response,
+            "significant_changes_previous": prev_significant
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage8_history_check(content, extra, retry_count),
@@ -1770,7 +2161,8 @@ class StageProcessor:
             stage_name="stage8_history_check",
             use_temp=False,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage8_history_check(self, content, extra, retry_count):
@@ -1779,7 +2171,11 @@ class StageProcessor:
 
         if extracted is not None and extracted.strip() in ("", "исправленный текст", "исправленный текст\""):
             self._display_system("⚠️ Модель не предоставила реального исправления. Изменения отклонены.\n")
+            if self.debug_mode:
+                output_items = {"corrected": "(отклонено)"}
+                self._print_debug_section("Выходные данные этапа stage8_history_check", output_items, blank_lines_before=1, blank_lines_after=1)
             self._stage11_validation()
+            self._save_checkpoint("stage8_history_check")
             return
 
         if extracted is not None and extracted.strip() != "":
@@ -1788,15 +2184,22 @@ class StageProcessor:
             if self._is_valid_narrative_text(corrected) and len(corrected) > 20:
                 self.stage_data["final_response"] = corrected
                 self._display_system("⚠️ Ответ исправлен по результатам проверки истории.\n")
+                if self.debug_mode:
+                    output_items = {"final_response_after_history_check": corrected}
+                    self._print_debug_section("Выходные данные этапа stage8_history_check", output_items, blank_lines_before=1, blank_lines_after=1)
             else:
                 self._display_system("⚠️ Получен некорректный исправленный текст. Изменения отклонены.\n")
         else:
             self._display_system("✅ Проверка истории: всё в порядке.\n")
+            if self.debug_mode:
+                output_items = {"correction": "no_changes"}
+                self._print_debug_section("Выходные данные этапа stage8_history_check", output_items, blank_lines_before=1, blank_lines_after=1)
 
         self._stage11_validation()
+        self._save_checkpoint("stage8_history_check")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 8.2: валидация результата
+    # СТАДИЯ 8.2: валидация
     # --------------------------------------------------------------------------
     def _stage11_validation(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_validation", True):
@@ -1841,10 +2244,8 @@ class StageProcessor:
                 npc_dice_lines.append(f"{char.name}: d20={dice_val}")
         dice_summary_npc = "\n".join(npc_dice_lines)
 
-        # --- ДОБАВЛЕННЫЙ БЛОК: данные о броске игрока ---
         dice_rules = self.main_app.prompt_manager.get_prompt_content("dice_rules")
         player_dice = self.stage_data.get("player_action_dice", "?")
-        # --- конец добавленного блока ---
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage11_validation")
         if not prompt_template:
@@ -1885,6 +2286,8 @@ class StageProcessor:
         extra_context = format_args.copy()
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {k: (v[:300] + "..." if isinstance(v, str) and len(v) > 300 else v) for k, v in format_args.items()}
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage11_validation(content, extra),
@@ -1892,7 +2295,8 @@ class StageProcessor:
             stage_name="stage11_validation",
             use_temp=False,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage11_validation(self, content, extra):
@@ -1904,7 +2308,11 @@ class StageProcessor:
         if extracted is not None:
             if extracted.strip() == "":
                 self._display_system("✅ Валидация пройдена, ответ корректен.\n")
+                if self.debug_mode:
+                    output_items = {"validation_result": "passed"}
+                    self._print_debug_section("Выходные данные этапа stage11_validation", output_items, blank_lines_before=1, blank_lines_after=1)
                 self._stage12_emotions()
+                self._save_checkpoint("stage11_validation")
                 return
             else:
                 corrected = extracted.replace('\\n', '\n')
@@ -1933,7 +2341,11 @@ class StageProcessor:
                     self._display_system("✅ Ответ исправлен по результатам валидации.\n")
                 else:
                     self._display_system("⚠️ Валидатор вернул некорректный текст. Изменения отклонены.\n")
+                if self.debug_mode:
+                    output_items = {"validation_result": "corrected", "final_response": self.stage_data["final_response"]}
+                    self._print_debug_section("Выходные данные этапа stage11_validation", output_items, blank_lines_before=1, blank_lines_after=1)
                 self._stage12_emotions()
+                self._save_checkpoint("stage11_validation")
                 return
 
         cleaned = self._strip_function_wrapper(content)
@@ -1951,7 +2363,11 @@ class StageProcessor:
                     return
             self.stage_data["final_response"] = cleaned
             self._display_system("✅ Ответ очищен от функций.\n")
+            if self.debug_mode:
+                output_items = {"validation_result": "cleaned", "final_response": cleaned}
+                self._print_debug_section("Выходные данные этапа stage11_validation", output_items, blank_lines_before=1, blank_lines_after=1)
             self._stage12_emotions()
+            self._save_checkpoint("stage11_validation")
             return
 
         if retry_count < max_retries:
@@ -1960,10 +2376,14 @@ class StageProcessor:
             return
         else:
             self._display_system("⚠️ Не удалось получить корректный ответ валидатора. Пропускаем.\n")
+            if self.debug_mode:
+                output_items = {"validation_result": "failed_retries"}
+                self._print_debug_section("Выходные данные этапа stage11_validation", output_items, blank_lines_before=1, blank_lines_after=1)
             self._stage12_emotions()
+            self._save_checkpoint("stage11_validation")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 12: определение эмоций персонажей (НОВАЯ)
+    # СТАДИЯ 12: эмоции
     # --------------------------------------------------------------------------
     def _stage12_emotions(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage12_emotions", True):
@@ -1995,7 +2415,6 @@ class StageProcessor:
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage12_emotions' not found.")
 
-        # Сохраняем данные для последовательной обработки
         self._emotion_queue = character_ids.copy()
         self._emotion_results = {}
         self._emotion_retry_count = retry_count
@@ -2003,17 +2422,18 @@ class StageProcessor:
         self._process_next_emotion()
 
     def _process_next_emotion(self):
-        """Обрабатывает следующего персонажа из очереди"""
         if not self._emotion_queue:
-            # Все обработаны
             self.stage_data["emotion_map"] = self._emotion_results
             self._display_system(f"✅ Эмоции определены: {self._emotion_results}\n")
+            if self.debug_mode:
+                output_items = {"emotion_map": self._emotion_results}
+                self._print_debug_section("Выходные данные этапа stage12_emotions", output_items, blank_lines_before=1, blank_lines_after=1)
             self._update_vn_view()
-            # Очищаем временные переменные
             delattr(self, '_emotion_queue')
             delattr(self, '_emotion_results')
             delattr(self, '_emotion_retry_count')
             self._stage11_significant_changes()
+            self._save_checkpoint("stage12_emotions")
             return
 
         cid = self._emotion_queue.pop(0)
@@ -2056,6 +2476,14 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "character_id": cid,
+            "character_name": char.name,
+            "final_response": final_response[:300] + "..." if len(final_response) > 300 else final_response,
+            "character_desc": desc,
+            "available_emotions": emotions_text
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra, cid=cid: self._after_stage12_emotions(content, extra, cid),
@@ -2063,7 +2491,8 @@ class StageProcessor:
             stage_name="stage12_emotions",
             use_temp=False,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage12_emotions(self, content, extra, character_id):
@@ -2098,7 +2527,6 @@ class StageProcessor:
                 self._log_debug("ERROR", f"report_emotions parse error for {character_id}: {e}")
                 emotion = "Нейтрально"
         else:
-            # fallback: извлечение из текста
             if "Смущение" in content:
                 emotion = "Смущение"
             elif "Плач" in content:
@@ -2112,12 +2540,10 @@ class StageProcessor:
             self._display_system(f"🎭 {character_id}: {emotion} (извлечено из текста)\n")
 
         self._emotion_results[character_id] = emotion
-        # Переходим к следующему персонажу
         self._process_next_emotion()
 
-
     # --------------------------------------------------------------------------
-    # СТАДИЯ 11: проверка значительных изменений (перемещена после эмоций)
+    # СТАДИЯ 11: значительные изменения
     # --------------------------------------------------------------------------
     def _stage11_significant_changes(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage11_significant_changes", True):
@@ -2168,6 +2594,8 @@ class StageProcessor:
         extra_context = format_args.copy()
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {k: (v[:300] + "..." if isinstance(v, str) and len(v) > 300 else v) for k, v in format_args.items()}
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage11_significant_changes(content, extra),
@@ -2175,12 +2603,13 @@ class StageProcessor:
             stage_name="stage11_significant_changes",
             use_temp=False,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage11_significant_changes(self, content, extra):
         retry_count = extra.get("retry_count", 0)
-        self._log_full_response("stage11_significant_changes", content)   # ДОБАВЛЕНО
+        self._log_full_response("stage11_significant_changes", content)
 
         significant = False
         tool_calls = self._try_parse_tool_calls_from_text(content, expected_func_names=["report_significant_changes"])
@@ -2194,14 +2623,19 @@ class StageProcessor:
             except Exception as e:
                 self._log_debug("ERROR", f"Failed to parse report_significant_changes: {e}")
         else:
-            self._log_debug("WARNING", "report_significant_changes not called, using fallback")  # ДОБАВЛЕНО
+            self._log_debug("WARNING", "report_significant_changes not called, using fallback")
             content_lower = content.lower()
             if "true" in content_lower or "yes" in content_lower or "да" in content_lower:
                 significant = True
             elif "false" in content_lower or "no" in content_lower or "нет" in content_lower:
                 significant = False
 
+        if self.debug_mode:
+            output_items = {"significant_changes": significant}
+            self._print_debug_section("Выходные данные этапа stage11_significant_changes", output_items, blank_lines_before=1, blank_lines_after=1)
+
         self._finalize_significant_changes(significant)
+        self._save_checkpoint("stage11_significant_changes")
 
     def _finalize_significant_changes(self, significant: bool):
         if not hasattr(self.main_app, 'significant_changes_flags'):
@@ -2245,6 +2679,11 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "last_user_msg": last_user,
+            "last_assistant_msg": last_assistant[:300] + "..." if len(last_assistant) > 300 else last_assistant
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage4_summary(content, extra),
@@ -2252,7 +2691,8 @@ class StageProcessor:
             stage_name="stage4_summary",
             use_temp=False,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage4_summary(self, content, extra):
@@ -2262,9 +2702,13 @@ class StageProcessor:
         if summary and len(summary) > 10:
             self.main_app.record_added_summary(summary)
             self._display_system(f"📝 Добавлена запись в краткую память.\n")
+            if self.debug_mode:
+                output_items = {"summary": summary}
+                self._print_debug_section("Выходные данные этапа stage4_summary", output_items, blank_lines_before=1, blank_lines_after=1)
         else:
             self._display_system("⚠️ Не удалось получить краткую память.\n")
         self._stage10_associative_memory()
+        self._save_checkpoint("stage4_summary")
 
     # --------------------------------------------------------------------------
     # СТАДИЯ 10: ассоциативная память
@@ -2306,6 +2750,11 @@ class StageProcessor:
         }
         full_context = {**self.stage_data, **extra_context}
 
+        debug_inputs = {
+            "final_response": final[:300] + "..." if len(final) > 300 else final,
+            "objects": objects_text[:500] + "..." if len(objects_text) > 500 else objects_text
+        }
+
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage10_associative_memory(content, extra),
@@ -2313,7 +2762,8 @@ class StageProcessor:
             stage_name="stage10_associative_memory",
             use_temp=True,
             show_in_thinking=True,
-            context_data=full_context
+            context_data=full_context,
+            debug_inputs=debug_inputs
         )
 
     def _after_stage10_associative_memory(self, content, extra):
@@ -2341,8 +2791,15 @@ class StageProcessor:
                     changed_ids.append(obj_id)
         self.last_changed_objects = list(set(changed_ids))
         self._display_thinking(f"✅ Память обновлена для {updated} объектов.\n")
+        if self.debug_mode:
+            output_items = {"updated_objects": updated, "changed_ids": changed_ids}
+            self._print_debug_section("Выходные данные этапа stage10_associative_memory", output_items, blank_lines_before=1, blank_lines_after=1)
         self._finish_generation()
+        self._save_checkpoint("stage10_associative_memory")
 
+    # --------------------------------------------------------------------------
+    # Вспомогательные методы для стилей и валидации
+    # --------------------------------------------------------------------------
     def _get_system_styles(self) -> str:
         styles = []
         if hasattr(self.main_app, 'world_style_prompt') and self.main_app.world_style_prompt:
@@ -2364,9 +2821,8 @@ class StageProcessor:
         if any(phrase in lower_text for phrase in forbidden):
             return False
         return True
-    
+
     def _get_characters_context_with_presence(self) -> str:
-        """Возвращает описания ТОЛЬКО NPC (без игрока) для передачи в финальный промт."""
         lines = []
         for cid in self.stage_data.get("scene_character_ids", []):
             char = self.main_app.characters.get(cid)
@@ -2376,18 +2832,12 @@ class StageProcessor:
                     desc = desc[:300] + "..."
                 lines.append(f"• {char.name} – {desc}")
         return "\n".join(lines) if lines else "Нет других персонажей."
-    
+
     def _update_vn_view(self):
-        """Обновляет интерфейс визуальной новеллы, если он активен."""
         if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
             self.main_app.vn_frame.refresh_from_current_state()
 
     def restore_scene_from_session(self, session_data: dict):
-        """
-        Восстанавливает данные сцены из загруженной сессии.
-        Вызывается после загрузки сессии, до первого обновления VN фрейма.
-        """
-        # Поля, которые нужно восстановить
         scene_keys = [
             "scene_location_id",
             "scene_character_ids",
@@ -2401,9 +2851,39 @@ class StageProcessor:
             if key in session_data:
                 self.stage_data[key] = session_data[key]
             else:
-                # Если данных нет, оставляем значение по умолчанию
                 self.stage_data[key] = self.stage_data.get(key)
 
-        # Принудительно обновляем VN представление (если активно)
         if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame:
             self.main_app.vn_frame.refresh_from_current_state()
+
+    def start_generation(self, user_message: str):
+        self.reset()
+        self.generation_start_time = time.time()
+        self._refill_dice_queues()
+        self.stage_data.update({
+            "user_message": user_message,
+            "original_user_message": user_message,
+            "descriptions": {},
+            "scene_location_id": None,
+            "scene_character_ids": [],
+            "scene_item_ids": [],
+            "scene_scenario_ids": [],
+            "scene_summary": "",
+            "scene_narrative": "",
+            "player_action_dice": None,
+            "player_action_desc": "",
+            "event_occurrence_dice": None,
+            "event_quality_dice": None,
+            "event_occurred": False,
+            "event_desc": "",
+            "event_additional_ids": [],
+            "npc_actions": {},
+            "current_npc_index": 0,
+            "final_response": "",
+            "truth_violation": "",
+            "emotion_map": {},
+            "scene_generation_retries": 0,
+            "random_event_retries": 0,
+            "npc_retry_count": 0
+        })
+        self._stage1_request_descriptions()
