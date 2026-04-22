@@ -1,6 +1,9 @@
 # RPG AI Assistant
 
-<img width="1197" height="750" alt="Screenshot_109" src="https://github.com/user-attachments/assets/f67e73e4-d098-40fb-a963-7249949a770a" />
+<img width="1200" height="749" alt="Screenshot_119" src="https://github.com/user-attachments/assets/c9b10208-0867-4675-a01b-6f78147b89c4" />
+
+<img width="1200" height="751" alt="Screenshot_117" src="https://github.com/user-attachments/assets/bed16242-f6fa-4032-a330-4f7cc2131da0" />
+
 
 # RPG Assistant — ролевая игра с локальными LLM
 
