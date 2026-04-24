@@ -267,9 +267,6 @@ class AvatarCropEditor(tk.Toplevel):
                     new_left = 0
                 if new_top < 0:
                     new_top = 0
-                # Сохраняем квадратность? Лучше сохранять соотношение? Для аватара квадрат
-                # Делаем так, чтобы новая сторона была равна min(ширина, высота) – но пользователь может сам корректировать
-                # Просто позволяем менять, но потом кнопка "Применить размер" выровняет
                 self.crop_rect = (int(new_left), int(new_top), int(right), int(bottom))
             elif idx == 1:  # правый верх
                 new_right = right + dx / self.scale
@@ -295,7 +292,6 @@ class AvatarCropEditor(tk.Toplevel):
                 if new_bottom > self.original_image.size[1]:
                     new_bottom = self.original_image.size[1]
                 self.crop_rect = (int(left), int(top), int(new_right), int(new_bottom))
-            # После изменения размера перерисовываем
             self._draw_rect()
             self.drag_start = (x, y)
 
@@ -304,7 +300,6 @@ class AvatarCropEditor(tk.Toplevel):
         self.resize_mode = None
 
     def _apply_size(self):
-        # Устанавливаем фиксированный размер квадрата (в пикселях исходного)
         try:
             new_size = int(self.size_var.get())
         except ValueError:
@@ -312,7 +307,6 @@ class AvatarCropEditor(tk.Toplevel):
         if new_size < 8:
             new_size = 8
         self.crop_size = new_size
-        # Пересчитываем прямоугольник, сохраняя центр
         if self.original_image is None:
             return
         img_w, img_h = self.original_image.size
@@ -323,7 +317,6 @@ class AvatarCropEditor(tk.Toplevel):
         top = center_y - half
         right = left + self.crop_size
         bottom = top + self.crop_size
-        # Коррекция границ
         if left < 0:
             left = 0
             right = self.crop_size
@@ -347,17 +340,13 @@ class AvatarCropEditor(tk.Toplevel):
             messagebox.showerror("Ошибка", "Выделенная область некорректна.", parent=self)
             return
         cropped = self.original_image.crop((left, top, right, bottom))
-        # Приводим к квадрату указанного размера (crop_size)
         target_size = self.crop_size
         cropped = cropped.resize((target_size, target_size), Image.Resampling.LANCZOS)
-        # Сохраняем во временный файл
         temp_dir = os.path.join(self.master.app.storage._get_campaign_path(), "temp")
         os.makedirs(temp_dir, exist_ok=True)
         temp_path = os.path.join(temp_dir, f"cropped_avatar_{os.path.basename(self.sprite_path)}.png")
         cropped.save(temp_path, "PNG")
-        # Перемещаем в папку кампании
         rel_path = self.master._copy_image_to_campaign(temp_path, "characters/avatars")
-        # Удаляем временный файл
         try:
             os.remove(temp_path)
         except:
@@ -626,7 +615,6 @@ class BaseEditorTab(ttk.Frame):
             ttk.Entry(avatar_row, textvariable=self.avatar_path_var).grid(row=0, column=1, padx=5, sticky="ew")
             ttk.Button(avatar_row, text="+", width=3, command=self._select_avatar).grid(row=0, column=2, padx=2)
             ttk.Button(avatar_row, text="✗", width=3, command=lambda: self.avatar_path_var.set("")).grid(row=0, column=3, padx=2)
-            # Кнопка "Вырезать из спрайта"
             self.crop_avatar_btn = ttk.Button(avatar_row, text="✂️", width=3, command=self._crop_avatar_from_sprite, state=tk.DISABLED)
             self.crop_avatar_btn.grid(row=0, column=4, padx=2)
 
@@ -643,7 +631,6 @@ class BaseEditorTab(ttk.Frame):
             ttk.Entry(sprite_row, textvariable=self.sprite_path_var).grid(row=0, column=1, padx=5, sticky="ew")
             ttk.Button(sprite_row, text="+", width=3, command=self._select_sprite).grid(row=0, column=2, padx=2)
             ttk.Button(sprite_row, text="✗", width=3, command=lambda: self.sprite_path_var.set("")).grid(row=0, column=3, padx=2)
-            # Привязываем событие изменения спрайта для активации кнопки вырезания
             self.sprite_path_var.trace_add("write", self._on_sprite_path_changed)
 
             self.sprite_preview_label = ttk.Label(sprite_row, text="[Нет]")
@@ -710,6 +697,15 @@ class BaseEditorTab(ttk.Frame):
             self.em_sprite_preview = ttk.Label(sprite_row, text="[Нет]")
             self.em_sprite_preview.grid(row=0, column=4, padx=5)
 
+        # ==================== АССОЦИАТИВНЫЕ ПРОВЕРКИ ====================
+        assoc_frame = ttk.LabelFrame(scrollable_frame, text="Ассоциативные проверки (инструкция для модели)")
+        assoc_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(assoc_frame, text="Дополнительная инструкция: на какие атрибуты/состояния объекта обращать внимание").pack(anchor='w', padx=5, pady=2)
+        self.assoc_text = scrolledtext.ScrolledText(assoc_frame, height=6, wrap=tk.WORD)
+        self.assoc_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        add_context_menu(self.assoc_text)
+
         # Редактор текста
         editor_frame = ttk.LabelFrame(scrollable_frame, text="Редактор")
         editor_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -751,8 +747,7 @@ class BaseEditorTab(ttk.Frame):
 
     # --- Методы для работы с изображениями ---
     def _copy_image_to_campaign(self, source_path: str, target_subdir: str) -> str:
-        """Копирует изображение в папку кампании, возвращает относительный путь.
-        Всегда выполняет копирование, чтобы файл оказался именно в target_subdir."""
+        """Копирует изображение в папку кампании, возвращает относительный путь."""
         if not source_path or not os.path.exists(source_path):
             return ""
         campaign_path = self.app.storage._get_campaign_path()
@@ -760,7 +755,6 @@ class BaseEditorTab(ttk.Frame):
         os.makedirs(target_dir, exist_ok=True)
         base_name = os.path.basename(source_path)
         target_path = os.path.join(target_dir, base_name)
-        # Копируем даже если исходник уже внутри кампании (например, во временной папке)
         shutil.copy2(source_path, target_path)
         rel_path = os.path.relpath(target_path, campaign_path).replace("\\", "/")
         return rel_path
@@ -788,7 +782,6 @@ class BaseEditorTab(ttk.Frame):
             self._update_avatar_preview(rel_path)
 
     def _crop_avatar_from_sprite(self):
-        """Открывает редактор для вырезания аватара из текущего спрайта."""
         sprite_path = self.sprite_path_var.get().strip()
         if not sprite_path:
             messagebox.showwarning("Вырезание", "Сначала выберите спрайт.")
@@ -797,17 +790,14 @@ class BaseEditorTab(ttk.Frame):
         if not os.path.exists(full_sprite_path):
             messagebox.showerror("Ошибка", "Файл спрайта не найден.")
             return
-        # Открываем редактор
         def on_cropped(rel_avatar_path):
             print(f"on_cropped received: {rel_avatar_path}")
             self.avatar_path_var.set(rel_avatar_path)
             self._update_avatar_preview(rel_avatar_path)
         editor = AvatarCropEditor(self, full_sprite_path, on_cropped)
-        # Передаём ссылку на текущий объект BaseEditorTab
         editor.master = self
 
     def _on_sprite_path_changed(self, *args):
-        """Активирует кнопку вырезания, если спрайт задан."""
         if self.sprite_path_var.get().strip():
             self.crop_avatar_btn.config(state=tk.NORMAL)
         else:
@@ -821,32 +811,30 @@ class BaseEditorTab(ttk.Frame):
         return full if os.path.exists(full) else ""
 
     def _update_avatar_preview(self, rel_path: str):
-            if not hasattr(self, 'avatar_preview_label'):
-                return
-            if not rel_path:
-                self.avatar_preview_label.config(image="", text="[Нет]")
-                if hasattr(self.avatar_preview_label, 'image'):
-                    del self.avatar_preview_label.image
-                return
-
-            campaign_path = self.app.storage._get_campaign_path()
-            full_path = os.path.join(campaign_path, rel_path)
-            if not os.path.exists(full_path):
-                self.avatar_preview_label.config(image="", text="[Файл не найден]")
-                if hasattr(self.avatar_preview_label, 'image'):
-                    del self.avatar_preview_label.image
-                return
-
-            try:
-                img = Image.open(full_path)
-                img.thumbnail((50, 50))
-                photo = ImageTk.PhotoImage(img)
-                self.avatar_preview_label.config(image=photo, text="")
-                self.avatar_preview_label.image = photo
-            except Exception as e:
-                self.avatar_preview_label.config(image="", text=f"[Ошибка: {e}]")
-                if hasattr(self.avatar_preview_label, 'image'):
-                    del self.avatar_preview_label.image
+        if not hasattr(self, 'avatar_preview_label'):
+            return
+        if not rel_path:
+            self.avatar_preview_label.config(image="", text="[Нет]")
+            if hasattr(self.avatar_preview_label, 'image'):
+                del self.avatar_preview_label.image
+            return
+        campaign_path = self.app.storage._get_campaign_path()
+        full_path = os.path.join(campaign_path, rel_path)
+        if not os.path.exists(full_path):
+            self.avatar_preview_label.config(image="", text="[Файл не найден]")
+            if hasattr(self.avatar_preview_label, 'image'):
+                del self.avatar_preview_label.image
+            return
+        try:
+            img = Image.open(full_path)
+            img.thumbnail((50, 50))
+            photo = ImageTk.PhotoImage(img)
+            self.avatar_preview_label.config(image=photo, text="")
+            self.avatar_preview_label.image = photo
+        except Exception as e:
+            self.avatar_preview_label.config(image="", text=f"[Ошибка: {e}]")
+            if hasattr(self.avatar_preview_label, 'image'):
+                del self.avatar_preview_label.image
 
     def _select_sprite(self):
         filepath = filedialog.askopenfilename(
@@ -866,7 +854,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(self.sprite_preview_label, 'image'):
                 del self.sprite_preview_label.image
             return
-
         campaign_path = self.app.storage._get_campaign_path()
         full_path = os.path.join(campaign_path, rel_path)
         if not os.path.exists(full_path):
@@ -874,7 +861,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(self.sprite_preview_label, 'image'):
                 del self.sprite_preview_label.image
             return
-
         try:
             img = Image.open(full_path)
             img.thumbnail((50, 100))
@@ -904,7 +890,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(self.bg_preview_label, 'image'):
                 del self.bg_preview_label.image
             return
-
         campaign_path = self.app.storage._get_campaign_path()
         full_path = os.path.join(campaign_path, rel_path)
         if not os.path.exists(full_path):
@@ -912,7 +897,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(self.bg_preview_label, 'image'):
                 del self.bg_preview_label.image
             return
-
         try:
             img = Image.open(full_path)
             img.thumbnail((100, 60))
@@ -926,7 +910,6 @@ class BaseEditorTab(ttk.Frame):
 
     # --- Методы для эмоций в персонаже ---
     def _rebuild_emotion_ui(self):
-        """Перестраивает интерфейс привязки эмоций к персонажу с предпросмотром и кнопкой вырезания."""
         for widget in self.emotion_container.winfo_children():
             widget.destroy()
         self.emotion_widgets.clear()
@@ -950,22 +933,18 @@ class BaseEditorTab(ttk.Frame):
             entry_avatar = ttk.Entry(avatar_frame, textvariable=avatar_var)
             entry_avatar.grid(row=0, column=1, padx=5, sticky="ew")
 
-            # Кнопка выбора файла
             btn_avatar = ttk.Button(avatar_frame, text="+", width=3,
                 command=lambda eid=em_id, v=avatar_var: self._select_emotion_avatar(eid, v))
             btn_avatar.grid(row=0, column=2, padx=2)
 
-            # Кнопка вырезания из спрайта (ножницы)
             btn_crop = ttk.Button(avatar_frame, text="✂️", width=3,
                 command=lambda eid=em_id: self._crop_emotion_avatar(eid))
             btn_crop.grid(row=0, column=3, padx=2)
 
-            # Кнопка очистки
             btn_clear_avatar = ttk.Button(avatar_frame, text="✗", width=3,
                 command=lambda v=avatar_var: v.set(""))
             btn_clear_avatar.grid(row=0, column=4, padx=2)
 
-            # Метка предпросмотра аватара
             avatar_preview = ttk.Label(avatar_frame, text="[Нет]", width=10, relief="sunken")
             avatar_preview.grid(row=0, column=5, padx=5)
 
@@ -988,11 +967,9 @@ class BaseEditorTab(ttk.Frame):
                 command=lambda v=sprite_var: v.set(""))
             btn_clear_sprite.grid(row=0, column=3, padx=2)
 
-            # Метка предпросмотра спрайта
             sprite_preview = ttk.Label(sprite_frame, text="[Нет]", width=10, relief="sunken")
             sprite_preview.grid(row=0, column=4, padx=5)
 
-            # Сохраняем все виджеты
             self.emotion_widgets[em_id] = {
                 "avatar_var": avatar_var,
                 "sprite_var": sprite_var,
@@ -1001,13 +978,10 @@ class BaseEditorTab(ttk.Frame):
                 "frame": frame
             }
 
-            # Привязываем обновление предпросмотра при изменении переменных
             avatar_var.trace_add("write", lambda *args, eid=em_id, var=avatar_var: self._update_emotion_avatar_preview(eid, var.get()))
             sprite_var.trace_add("write", lambda *args, eid=em_id, var=sprite_var: self._update_emotion_sprite_preview(eid, var.get()))
 
     def _crop_emotion_avatar(self, emotion_id: str):
-        """Открывает редактор для вырезания аватара эмоции из её спрайта."""
-        # Получаем путь к спрайту этой эмоции
         if emotion_id not in self.emotion_widgets:
             messagebox.showerror("Ошибка", "Эмоция не найдена.")
             return
@@ -1015,37 +989,15 @@ class BaseEditorTab(ttk.Frame):
         if not sprite_path:
             messagebox.showwarning("Вырезание", "Сначала выберите спрайт для этой эмоции.")
             return
-
         full_sprite_path = self._get_full_path(sprite_path)
         if not os.path.exists(full_sprite_path):
             messagebox.showerror("Ошибка", "Файл спрайта не найден.")
             return
-
-        # Callback после вырезания
         def on_cropped(rel_avatar_path):
-            # Устанавливаем полученный аватар в переменную эмоции
             self.emotion_widgets[emotion_id]["avatar_var"].set(rel_avatar_path)
-            # Принудительно обновляем предпросмотр
             self._update_emotion_avatar_preview(emotion_id, rel_avatar_path)
-
-        # Открываем редактор
         editor = AvatarCropEditor(self, full_sprite_path, on_cropped)
-        editor.master = self  # для доступа к методам копирования
-
-    def _copy_image_to_campaign(self, source_path: str, target_subdir: str) -> str:
-        """Копирует изображение в папку кампании, возвращает относительный путь.
-        Всегда выполняет копирование, чтобы файл оказался именно в target_subdir."""
-        if not source_path or not os.path.exists(source_path):
-            return ""
-        campaign_path = self.app.storage._get_campaign_path()
-        target_dir = os.path.join(campaign_path, target_subdir)
-        os.makedirs(target_dir, exist_ok=True)
-        base_name = os.path.basename(source_path)
-        target_path = os.path.join(target_dir, base_name)
-        # Копируем даже если исходник уже внутри кампании (например, во временной папке)
-        shutil.copy2(source_path, target_path)
-        rel_path = os.path.relpath(target_path, campaign_path).replace("\\", "/")
-        return rel_path
+        editor.master = self
 
     def _select_emotion_avatar(self, emotion_id, var):
         filepath = filedialog.askopenfilename(
@@ -1057,7 +1009,6 @@ class BaseEditorTab(ttk.Frame):
             var.set(rel_path)
 
     def _update_emotion_avatar_preview(self, emotion_id: str, rel_path: str):
-        """Обновляет миниатюру аватара для указанной эмоции."""
         if emotion_id not in self.emotion_widgets:
             return
         preview_label = self.emotion_widgets[emotion_id]["avatar_preview"]
@@ -1066,7 +1017,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(preview_label, 'image'):
                 del preview_label.image
             return
-
         campaign_path = self.app.storage._get_campaign_path()
         full_path = os.path.join(campaign_path, rel_path)
         if not os.path.exists(full_path):
@@ -1074,37 +1024,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(preview_label, 'image'):
                 del preview_label.image
             return
-
-        try:
-            img = Image.open(full_path)
-            img.thumbnail((50, 50))
-            photo = ImageTk.PhotoImage(img)
-            preview_label.config(image=photo, text="")
-            preview_label.image = photo
-        except Exception as e:
-            preview_label.config(image="", text=f"[Ошибка: {e}]")
-            if hasattr(preview_label, 'image'):
-                del preview_label.image
-
-    def _update_emotion_avatar_preview(self, emotion_id: str, rel_path: str):
-        """Обновляет миниатюру аватара для указанной эмоции."""
-        if emotion_id not in self.emotion_widgets:
-            return
-        preview_label = self.emotion_widgets[emotion_id]["avatar_preview"]
-        if not rel_path:
-            preview_label.config(image="", text="[Нет]")
-            if hasattr(preview_label, 'image'):
-                del preview_label.image
-            return
-
-        campaign_path = self.app.storage._get_campaign_path()
-        full_path = os.path.join(campaign_path, rel_path)
-        if not os.path.exists(full_path):
-            preview_label.config(image="", text="[Файл не найден]")
-            if hasattr(preview_label, 'image'):
-                del preview_label.image
-            return
-
         try:
             img = Image.open(full_path)
             img.thumbnail((50, 50))
@@ -1117,7 +1036,6 @@ class BaseEditorTab(ttk.Frame):
                 del preview_label.image
 
     def _update_emotion_sprite_preview(self, emotion_id: str, rel_path: str):
-        """Обновляет миниатюру спрайта для указанной эмоции."""
         if emotion_id not in self.emotion_widgets:
             return
         preview_label = self.emotion_widgets[emotion_id]["sprite_preview"]
@@ -1126,7 +1044,6 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(preview_label, 'image'):
                 del preview_label.image
             return
-
         campaign_path = self.app.storage._get_campaign_path()
         full_path = os.path.join(campaign_path, rel_path)
         if not os.path.exists(full_path):
@@ -1134,10 +1051,8 @@ class BaseEditorTab(ttk.Frame):
             if hasattr(preview_label, 'image'):
                 del preview_label.image
             return
-
         try:
             img = Image.open(full_path)
-            # Для спрайта можно использовать другой размер, например 50x100
             img.thumbnail((50, 100))
             photo = ImageTk.PhotoImage(img)
             preview_label.config(image=photo, text="")
@@ -1221,6 +1136,93 @@ class BaseEditorTab(ttk.Frame):
         except Exception as e:
             self.em_sprite_preview.config(image="", text=f"[Ошибка: {e}]")
 
+    # --- Методы для ассоциативных проверок ---
+    def _update_assoc_listbox(self):
+        self.assoc_listbox.delete(0, tk.END)
+        if self.current_obj_id:
+            obj = self._get_objects_dict().get(self.current_obj_id)
+            if obj and hasattr(obj, 'associative_checks'):
+                for check in obj.associative_checks:
+                    self.assoc_listbox.insert(tk.END, check)
+
+    def _add_assoc_check(self):
+        if not self.current_obj_id:
+            messagebox.showwarning("Ошибка", "Сначала выберите объект.")
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title("Добавить ассоциативную проверку")
+        dialog.geometry("500x150")
+        dialog.transient(self)
+        center_window(dialog, self.app)
+
+        ttk.Label(dialog, text="Текст проверки (например: 'Одет в обычную одежду', 'Чистый'):").pack(pady=5)
+        entry = ttk.Entry(dialog, width=60)
+        entry.pack(padx=10, pady=5)
+        entry.focus()
+
+        def add():
+            text = entry.get().strip()
+            if text:
+                obj = self._get_objects_dict().get(self.current_obj_id)
+                if obj and hasattr(obj, 'associative_checks'):
+                    obj.associative_checks.append(text)
+                    self._update_assoc_listbox()
+            dialog.destroy()
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Добавить", command=add).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        entry.bind("<Return>", lambda e: add())
+
+    def _remove_assoc_check(self):
+        selection = self.assoc_listbox.curselection()
+        if not selection:
+            return
+        idx = selection[0]
+        obj = self._get_objects_dict().get(self.current_obj_id)
+        if obj and hasattr(obj, 'associative_checks'):
+            if 0 <= idx < len(obj.associative_checks):
+                obj.associative_checks.pop(idx)
+                self._update_assoc_listbox()
+
+    def _edit_assoc_check(self):
+        selection = self.assoc_listbox.curselection()
+        if not selection:
+            return
+        idx = selection[0]
+        obj = self._get_objects_dict().get(self.current_obj_id)
+        if not obj or not hasattr(obj, 'associative_checks'):
+            return
+        if idx >= len(obj.associative_checks):
+            return
+        old_text = obj.associative_checks[idx]
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Редактировать проверку")
+        dialog.geometry("500x150")
+        dialog.transient(self)
+        center_window(dialog, self.app)
+
+        ttk.Label(dialog, text="Текст проверки:").pack(pady=5)
+        entry = ttk.Entry(dialog, width=60)
+        entry.insert(0, old_text)
+        entry.pack(padx=10, pady=5)
+        entry.focus()
+
+        def save():
+            new_text = entry.get().strip()
+            if new_text:
+                obj.associative_checks[idx] = new_text
+                self._update_assoc_listbox()
+            dialog.destroy()
+
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=10)
+        ttk.Button(btn_frame, text="Сохранить", command=save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Отмена", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        entry.bind("<Return>", lambda e: save())
+
     # --- Остальные методы ---
     def _get_objects_dict(self):
         if self.obj_type == "narrators":
@@ -1295,6 +1297,10 @@ class BaseEditorTab(ttk.Frame):
 
         if self.editing_mode.get() == "global":
             self.desc_text.insert(1.0, obj.description)
+            # Загрузка associative_checks
+            self.assoc_text.delete(1.0, tk.END)
+            if hasattr(obj, 'associative_checks') and obj.associative_checks:
+                self.assoc_text.insert(1.0, obj.associative_checks)
 
             if self.obj_type == "characters":
                 self.player_var.set(obj.is_player)
@@ -1306,17 +1312,14 @@ class BaseEditorTab(ttk.Frame):
                 self._update_avatar_preview(avatar)
                 self._update_sprite_preview(sprite)
 
-                # Загрузка привязок эмоций
-                emotion_images = getattr(obj, 'emotion_images', {})
-                # Перестраиваем UI эмоций
                 self._rebuild_emotion_ui()
+                emotion_images = getattr(obj, 'emotion_images', {})
                 for em_id, paths in emotion_images.items():
                     if em_id in self.emotion_widgets:
                         av_path = paths.get("avatar", "")
                         sp_path = paths.get("sprite", "")
                         self.emotion_widgets[em_id]["avatar_var"].set(av_path)
                         self.emotion_widgets[em_id]["sprite_var"].set(sp_path)
-                        # Принудительно обновляем предпросмотр (на случай, если trace не сработал)
                         self._update_emotion_avatar_preview(em_id, av_path)
                         self._update_emotion_sprite_preview(em_id, sp_path)
 
@@ -1335,6 +1338,11 @@ class BaseEditorTab(ttk.Frame):
         else:
             local_desc = self.app.local_descriptions.get(self.current_obj_id, "")
             self.desc_text.insert(1.0, local_desc)
+            # В локальном режиме associative_checks не редактируются, но показываем, что есть?
+            self.assoc_text.delete(1.0, tk.END)
+            if hasattr(obj, 'associative_checks') and obj.associative_checks:
+                self.assoc_text.insert(1.0, obj.associative_checks)
+            self.assoc_text.config(state=tk.DISABLED)
 
             if self.obj_type == "characters":
                 self.player_var.set(obj.is_player)
@@ -1358,6 +1366,8 @@ class BaseEditorTab(ttk.Frame):
         self.current_obj_id = None
         self.name_entry.delete(0, tk.END)
         self.desc_text.delete(1.0, tk.END)
+        self.assoc_text.delete(1.0, tk.END)
+        self.assoc_text.config(state=tk.NORMAL)  # возвращаем в обычное состояние
 
         if self.obj_type == "characters":
             self.player_var.set(False)
@@ -1375,7 +1385,6 @@ class BaseEditorTab(ttk.Frame):
                 self.sprite_preview_label.config(image="", text="[Нет]")
                 if hasattr(self.sprite_preview_label, 'image'):
                     del self.sprite_preview_label.image
-            # Очистка эмоций
             for em_id, widgets in self.emotion_widgets.items():
                 widgets["avatar_var"].set("")
                 widgets["sprite_var"].set("")
@@ -1400,10 +1409,11 @@ class BaseEditorTab(ttk.Frame):
 
         self.reset_local_btn.config(state=tk.DISABLED)
 
+
     def _create_new(self):
         default_name = "Новый объект"
         default_desc = ""
-        data = {"name": default_name, "description": default_desc}
+        data = {"name": default_name, "description": default_desc, "associative_checks": []}
         if self.obj_type == "characters":
             data["is_player"] = False
         if self.obj_type == "narrators":
@@ -1450,14 +1460,14 @@ class BaseEditorTab(ttk.Frame):
             messagebox.showwarning("Ошибка", "Введите название")
             return
         if self.editing_mode.get() == "global":
+            # Собираем associative_checks из текстового поля
+            assoc_checks = self.assoc_text.get(1.0, tk.END).strip()
             if not self.current_obj_id:
-                # Создание нового объекта
-                data = {"name": name, "description": desc}
+                data = {"name": name, "description": desc, "associative_checks": assoc_checks}
                 if self.obj_type == "characters":
                     data["is_player"] = self.player_var.get()
                     data["avatar_image"] = self.avatar_path_var.get().strip()
                     data["sprite_image"] = self.sprite_path_var.get().strip()
-                    # Собираем emotion_images
                     emotion_images = {}
                     for em_id, widgets in self.emotion_widgets.items():
                         av = widgets["avatar_var"].get().strip()
@@ -1485,7 +1495,6 @@ class BaseEditorTab(ttk.Frame):
                 elif self.obj_type == "emotions":
                     self.app.update("create_emotion", data)
             else:
-                # Обновление существующего объекта – удаляем старые файлы, если пути изменились
                 obj = self._get_objects_dict().get(self.current_obj_id)
                 if obj:
                     if self.obj_type == "characters":
@@ -1511,7 +1520,7 @@ class BaseEditorTab(ttk.Frame):
                         new_sprite = self.em_sprite_path_var.get().strip()
                         if old_sprite and old_sprite != new_sprite:
                             self._delete_image_file(old_sprite)
-                data = {"id": self.current_obj_id, "name": name, "description": desc}
+                data = {"id": self.current_obj_id, "name": name, "description": desc, "associative_checks": assoc_checks}
                 if self.obj_type == "characters":
                     data["is_player"] = self.player_var.get()
                     data["avatar_image"] = self.avatar_path_var.get().strip()
@@ -1595,6 +1604,7 @@ class BaseEditorTab(ttk.Frame):
                     "name": obj.name,
                     "description": obj.description,
                     "is_player": self.player_var.get(),
+                    "associative_checks": getattr(obj, 'associative_checks', []),
                     "avatar_image": getattr(obj, 'avatar_image', ''),
                     "sprite_image": getattr(obj, 'sprite_image', ''),
                     "emotion_images": getattr(obj, 'emotion_images', {})
@@ -2242,7 +2252,6 @@ class HistoryTab(ttk.Frame):
                  justify=tk.LEFT).pack(padx=5, pady=5)
 
     def _get_pairs_and_flags(self):
-        """Возвращает список пар (user, assistant) и список флагов значительных изменений."""
         history = self.app.conversation_history
         pairs = []
         i = 0
@@ -2287,7 +2296,6 @@ class HistoryTab(ttk.Frame):
         item = self.tree.identify_row(event.y)
         if not item:
             return
-        # Получаем индекс из iid (сохраняем как строку)
         idx = int(item) - 1
         pairs, flags = self._get_pairs_and_flags()
         if idx < 0 or idx >= len(flags):

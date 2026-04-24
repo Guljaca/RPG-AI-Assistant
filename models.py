@@ -7,61 +7,135 @@ class BaseObject:
     id: str = ""
     name: str = ""
     description: str = ""
+    associative_checks: str = ""   # просто текст: инструкция для модели, на что обратить внимание
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "associative_checks": self.associative_checks
+        }
 
     @classmethod
     def from_dict(cls, data: dict):
-        return cls(**data)
+        return cls(
+            id=data.get("id", ""),
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            associative_checks=data.get("associative_checks", "")
+        )
+
 
 @dataclass
 class Narrator(BaseObject):
     pass
 
+
 @dataclass
 class Emotion(BaseObject):
-    """Эмоция — например, радость, грусть, нейтральная."""
-    # Для визуальной новеллы: изображения для этой эмоции
-    avatar_image: str = ""   # путь относительно папки кампании (например, "emotions/avatars/joy.png")
-    sprite_image: str = ""   # полноростовой спрайт для этой эмоции
-    # description уже есть в BaseObject
+    avatar_image: str = ""
+    sprite_image: str = ""
+
+    def to_dict(self) -> dict:
+        data = super().to_dict()
+        data.update({
+            "avatar_image": self.avatar_image,
+            "sprite_image": self.sprite_image
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            id=data.get("id", ""),
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            associative_checks=data.get("associative_checks", ""),
+            avatar_image=data.get("avatar_image", ""),
+            sprite_image=data.get("sprite_image", "")
+        )
+
 
 @dataclass
 class Character(BaseObject):
     inventory: List[str] = field(default_factory=list)
     equipped: List[str] = field(default_factory=list)
     is_player: bool = False
-    # Поля для визуальной новеллы (нейтральные/дефолтные)
-    avatar_image: str = ""       # путь относительно папки кампании (например, "characters/avatar_c123.png")
-    sprite_image: str = ""       # полноростовой спрайт по умолчанию (нейтральный)
-    # Привязка эмоций к конкретным изображениям
-    # Ключ: ID эмоции (например, "em1") или имя эмоции, значение: словарь с путями
-    # Пример: {"em1": {"avatar": "path", "sprite": "path"}, "em2": {...}}
+    avatar_image: str = ""
+    sprite_image: str = ""
     emotion_images: Dict[str, Dict[str, str]] = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        data = super().to_dict()
+        data.update({
+            "inventory": self.inventory,
+            "equipped": self.equipped,
+            "is_player": self.is_player,
+            "avatar_image": self.avatar_image,
+            "sprite_image": self.sprite_image,
+            "emotion_images": self.emotion_images
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            id=data.get("id", ""),
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            associative_checks=data.get("associative_checks", ""),
+            inventory=data.get("inventory", []),
+            equipped=data.get("equipped", []),
+            is_player=data.get("is_player", False),
+            avatar_image=data.get("avatar_image", ""),
+            sprite_image=data.get("sprite_image", ""),
+            emotion_images=data.get("emotion_images", {})
+        )
+
 
 @dataclass
 class Location(BaseObject):
     characters: List[str] = field(default_factory=list)
     items: List[str] = field(default_factory=list)
-    background_image: str = ""   # фоновое изображение локации
+    background_image: str = ""
+
+    def to_dict(self) -> dict:
+        data = super().to_dict()
+        data.update({
+            "characters": self.characters,
+            "items": self.items,
+            "background_image": self.background_image
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(
+            id=data.get("id", ""),
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            associative_checks=data.get("associative_checks", ""),
+            characters=data.get("characters", []),
+            items=data.get("items", []),
+            background_image=data.get("background_image", "")
+        )
+
 
 @dataclass
 class Item(BaseObject):
     pass
 
+
 @dataclass
 class Event(BaseObject):
-    """Событие — описание возможной ситуации, действия, происшествия."""
     pass
+
 
 @dataclass
 class Scenario(BaseObject):
-    """
-    Сценарий — описание общей последовательности событий (например, «Сегодня мы идём в школу»).
-    Модель не обязана строго следовать сценарию, но может использовать его как направляющую.
-    """
     pass
+
 
 @dataclass
 class GameProfile:
@@ -71,8 +145,8 @@ class GameProfile:
     enabled_locations: List[str] = field(default_factory=list)
     enabled_items: List[str] = field(default_factory=list)
     enabled_events: List[str] = field(default_factory=list)
-    enabled_scenarios: List[str] = field(default_factory=list)   # НОВОЕ
-    enabled_emotions: List[str] = field(default_factory=list)    # НОВОЕ: список ID включённых эмоций
+    enabled_scenarios: List[str] = field(default_factory=list)
+    enabled_emotions: List[str] = field(default_factory=list)
     player_character_id: Optional[str] = None
 
     def to_dict(self) -> dict:

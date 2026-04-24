@@ -4,7 +4,7 @@
   "max_history_messages": 10,
   "use_two_models": false,
   "primary_model": "google/gemma-4-e4b",
-  "translator_model": "gemma-4-e4b-uncensored-hauhaucs-aggressive@?",
+  "translator_model": "qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive",
   "enable_assistant_translation": false,
   "max_tokens": 8192,
   "temperature": 0.95,
@@ -97,7 +97,7 @@
     "stage12_emotions": false,
     "stage11_significant_changes": false,
     "stage4_summary": false,
-    "stage10_associative_memory": false
+    "stage10_associative_memory": true
   },
   "stage_memory_config": {
     "stage1_request_descriptions": {

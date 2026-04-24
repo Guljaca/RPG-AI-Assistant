@@ -2,6 +2,7 @@
   "id": "l2",
   "name": "Дом Игрока (Комната игрока)",
   "description": "Комната",
+  "associative_checks": "Какие персонажи находятся в доме, а не только в текущей локации.",
   "characters": [],
   "items": [],
   "background_image": "locations/backgrounds/BG_JIT05_A_MORNING_RAIN_N_l2.png"

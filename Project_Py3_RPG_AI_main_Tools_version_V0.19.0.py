@@ -686,6 +686,7 @@ class MainApp(tk.Tk):
         obj_id = data.get("id")
         name = data.get("name", "").strip()
         desc = data.get("description", "").strip()
+        assoc_checks = data.get("associative_checks", "").strip()  # новое поле
         if not name:
             messagebox.showwarning("Ошибка", "Название не может быть пустым.")
             return
@@ -712,6 +713,7 @@ class MainApp(tk.Tk):
             old_name = obj.name
             obj.name = name
             obj.description = desc
+            obj.associative_checks = assoc_checks   # сохраняем инструкцию
             if obj_type == "characters":
                 obj.is_player = data.get("is_player", obj.is_player)
                 obj.avatar_image = data.get("avatar_image", getattr(obj, 'avatar_image', ''))
@@ -735,7 +737,7 @@ class MainApp(tk.Tk):
                     self.current_profile.player_character_id = None
                     self._save_profile_to_file()
         else:
-            kwargs = {"name": name, "description": desc}
+            kwargs = {"name": name, "description": desc, "associative_checks": assoc_checks}
             if obj_type == "characters":
                 kwargs["is_player"] = data.get("is_player", False)
                 kwargs["avatar_image"] = data.get("avatar_image", "")
@@ -776,6 +778,7 @@ class MainApp(tk.Tk):
     def _handle_create_object(self, obj_type: str, data: dict):
         name = data.get("name", "").strip()
         description = data.get("description", "").strip()
+        assoc_checks = data.get("associative_checks", "").strip()   # новое
         if not name:
             messagebox.showwarning("Ошибка", "Название не может быть пустым.")
             return
@@ -791,7 +794,7 @@ class MainApp(tk.Tk):
         cls = cls_map.get(obj_type)
         if not cls:
             return
-        kwargs = {"name": name, "description": description}
+        kwargs = {"name": name, "description": description, "associative_checks": assoc_checks}
         if obj_type == "characters":
             kwargs["is_player"] = data.get("is_player", False)
             kwargs["avatar_image"] = data.get("avatar_image", "")

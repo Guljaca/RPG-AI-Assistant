@@ -1,5 +1,9 @@
 {
   "id": "l4",
   "name": "Школа у подножья горы",
-  "description": "Школа"
+  "description": "Школа",
+  "associative_checks": "Какие персонажи находятся в доме, а не только в текущей локации.",
+  "characters": [],
+  "items": [],
+  "background_image": ""
 }

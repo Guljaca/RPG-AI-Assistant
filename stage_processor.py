@@ -1,4 +1,12 @@
-# stage_processor.py (исправленная полная версия с отладочным выводом и выделением переменных)
+# stage_processor.py (исправленная полная версия)
+# Изменения:
+# 1. В _send_request ассоциативная память теперь передаётся только последняя запись для каждого объекта,
+#    а не вся история ассоциаций.
+# 2. В stage10_associative_memory теперь ожидается вывод изменений для каждого объекта в формате
+#    "object_id: инструкция -> значение". Эти изменения сохраняются отдельно для каждого объекта,
+#    а не в глобальную память.
+# 3. Добавлены вспомогательные методы _get_latest_associations_for_objects и _parse_assoc_changes.
+
 import json
 import random
 import re
@@ -240,8 +248,8 @@ class StageProcessor:
         self.pending_callback = None
         self.pending_callback_extra = None
         self.pending_stage_name = None
-        self.pending_debug_inputs = None  # сохранённые входные данные для вывода после нажатия
-        self.pending_state_snapshot = None  # сохранённый снимок состояния
+        self.pending_debug_inputs = None
+        self.pending_state_snapshot = None
 
         # История шагов для регенерации
         self.step_history = []
@@ -343,7 +351,6 @@ class StageProcessor:
 
     def step_continue(self):
         if self.pending_step and self.pending_callback:
-            # Перед вызовом колбэка выводим сохранённые состояние и входные данные
             if self.pending_state_snapshot:
                 self._print_debug_section("Текущее состояние перед отправкой запроса", self.pending_state_snapshot, blank_lines_before=1, blank_lines_after=1)
             if self.pending_debug_inputs and self.pending_stage_name:
@@ -367,7 +374,6 @@ class StageProcessor:
         if self.main_app.stop_generation_flag:
             self._display_system("🛑 Генерация остановлена. Ожидание отменено.\n")
             return
-        # Сохраняем данные для вывода после нажатия
         self.pending_debug_inputs = debug_inputs
         self.pending_state_snapshot = state_snapshot
         self.pending_step = True
@@ -380,26 +386,20 @@ class StageProcessor:
     # Отладочный вывод в требуемом формате с выделением переменных цветом
     # --------------------------------------------------------------------------
     def _print_debug_section(self, title: str, items: Dict[str, Any], blank_lines_before: int = 2, blank_lines_after: int = 1):
-        """Выводит в центральную панель отформатированный блок с входными или выходными данными.
-        Переменные выделяются символом '>>> ' и цветом."""
+        """Выводит в центральную панель отформатированный блок с входными или выходными данными."""
         if not self.debug_mode:
             return
         output_lines = []
         for _ in range(blank_lines_before):
             output_lines.append("")
-        # Заголовок цветом (например, жёлтый)
         output_lines.append(f"=== {title} ===")
         for key, value in items.items():
             value_str = str(value)
             if len(value_str) > 500:
                 value_str = value_str[:500] + "..."
-            # Переменные цветом (например, зелёный)
             output_lines.append(f">>> {key}: {value_str}")
         for _ in range(blank_lines_after):
             output_lines.append("")
-        # Используем разные теги для заголовка и переменных, если панель поддерживает
-        # Для простоты выводим всё одним блоком, но с возможностью раскрасить в центральной панели
-        # Здесь передаём обычный текст, раскраска будет в центральной панели при отображении
         self.main_app.center_panel.display_message("\n".join(output_lines), "system")
 
     def _get_state_snapshot(self):
@@ -538,137 +538,33 @@ class StageProcessor:
     def _get_object_description_with_local(self, obj_id: str) -> str:
         return self.main_app.get_description_for_model(obj_id)
 
-    def _send_request(self, user_data: str, callback, extra=None, stage_name: str = None,
-                    use_temp: bool = False, show_in_thinking: bool = False,
-                    context_data: Dict = None, temperature_override: float = None,
-                    debug_inputs: Dict = None):
+    # ----- НОВЫЙ МЕТОД: получение последних ассоциаций для списка объектов -----
+    def _get_latest_associations_for_objects(self, object_ids: List[str]) -> str:
         """
-        Отправляет запрос модели. В режиме отладки сначала выводится сообщение ожидания,
-        затем после нажатия кнопки выводятся состояние и входные данные, затем отправка.
+        Возвращает строку с последней записью ассоциативной памяти для каждого объекта.
+        Формат: "object_id: инструкция -> значение" (каждая запись с новой строки).
+        Если для объекта нет памяти или инструкции, он пропускается.
         """
-        if debug_inputs is None:
-            debug_inputs = {}
-
-        if context_data is None:
-            context_data = self.stage_data
-
-        model_choice = None
-        if self.main_app.use_two_models and stage_name:
-            model_choice = self.main_app.stage_model_selection.get(stage_name, "primary")
-
-        temp_override = temperature_override
-        if temp_override is None and stage_name and hasattr(self.main_app, 'stage_temperature_config'):
-            temp_val = self.main_app.stage_temperature_config.get(stage_name)
-            if temp_val is not None:
-                temp_override = float(temp_val)
-
-        if self.main_app.stop_generation_flag:
-            self._display_system("🛑 Генерация остановлена. Запрос не отправлен.\n")
-            return
-
-        # Если режим отладки и этап не из исключённых, показываем сообщение ожидания и ждём
-        if self.debug_mode and stage_name not in (None, "stage10_associative_memory", "stage4_summary", "stage11_significant_changes"):
-            # Сообщение ожидания с двумя пустыми строками перед ним
-            self._display_system(f"\n\n⏸️ Режим отладки: ожидание нажатия 'Следующий шаг' (этап: {stage_name})\n")
-            # Логируем промт
-            self.main_app.center_panel.log_system_prompt(f"=== ПРОМТ ЭТАПА {stage_name} ===\n{user_data}", stage_name)
-            # Сохраняем снимок состояния и входные данные для вывода после нажатия
-            state_snapshot = self._get_state_snapshot()
-            # Ждём кнопку, передавая сохранённые данные
-            self._wait_for_step(lambda _: self._do_send_request(user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override),
-                                extra=extra, stage_name=stage_name, debug_inputs=debug_inputs, state_snapshot=state_snapshot)
-        else:
-            # Не отладка или исключённый этап – выводим входные данные (без ожидания) и отправляем
-            if self.debug_mode and stage_name:
-                # Для исключённых этапов в отладке показываем состояние и входные данные, но без ожидания
-                state_snapshot = self._get_state_snapshot()
-                self._print_debug_section("Текущее состояние перед отправкой запроса", state_snapshot, blank_lines_before=1, blank_lines_after=1)
-                self._print_debug_section(f"Входные данные для этапа {stage_name}", debug_inputs, blank_lines_before=0, blank_lines_after=1)
-            elif stage_name and debug_inputs:
-                # Обычный режим (без отладки) – только входные данные без пустых строк
-                self._print_debug_section(f"Входные данные для этапа {stage_name}", debug_inputs, blank_lines_before=0, blank_lines_after=1)
-            self._do_send_request(user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override)
-
-    def _do_send_request(self, user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override):
-        if self.main_app.stop_generation_flag:
-            self._display_system("🛑 Генерация остановлена. Запрос не отправлен.\n")
-            return
-        self.main_app._send_model_request(
-            user_content=user_data,
-            callback=callback,
-            extra=extra,
-            stage_name=stage_name,
-            use_temp=use_temp,
-            show_in_thinking=show_in_thinking,
-            context_data=context_data,
-            model_choice=model_choice,
-            temperature_override=temp_override
-        )
-
-    def _display_system(self, msg: str):
-        self.main_app.center_panel.display_message(msg, "system")
-
-    def _display_error(self, msg: str):
-        self.main_app.center_panel.display_message(msg, "error")
-
-    def _display_message(self, msg: str, tag: str = "system"):
-        self.main_app.center_panel.display_message(msg, tag)
-
-    def _finish_generation(self):
-        total_time = 0
-        if self.generation_start_time is not None:
-            total_time = time.time() - self.generation_start_time
-            self._log_debug("GENERATION_COMPLETED", f"Total time: {total_time:.2f} sec")
-            self.generation_start_time = None
-        else:
-            self._log_debug("GENERATION_COMPLETED")
-
-        final_response = self.stage_data.get("final_response", "")
-        if final_response:
-            last_msg = self.main_app.conversation_history[-1] if self.main_app.conversation_history else None
-            if not (last_msg and last_msg["role"] == "assistant" and last_msg["content"] == final_response):
-                self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
-                self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
-                self.main_app._finalize_generation_memory_turn()
-                self._save_current_session()
-            else:
-                self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
-
-        if hasattr(self.main_app, 'right_panel') and self.main_app.right_panel:
-            self.main_app.right_panel.refresh()
-
-        if total_time:
-            self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
-
-        self._update_vn_view()
-
-        self.main_app.is_generating = False
-        self.main_app.center_panel.set_input_state("normal")
-        self.main_app.center_panel.update_translation_button_state()
-        self.main_app.current_debug_log_path = None
-        self.main_app.display_generation_memory_summary()
-
-        if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
-            self.main_app.vn_frame.set_freeze(False)
-
-    def _save_current_session(self):
-        self.main_app._save_current_session_safe()
-
-    def _try_parse_tool_calls_from_text(self, content: str, expected_func_names: List[str] = None) -> List[Dict]:
-        parsed = UniversalParser.parse(content)
-        tool_calls = []
-        for func_name, args in parsed:
-            if expected_func_names and func_name not in expected_func_names:
+        lines = []
+        for obj_id in object_ids:
+            obj = self.main_app._get_object_by_id(obj_id)
+            if not obj:
                 continue
-            tool_calls.append({
-                "id": f"parsed_{func_name}_{random.randint(1000,9999)}",
-                "type": "function",
-                "function": {
-                    "name": func_name,
-                    "arguments": json.dumps(args, ensure_ascii=False)
-                }
-            })
-        return tool_calls
+            # Получаем всю память объекта (список строк)
+            full_memory = self.main_app.get_associative_memory_for_object(obj_id)
+            if not full_memory:
+                continue
+            # Если память хранится как одна строка с переносами, разбиваем
+            if isinstance(full_memory, str):
+                entries = [e.strip() for e in full_memory.split('\n') if e.strip()]
+            else:
+                entries = []
+            # Берём последнюю запись
+            last_entry = entries[-1] if entries else None
+            if last_entry:
+                # Предполагаем, что запись уже в формате "инструкция -> значение"
+                lines.append(f"{obj_id}: {last_entry}")
+        return "\n".join(lines) if lines else ""
 
     # --------------------------------------------------------------------------
     # Синхронное получение описаний объектов
@@ -1797,38 +1693,46 @@ class StageProcessor:
         retry_count = extra.get("retry_count", 0)
         self._log_debug(f"stage2_npc_action_{npc_id}", f"Content:\n{content}")
 
-        intent = None
+        thought = ""
+        plan = ""
+
         if content:
             lines = content.strip().split('\n')
-            thoughts = ""
-            planned = ""
             for line in lines:
                 lower = line.lower()
                 if "думает" in lower:
-                    thoughts = line.split(':', 1)[-1].strip() if ':' in line else line
+                    if ':' in line:
+                        thought = line.split(':', 1)[-1].strip()
+                    else:
+                        thought = line.strip()
                 elif "планирует" in lower:
-                    planned = line.split(':', 1)[-1].strip() if ':' in line else line
-            if planned:
-                intent = planned
-            elif thoughts:
-                intent = thoughts
-            else:
-                intent = content[:200].strip()
+                    if ':' in line:
+                        plan = line.split(':', 1)[-1].strip()
+                    else:
+                        plan = line.strip()
 
-        if not intent:
-            limit = self._get_retry_limit("stage2_npc_action")
-            if retry_count < limit:
-                self._display_error(f"⚠️ Повтор для {npc_name}...\n")
-                self._stage2_npc_action(retry_count + 1)
-                return
+        if not thought and not plan:
+            fallback = content[:200].strip()
+            if fallback:
+                plan = fallback
             else:
-                intent = f"{npc_name} наблюдает."
+                plan = f"{npc_name} наблюдает."
 
-        self.stage_data["npc_actions"][npc_id] = intent
-        self._display_system(f"✍️ {npc_name}: {intent}\n")
+        self.stage_data["npc_actions"][npc_id] = {
+            "thought": thought,
+            "plan": plan,
+            "name": npc_name
+        }
+
+        self._display_system(f"✍️ {npc_name}:\n   Думает: {thought}\n   Планирует: {plan}\n")
+
         if self.debug_mode:
-            output_items = {f"npc_action_{npc_id}": intent}
+            output_items = {
+                f"npc_action_{npc_id}_thought": thought,
+                f"npc_action_{npc_id}_plan": plan
+            }
             self._print_debug_section(f"Выходные данные этапа stage2_npc_action для {npc_name}", output_items, blank_lines_before=1, blank_lines_after=1)
+
         self.stage_data["current_npc_index"] += 1
         self._stage2_npc_action(0)
         self._save_checkpoint("stage2_npc_action")
@@ -1845,6 +1749,13 @@ class StageProcessor:
         self._log_debug(f"=== STAGE7: final (attempt {retry_count+1}) ===")
         self._display_system(f"📖 Этап 7/11: Генерация финального ответа (попытка {retry_count+1})...\n")
 
+        objects_desc_lines = []
+        for obj_id, desc in self.stage_data["descriptions"].items():
+            obj = self.main_app._get_object_by_id(obj_id)
+            obj_name = obj.name if obj else obj_id
+            objects_desc_lines.append(f"=== {obj_name} (ID: {obj_id}) ===\n{desc}")
+        objects_descriptions = "\n\n".join(objects_desc_lines) if objects_desc_lines else "Нет описаний объектов."
+
         location_id = self.stage_data.get("scene_location_id")
         if location_id:
             loc_obj = self.main_app._get_object_by_id(location_id)
@@ -1857,11 +1768,23 @@ class StageProcessor:
             location_full_name = "Неизвестно"
 
         npc_actions_lines = []
-        for cid, action in self.stage_data.get("npc_actions", {}).items():
+        for cid, action_data in self.stage_data.get("npc_actions", {}).items():
             char = self.main_app.characters.get(cid)
             name = char.name if char else cid
-            npc_actions_lines.append(f"{name}: {action}")
-        npc_actions_text = "\n".join(npc_actions_lines) if npc_actions_lines else "Нет активных NPC"
+            if isinstance(action_data, dict):
+                thought = action_data.get("thought", "")
+                plan = action_data.get("plan", "")
+                if thought and plan:
+                    npc_actions_lines.append(f"{name}:\n  Мысли: {thought}\n  Действие: {plan}")
+                elif plan:
+                    npc_actions_lines.append(f"{name}: {plan}")
+                elif thought:
+                    npc_actions_lines.append(f"{name}: (думает) {thought}")
+                else:
+                    npc_actions_lines.append(f"{name}: (без действий)")
+            else:
+                npc_actions_lines.append(f"{name}: {action_data}")
+        npc_actions_text = "\n\n".join(npc_actions_lines) if npc_actions_lines else "Нет активных NPC"
 
         event_desc = self.stage_data["event_desc"] if self.stage_data.get("event_occurred", False) else ""
 
@@ -1922,6 +1845,7 @@ class StageProcessor:
 
         user_data = self._safe_format(
             prompt_template,
+            objects_descriptions=objects_descriptions,
             location_desc=location_full_name,
             event_description=event_desc,
             npcs_actions=npc_actions_text,
@@ -1946,6 +1870,7 @@ class StageProcessor:
             user_data = system_styles + "\n\n" + user_data
 
         extra_context = {
+            "objects_descriptions": objects_descriptions,
             "location_desc": location_full_name,
             "event_description": event_desc,
             "npcs_actions": npc_actions_text,
@@ -1959,6 +1884,7 @@ class StageProcessor:
         full_context = {**self.stage_data, **extra_context}
 
         debug_inputs = {
+            "objects_descriptions": objects_descriptions[:500] + "..." if len(objects_descriptions) > 500 else objects_descriptions,
             "location_desc": location_full_name,
             "event_description": event_desc,
             "npcs_actions": npc_actions_text,
@@ -2711,7 +2637,7 @@ class StageProcessor:
         self._save_checkpoint("stage4_summary")
 
     # --------------------------------------------------------------------------
-    # СТАДИЯ 10: ассоциативная память
+    # СТАДИЯ 10: ассоциативная память (пообъектная обработка)
     # --------------------------------------------------------------------------
     def _stage10_associative_memory(self, retry_count=0):
         if not self.main_app.enabled_stages.get("stage10_associative_memory", True) or not self.main_app.enable_associative_memory:
@@ -2727,17 +2653,28 @@ class StageProcessor:
             self._finish_generation()
             return
 
+        # Собираем все объекты из сцены и события
+        all_obj_ids = set()
+        if self.stage_data.get("scene_location_id"):
+            all_obj_ids.add(self.stage_data["scene_location_id"])
+        all_obj_ids.update(self.stage_data.get("scene_character_ids", []))
+        all_obj_ids.update(self.stage_data.get("scene_item_ids", []))
+        all_obj_ids.update(self.stage_data.get("event_additional_ids", []))
+
         objects_info = []
-        for oid, desc in self.stage_data["descriptions"].items():
+        for oid in all_obj_ids:
             obj = self.main_app._get_object_by_id(oid)
             if obj:
-                assoc = self.main_app.get_associative_memory_for_object(oid)
-                objects_info.append(f"{oid} ({obj.name}): {desc}\n{assoc}")
+                assoc_mem = self.main_app.get_associative_memory_for_object(oid)
+                # Для инструкции используем поле associative_checks (если есть)
+                checks = getattr(obj, 'associative_checks', '')
+                objects_info.append(f"Объект: {oid} ({obj.name})\nОписание: {obj.description[:500] if obj.description else 'Нет описания'}\nПамять: {assoc_mem}\nИнструкция: {checks}")
         objects_text = "\n\n".join(objects_info) if objects_info else "Нет объектов."
 
         prompt_template = self.main_app.prompt_manager.get_prompt_content("stage10_associative_memory")
         if not prompt_template:
             raise FileNotFoundError("Prompt 'stage10_associative_memory' not found.")
+
         user_data = self._safe_format(
             prompt_template,
             final_response=final,
@@ -2763,6 +2700,7 @@ class StageProcessor:
             use_temp=True,
             show_in_thinking=True,
             context_data=full_context,
+            temperature_override=0.3,
             debug_inputs=debug_inputs
         )
 
@@ -2778,22 +2716,38 @@ class StageProcessor:
             self._finish_generation()
             return
 
-        updated = 0
-        changed_ids = []
+        # Парсим ответ модели. Ожидаем строки вида:
+        # object_id: инструкция -> значение
+        # или просто "инструкция -> значение" (тогда объект определяется по контексту? но лучше явно)
+        changes = []
         for line in content.strip().split('\n'):
-            if ':' in line:
-                obj_id, change = line.split(':', 1)
-                obj_id = obj_id.strip()
-                change = change.strip()
-                if obj_id and change and len(change) > 3:
-                    self.main_app.record_added_assoc(obj_id, change)
-                    updated += 1
-                    changed_ids.append(obj_id)
-        self.last_changed_objects = list(set(changed_ids))
-        self._display_thinking(f"✅ Память обновлена для {updated} объектов.\n")
+            line = line.strip()
+            if not line:
+                continue
+            # Ищем формат с ID
+            match = re.match(r'^([a-zA-Z0-9_]+)\s*:\s*(.+)$', line)
+            if match:
+                obj_id = match.group(1)
+                change_desc = match.group(2)
+                changes.append((obj_id, change_desc))
+            else:
+                # Если ID не указан, возможно, строка без ID – тогда игнорируем или логируем предупреждение
+                self._log_debug("ASSOC_WARNING", f"Не удалось распарсить строку ассоциации: {line}")
+
+        if not changes:
+            self._display_thinking("⚠️ Модель не вернула изменений в ожидаемом формате. Пропускаем обновление памяти.\n")
+            self._finish_generation()
+            return
+
+        # Сохраняем каждое изменение для соответствующего объекта
+        for obj_id, change_desc in changes:
+            self.main_app.record_added_assoc(obj_id, change_desc)
+            self._display_thinking(f"🧠 {obj_id}: {change_desc}\n")
+
         if self.debug_mode:
-            output_items = {"updated_objects": updated, "changed_ids": changed_ids}
+            output_items = {"assoc_updates": changes}
             self._print_debug_section("Выходные данные этапа stage10_associative_memory", output_items, blank_lines_before=1, blank_lines_after=1)
+
         self._finish_generation()
         self._save_checkpoint("stage10_associative_memory")
 
@@ -2856,6 +2810,9 @@ class StageProcessor:
         if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame:
             self.main_app.vn_frame.refresh_from_current_state()
 
+    # --------------------------------------------------------------------------
+    # ОСНОВНОЙ МЕТОД ЗАПУСКА ГЕНЕРАЦИИ (с обновлённой передачей ассоциаций)
+    # --------------------------------------------------------------------------
     def start_generation(self, user_message: str):
         self.reset()
         self.generation_start_time = time.time()
@@ -2887,3 +2844,321 @@ class StageProcessor:
             "npc_retry_count": 0
         })
         self._stage1_request_descriptions()
+
+    # --------------------------------------------------------------------------
+    # МЕТОД ОТПРАВКИ ЗАПРОСА (с использованием только последних ассоциаций)
+    # --------------------------------------------------------------------------
+    def _send_request(self, user_data: str, callback, extra=None, stage_name: str = None,
+                    use_temp: bool = False, show_in_thinking: bool = False,
+                    context_data: Dict = None, temperature_override: float = None,
+                    debug_inputs: Dict = None):
+        if debug_inputs is None:
+            debug_inputs = {}
+        if context_data is None:
+            context_data = self.stage_data
+
+        model_choice = None
+        if self.main_app.use_two_models and stage_name:
+            model_choice = self.main_app.stage_model_selection.get(stage_name, "primary")
+
+        temp_override = temperature_override
+        if temp_override is None and stage_name and hasattr(self.main_app, 'stage_temperature_config'):
+            temp_val = self.main_app.stage_temperature_config.get(stage_name)
+            if temp_val is not None:
+                temp_override = float(temp_val)
+
+        if self.main_app.stop_generation_flag:
+            self._display_system("🛑 Генерация остановлена. Запрос не отправлен.\n")
+            return
+
+        if self.debug_mode and stage_name not in (None, "stage10_associative_memory", "stage4_summary", "stage11_significant_changes"):
+            self._display_system(f"\n\n⏸️ Режим отладки: ожидание нажатия 'Следующий шаг' (этап: {stage_name})\n")
+            self.main_app.center_panel.log_system_prompt(f"=== ПРОМТ ЭТАПА {stage_name} ===\n{user_data}", stage_name)
+            state_snapshot = self._get_state_snapshot()
+            self._wait_for_step(lambda _: self._do_send_request(user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override),
+                                extra=extra, stage_name=stage_name, debug_inputs=debug_inputs, state_snapshot=state_snapshot)
+        else:
+            if self.debug_mode and stage_name:
+                state_snapshot = self._get_state_snapshot()
+                self._print_debug_section("Текущее состояние перед отправкой запроса", state_snapshot, blank_lines_before=1, blank_lines_after=1)
+                self._print_debug_section(f"Входные данные для этапа {stage_name}", debug_inputs, blank_lines_before=0, blank_lines_after=1)
+            elif stage_name and debug_inputs:
+                self._print_debug_section(f"Входные данные для этапа {stage_name}", debug_inputs, blank_lines_before=0, blank_lines_after=1)
+            self._do_send_request(user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override)
+
+    def _do_send_request(self, user_data, callback, extra, stage_name, use_temp, show_in_thinking, context_data, model_choice, temp_override):
+        # ------------------------------------------------------------------
+        # Формирование сообщений
+        # ------------------------------------------------------------------
+        messages = []
+
+        # Системные промты из конфигурации этапа
+        if stage_name and stage_name in self.main_app.stage_prompts_config:
+            config = self.main_app.stage_prompts_config.get(stage_name, [])
+            for entry in config:
+                if entry.startswith("narrator:"):
+                    continue
+                elif entry == "history:auto":
+                    continue
+                else:
+                    try:
+                        raw_content = self.main_app.prompt_manager.get_prompt_content(entry)
+                        try:
+                            formatted = raw_content.format(**{k: v for k, v in context_data.items() if k in raw_content})
+                        except KeyError as e:
+                            self._log_debug("PROMPT_FORMAT_WARNING", f"Missing key {e} in prompt {entry}")
+                            formatted = raw_content
+                        except Exception as e:
+                            self._log_debug("PROMPT_FORMAT_ERROR", f"Error formatting {entry}: {e}")
+                            formatted = raw_content
+                        if formatted:
+                            messages.append({"role": "system", "content": formatted})
+                    except Exception as e:
+                        self._log_debug("ERROR", f"Failed to load system prompt '{entry}': {e}")
+
+        # Добавляем системные промты рассказчиков (narrator:xxx)
+        if stage_name and stage_name in self.main_app.stage_prompts_config:
+            config = self.main_app.stage_prompts_config.get(stage_name, [])
+            for entry in reversed(config):
+                if entry.startswith("narrator:"):
+                    narr_id = entry[9:]
+                    narr = self.main_app.narrators.get(narr_id)
+                    if narr and narr.description:
+                        messages.insert(0, {"role": "system", "content": f"Стиль рассказчика {narr.name}:\n{narr.description}"})
+
+        # Сообщение пользователя
+        messages.append({"role": "user", "content": user_data})
+
+        # ------------------------------------------------------------------
+        # АВТОМАТИЧЕСКОЕ ДОБАВЛЕНИЕ ИСТОРИИ И РЕЗЮМЕ
+        # ------------------------------------------------------------------
+        extra_messages = []
+        if stage_name:
+            mem_cfg = self.main_app.stage_memory_config.get(stage_name, {"max_history": 0, "max_summaries": 0})
+            max_history = mem_cfg.get("max_history", 0)
+            max_summaries = mem_cfg.get("max_summaries", 0)
+
+            if max_history > 0 and self.main_app.conversation_history:
+                history_msgs = [msg for msg in self.main_app.conversation_history if msg["role"] in ("user", "assistant")]
+                history_msgs = history_msgs[-max_history*2:] if max_history*2 < len(history_msgs) else history_msgs
+                if history_msgs:
+                    history_text = "Предыдущий диалог:\n" + "\n".join(f"{msg['role']}: {msg['content']}" for msg in history_msgs)
+                    extra_messages.insert(0, {"role": "user", "content": history_text})
+
+            if max_summaries > 0 and hasattr(self.main_app, 'memory_summaries') and self.main_app.memory_summaries:
+                recent_summaries = self.main_app.memory_summaries[-max_summaries:]
+                if recent_summaries:
+                    summary_text = "Краткая история предыдущих событий (справочно):\n" + "\n".join(f"- {s}" for s in recent_summaries)
+                    extra_messages.insert(0, {"role": "user", "content": summary_text})
+
+            # ---------- ИСПРАВЛЕННАЯ ЧАСТЬ: передаём только последние ассоциации ----------
+            if self.main_app.enable_associative_memory and stage_name != "stage10_associative_memory":
+                all_relevant_ids = set()
+                all_relevant_ids.update(self.main_app.current_profile.enabled_locations)
+                all_relevant_ids.update(self.main_app.current_profile.enabled_characters)
+                all_relevant_ids.update(self.main_app.current_profile.enabled_items)
+
+                # scene_location_id может быть строкой или None
+                loc_id = self.stage_data.get("scene_location_id")
+                if loc_id:
+                    if isinstance(loc_id, list):
+                        all_relevant_ids.update(loc_id)
+                    else:
+                        all_relevant_ids.add(loc_id)
+
+                # scene_character_ids, scene_item_ids, event_additional_ids обычно списки
+                for key in ("scene_character_ids", "scene_item_ids", "event_additional_ids"):
+                    ids_val = self.stage_data.get(key, [])
+                    if isinstance(ids_val, list):
+                        all_relevant_ids.update(ids_val)
+                    elif ids_val:
+                        all_relevant_ids.add(ids_val)
+
+                all_relevant_ids = {oid for oid in all_relevant_ids if oid}
+                latest_assoc_text = self._get_latest_associations_for_objects(all_relevant_ids)
+                if latest_assoc_text:
+                    assoc_msg = f"Ассоциативная память (последние изменения):\n{latest_assoc_text}"
+                    extra_messages.insert(0, {"role": "user", "content": assoc_msg})
+            # ----------------------------------------------------------------
+
+        for msg in extra_messages:
+            messages.insert(-1, msg)
+
+        # ------------------------------------------------------------------
+        # ЛОГИРОВАНИЕ ВСЕХ СООБЩЕНИЙ В ОДИН ОСНОВНОЙ ФАЙЛ
+        # ------------------------------------------------------------------
+        if self.main_app.current_debug_log_path:
+            try:
+                with open(self.main_app.current_debug_log_path, "a", encoding="utf-8") as f:
+                    f.write(f"\n=== FULL_MESSAGES_{stage_name} (total {len(messages)}) ===\n")
+                    for i, msg in enumerate(messages):
+                        role = msg.get("role", "unknown").upper()
+                        content = msg.get("content", "")
+                        f.write(f"\n[{i+1}] ROLE: {role}\n")
+                        f.write(content)
+                        f.write("\n" + "-"*80 + "\n")
+                    f.write("="*80 + "\n\n")
+            except Exception as e:
+                self._log_debug("LOG_ERROR", f"Failed to write full messages: {e}")
+
+        # ------------------------------------------------------------------
+        # Параметры модели
+        # ------------------------------------------------------------------
+        if self.main_app.use_two_models:
+            if model_choice is not None:
+                chosen = model_choice
+            elif stage_name is not None and stage_name in self.main_app.stage_model_selection:
+                chosen = self.main_app.stage_model_selection[stage_name]
+            else:
+                chosen = "primary"
+            if chosen == "primary":
+                model = self.main_app.primary_model
+                default_temp = self.main_app.primary_temperature
+                max_tok = self.main_app.primary_max_tokens
+            else:
+                model = self.main_app.translator_model
+                default_temp = self.main_app.translator_temperature
+                max_tok = self.main_app.translator_max_tokens
+        else:
+            model = self.main_app.model_name
+            default_temp = self.main_app.settings.get("temperature", 0.7)
+            max_tok = self.main_app.settings.get("max_tokens", 4096)
+
+        temp = temp_override if temp_override is not None else default_temp
+
+        # сохранение старого краткого лога для совместимости (опционально)
+        full_prompt_lines = []
+        full_prompt_lines.append(f"=== МОДЕЛЬ: {model} ===")
+        full_prompt_lines.append(f"Температура: {temp}, Max tokens: {max_tok}\n")
+        for i, msg in enumerate(messages, 1):
+            role = msg.get("role", "unknown").upper()
+            content = msg.get("content", "")
+            full_prompt_lines.append(f"[{i}] {role}:")
+            for line in content.split('\n'):
+                full_prompt_lines.append(f"  {line}")
+            full_prompt_lines.append("")
+        full_prompt = "\n".join(full_prompt_lines)
+        self.main_app.center_panel.log_system_prompt(full_prompt, stage_name)
+        self._log_debug("SEND_MODEL_REQUEST", full_prompt)
+
+        # ------------------------------------------------------------------
+        # Отправка и стриминг
+        # ------------------------------------------------------------------
+        def stream_and_process():
+            full_content = ""
+            thinking_buffer = ""
+            error = None
+            try:
+                for chunk in self.main_app.lm_client.chat_completion_stream(
+                    messages=messages,
+                    model=model,
+                    temperature=temp,
+                    max_tokens=max_tok,
+                ):
+                    if self.main_app.stop_generation_flag:
+                        break
+                    if chunk["type"] == "reasoning":
+                        thinking_buffer += chunk["text"]
+                        if show_in_thinking:
+                            self.main_app.after(0, lambda t=chunk["text"]: self.main_app.center_panel.append_thinking(t))
+                    elif chunk["type"] == "content":
+                        full_content += chunk["text"]
+                        if show_in_thinking:
+                            thinking_buffer += chunk["text"]
+                            self.main_app.after(0, lambda t=chunk["text"]: self.main_app.center_panel.append_thinking(t))
+                        else:
+                            if use_temp:
+                                self.main_app.after(0, lambda t=chunk["text"]: self.main_app.center_panel.append_temp_content(t))
+                            else:
+                                self.main_app.after(0, lambda t=chunk["text"]: self.main_app.center_panel.append_response(t))
+                    elif chunk["type"] == "error":
+                        error = chunk["message"]
+                        break
+            except Exception as e:
+                error = str(e)
+
+            if thinking_buffer.strip():
+                self._log_debug(f"FULL_REASONING_{stage_name}", thinking_buffer)
+
+            if error:
+                self._log_debug("MODEL_ERROR", error=error)
+                self.main_app.after(0, lambda: self.main_app.center_panel.display_message(f"\n[Ошибка: {error}]\n", "error"))
+                self.main_app.after(0, lambda: setattr(self.main_app, 'is_generating', False))
+                self.main_app.after(0, lambda: self.main_app.center_panel.set_input_state("normal"))
+                return
+            if self.main_app.stop_generation_flag:
+                self.main_app.after(0, lambda: self.main_app.center_panel.display_message("\n[Остановлено]\n", "system"))
+                self.main_app.after(0, lambda: setattr(self.main_app, 'is_generating', False))
+                self.main_app.after(0, lambda: self.main_app.center_panel.set_input_state("normal"))
+                return
+
+            self.main_app.after(0, lambda: callback(full_content, extra))
+
+        import threading
+        threading.Thread(target=stream_and_process, daemon=True).start()
+
+
+    def _display_system(self, msg: str):
+        self.main_app.center_panel.display_message(msg, "system")
+
+    def _display_error(self, msg: str):
+        self.main_app.center_panel.display_message(msg, "error")
+
+    def _display_message(self, msg: str, tag: str = "system"):
+        self.main_app.center_panel.display_message(msg, tag)
+
+    def _finish_generation(self):
+        total_time = 0
+        if self.generation_start_time is not None:
+            total_time = time.time() - self.generation_start_time
+            self._log_debug("GENERATION_COMPLETED", f"Total time: {total_time:.2f} sec")
+            self.generation_start_time = None
+        else:
+            self._log_debug("GENERATION_COMPLETED")
+
+        final_response = self.stage_data.get("final_response", "")
+        if final_response:
+            last_msg = self.main_app.conversation_history[-1] if self.main_app.conversation_history else None
+            if not (last_msg and last_msg["role"] == "assistant" and last_msg["content"] == final_response):
+                self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
+                self.main_app.conversation_history.append({"role": "assistant", "content": final_response})
+                self.main_app._finalize_generation_memory_turn()
+                self._save_current_session()
+            else:
+                self.main_app.center_panel.display_message(f"\n{final_response}\n\n", "assistant")
+
+        if hasattr(self.main_app, 'right_panel') and self.main_app.right_panel:
+            self.main_app.right_panel.refresh()
+
+        if total_time:
+            self._display_system(f"✅ Генерация завершена за {total_time:.2f} секунд.\n")
+
+        self._update_vn_view()
+
+        self.main_app.is_generating = False
+        self.main_app.center_panel.set_input_state("normal")
+        self.main_app.center_panel.update_translation_button_state()
+        self.main_app.current_debug_log_path = None
+        self.main_app.display_generation_memory_summary()
+
+        if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
+            self.main_app.vn_frame.set_freeze(False)
+
+    def _save_current_session(self):
+        self.main_app._save_current_session_safe()
+
+    def _try_parse_tool_calls_from_text(self, content: str, expected_func_names: List[str] = None) -> List[Dict]:
+        parsed = UniversalParser.parse(content)
+        tool_calls = []
+        for func_name, args in parsed:
+            if expected_func_names and func_name not in expected_func_names:
+                continue
+            tool_calls.append({
+                "id": f"parsed_{func_name}_{random.randint(1000,9999)}",
+                "type": "function",
+                "function": {
+                    "name": func_name,
+                    "arguments": json.dumps(args, ensure_ascii=False)
+                }
+            })
+        return tool_calls

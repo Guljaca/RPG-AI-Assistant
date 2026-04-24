@@ -2,6 +2,7 @@
   "id": "l1",
   "name": "Дом Игрока (Внешний вид снаружи)",
   "description": "Дом игрока: японский традиционный дом. Дверь не заперта. \nСнаружи велосипед.",
+  "associative_checks": "Какие персонажи находятся в доме, а не только в текущей локации.",
   "characters": [],
   "items": [],
   "background_image": "locations/backgrounds/BG_JIT05_A_MORNING_RAIN_N.png"
