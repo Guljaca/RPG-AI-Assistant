@@ -6,5 +6,12 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+echo Installing Pillow...
+python -m pip install Pillow
+if errorlevel 1 (
+    echo Failed to install Pillow.
+    pause
+    exit /b 1
+)
 echo All dependencies installed.
 pause
