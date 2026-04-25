@@ -82,7 +82,7 @@
   "max_associative_memory_entries": 5,
   "max_events_per_scene": 5,
   "max_scenarios_per_scene": 5,
-  "language": "en",
+  "language": "ru",
   "enabled_stages": {
     "stage1_request_descriptions": true,
     "stage1_create_scene": true,
