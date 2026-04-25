@@ -1,9 +1,0 @@
-=== DEBUG LOG ===
-User message at 2026-04-24T17:02:57.108674:
-REGENERATE: Собственно,  я сначала иду в ванную комнату, чтобы помыться под душем, поскольку только что мне Ай вздрочнула, и нужно отмыться и от самого семени и от его запаха. К слову, Ай тоже не помешает помыть руки.
-
-[2026-04-24T17:02:57.110546] === STAGE1.1: request_descriptions (attempt 1) ===
-
-[2026-04-24T17:02:57.191700] PROMPT_FORMAT_WARNING
-Missing key 'history' in prompt stage1_request_descriptions
-

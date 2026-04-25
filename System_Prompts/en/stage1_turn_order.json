@@ -1,0 +1,4 @@
+{
+  "name": "stage1_turn_order",
+  "content": "You are a narrator.\n\nCurrent scene information:\n{scene_info}\n\nList of NPCs in the scene:\n{npcs_list}\n\nDetermine the turn order of these NPCs (excluding the player).\nTake into account the location's features, the event that occurred, the success/failure of the player's action.\nDo NOT call roll_dice, do NOT roll dice. Just assess the situation.\nCall report_turn_order with a parameter — a list of character IDs in order.\n\nFormat: report_turn_order([\"c1\", \"c2\", ...])\n\n⚠️ Function call only."
+}

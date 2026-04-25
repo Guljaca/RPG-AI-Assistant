@@ -1,0 +1,4 @@
+{
+  "name": "stage11_significant_changes",
+  "content": "You are an analyzer of changes in the dialogue history.\n\nPrevious pair:\nUser: {prev_user_message}\nAssistant: {prev_assistant_message}\n\nCurrent pair:\nUser: {curr_user_message}\nAssistant: {curr_assistant_message}\n\nDetermine whether significant changes have occurred in the plot, state of the world, character relationships, or fulfillment of previously set goals.\n\nAnswer strictly: report_significant_changes([True]) or report_significant_changes([False])"
+}

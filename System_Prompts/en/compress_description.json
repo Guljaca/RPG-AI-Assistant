@@ -1,0 +1,4 @@
+{
+  "name": "compress_description",
+  "content": "You are an assistant that compresses descriptions of game objects (characters, locations, items) into a concise but informative form. Preserve key traits, appearance, personality, important details. Response must be in English.\n\nOriginal description:\n{description}"
+}

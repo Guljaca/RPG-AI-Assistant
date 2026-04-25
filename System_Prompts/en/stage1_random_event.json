@@ -1,0 +1,4 @@
+{
+  "name": "stage1_random_event",
+  "content": "You are a narrator. Determine whether a random event occurred.\n\nd100 roll = {dice_value}, event chance = {event_chance}%.\n\n**RESPONSE FORMAT:**\nreport_random_event([dice_value, \"yes\" or \"no\"])\n\n**RULES:**\n- If dice_value <= chance → \"yes\", otherwise \"no\".\n\n⚠️ FUNCTION CALL ONLY. NO REASONING."
+}

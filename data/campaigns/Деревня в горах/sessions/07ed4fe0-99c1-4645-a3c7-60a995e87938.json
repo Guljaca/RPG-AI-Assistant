@@ -1,0 +1,71 @@
+{
+  "name": "Чат 2026-04-24 23:28",
+  "profile": {
+    "name": "Profile_07ed4fe0",
+    "enabled_narrators": [
+      "n1",
+      "n2",
+      "n3",
+      "n6"
+    ],
+    "enabled_characters": [
+      "c2",
+      "c3",
+      "c4"
+    ],
+    "enabled_locations": [
+      "l1",
+      "l2",
+      "l3",
+      "l4",
+      "l5",
+      "l7"
+    ],
+    "enabled_items": [
+      "i1",
+      "i2",
+      "i3",
+      "i4",
+      "i5",
+      "i6"
+    ],
+    "enabled_events": [],
+    "enabled_scenarios": [],
+    "enabled_emotions": [
+      "em1",
+      "em2",
+      "em3",
+      "em4",
+      "em5"
+    ],
+    "player_character_id": null
+  },
+  "history": [
+    {
+      "role": "user",
+      "content": "Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит."
+    }
+  ],
+  "created": "2026-04-24T23:28:09.051239",
+  "last_used": "2026-04-25T01:46:54.648602",
+  "local_descriptions": {},
+  "memory_summaries": [],
+  "associative_memory": {},
+  "memory_turn_index": [],
+  "assoc_turn_changes": [],
+  "significant_changes_flags": [],
+  "scene_state": {
+    "scene_location_id": "l2",
+    "scene_character_ids": [
+      "c2"
+    ],
+    "scene_item_ids": [],
+    "scene_scenario_ids": [],
+    "descriptions": {
+      "l2": "Описание: Комната",
+      "c2": "Описание: За него играет игрок.\nИмя Кён. 16 лет. Школьник. \nВнешний вид: худой, бледный парень\nСлабый, ум выше среднего\nХарактер: спокойный, избегающий конфликтов, любящий одиночество, аскетичный (ИГРОК)"
+    },
+    "scene_summary": "Локация: Дом Игрока (Комната игрока) (ID: l2)\nПерсонажи: Кён (Игрок) (ID: c2)",
+    "emotion_map": {}
+  }
+}

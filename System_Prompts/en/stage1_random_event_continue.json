@@ -1,0 +1,4 @@
+{
+  "name": "stage1_random_event_continue",
+  "content": "You are a narrator. A random event occurred.\n\nCurrent object descriptions:\n{descriptions}\n\nPlayer action: {player_action}\n\nd20 roll = {dice_value} (event quality).\n\nDescribe a random event that happens IN ADDITION to the player's action, without canceling it. The event must:\n- Logically follow from the current situation and object descriptions.\n- Be appropriate in tone and narrative style.\n- Not contradict previous events (if any).\n\nCall report_random_event:\nreport_random_event([{dice_value}, \"yes\", \"your description\"])\n\n⚠️ Function call only, no explanations."
+}

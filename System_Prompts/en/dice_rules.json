@@ -1,0 +1,4 @@
+{
+  "name": "dice_rules",
+  "content": "d20: 1=critical fail, 2-4=fail, 5-15=success, 16-19=great success, 20=critical success.\nd100: 1-100. Event occurs if rolled value <= chance.\nd6: 1-2 bad, 3-4 normal, 5-6 good."
+}

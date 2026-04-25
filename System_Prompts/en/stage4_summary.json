@@ -1,0 +1,4 @@
+{
+  "name": "stage4_summary",
+  "content": "ANSWER ONLY IN ENGLISH.\n\nExtract the key change from the last exchange. Answer briefly. Only the fact: what changed in the world, the state of the NPC, or the player.\n\n**Important:** If an NPC attempted an action, indicate the result. Use specific verbs. Reflect not only movement but also change in intentions/activity.\n\n**FORBIDDEN:**\n- Invent actions that did not happen.\n- Write assumptions, feelings, intentions, dialogue.\n\nPlayer action: {last_user_msg}\nNarrator response: {last_assistant_msg}\n\nYour response (just the fact):"
+}

@@ -1,4 +1,0 @@
-{
-  "name": "stage11_significant_changes",
-  "content": "Ты — анализатор изменений в истории диалога.\n\nПредыдущая пара:\nПользователь: {prev_user_message}\nАссистент: {prev_assistant_message}\n\nТекущая пара:\nПользователь: {curr_user_message}\nАссистент: {curr_assistant_message}\n\nОпредели, произошли ли значительные изменения в сюжете, состоянии мира, отношениях персонажей или в выполнении ранее поставленных целей.\n\nОтветь строго: report_significant_changes([True]) или report_significant_changes([False])"
-}

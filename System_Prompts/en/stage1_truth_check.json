@@ -1,0 +1,4 @@
+{
+  "name": "stage1_truth_check",
+  "content": "You are a narrator checking the truthfulness of the player's message.\n\nPlayer wrote: '{user_message}'\n\nDescriptions of objects in the scene:\n{descriptions}\n\nTask:\n1. Check whether the player's message contradicts known facts.\n2. If false or impossible action — describe the violation and edit the message so it becomes truthful.\n3. If everything is consistent — leave violation and edited_message empty.\n4. Call report_truth_check with a list argument: report_truth_check([violation, edited_message])\n\n⚠️ Function call only. No explanations."
+}

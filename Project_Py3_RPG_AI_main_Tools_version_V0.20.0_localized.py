@@ -1,0 +1,2450 @@
+# Project_Py3_RPG_AI_main_Tools_version_V0.19.0_localized.py
+# Исправленная версия с правильными импортами локализованных панелей
+
+import tkinter as tk
+from tkinter import ttk, scrolledtext, messagebox, filedialog, simpledialog
+import json
+import os
+import threading
+import requests
+import re
+import uuid
+import random
+import ast
+import copy
+from typing import Dict, List, Optional, Any, Generator, Tuple
+from dataclasses import dataclass, field, asdict
+from datetime import datetime
+import sys
+from models import BaseObject, Narrator, Character, Location, Item, Event, Scenario, Emotion, GameProfile
+from ui_utils import add_context_menu
+# Импортируем ЛОКАЛИЗОВАННЫЕ версии панелей
+from center_panel_localized import CenterPanel
+from left_panel_localized import LeftPanel
+from right_panel_localized import RightPanel
+from ui_tabs_localized import ProfileTab, BaseEditorTab, SystemPromptsTab, TranslatorPromptsTab, StagePromptsTab, HistoryTab
+from stage_processor_localized import StageProcessor
+from storage_manager import CampaignStorageManager
+from visual_novel_localized import VisualNovelFrame
+from localization import loc
+from prompt_manager_localized import PromptManager
+
+
+# ---------- LM Studio Client ----------
+class LMStudioClient:
+    def __init__(self, base_url: str = "http://localhost:1234/v1"):
+        self.base_url = base_url
+        self.default_max_tokens = 4096
+        self.default_temperature = 0.7
+
+    def set_default_params(self, max_tokens: int, temperature: float):
+        self.default_max_tokens = max_tokens
+        self.default_temperature = temperature
+
+    def chat_completion_stream(
+        self,
+        messages: List[Dict],
+        model: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        timeout: int = 180,
+    ) -> Generator[Dict, None, None]:
+        url = f"{self.base_url}/chat/completions"
+        temp = temperature if temperature is not None else self.default_temperature
+        mt = max_tokens if max_tokens is not None else self.default_max_tokens
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temp,
+            "max_tokens": mt,
+            "stream": True
+        }
+
+        try:
+            response = requests.post(url, json=payload, stream=True, timeout=timeout)
+            response.raise_for_status()
+
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                line = line.decode('utf-8')
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    choice = chunk.get("choices", [{}])[0]
+                    delta = choice.get("delta", {})
+
+                    reasoning = None
+                    if "reasoning_content" in delta:
+                        reasoning = delta["reasoning_content"]
+                    elif "reasoning" in delta:
+                        reasoning = delta["reasoning"]
+                    elif "deepseek_reasoning" in delta:
+                        reasoning = delta["deepseek_reasoning"]
+                    elif "thinking" in delta:
+                        reasoning = delta["thinking"]
+                    if reasoning:
+                        yield {"type": "reasoning", "text": reasoning}
+
+                    if "content" in delta and delta["content"]:
+                        yield {"type": "content", "text": delta["content"]}
+
+                    if "usage" in chunk:
+                        yield {"type": "done", "usage": chunk["usage"]}
+                except json.JSONDecodeError:
+                    continue
+            yield {"type": "done", "usage": None}
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+
+    def chat_completion_sync(self, messages: List[Dict], model: str, temperature: float = 0.3, max_tokens: int = 500, timeout: int = 10) -> str:
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False
+        }
+        try:
+            response = requests.post(url, json=payload, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+        except Exception as e:
+            return f"[Ошибка: {e}]"
+
+
+class MainApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title(loc.tr("app_title"))
+        self.geometry("1200x700")
+        self.minsize(900, 600)
+
+        self.display_mode = tk.StringVar(value="normal")
+        self.vn_frame = None
+
+        self.memory_summary = ""
+        self.settings_file = "settings.json"
+        self.settings = self.load_settings()
+
+        # Применяем язык из настроек
+        lang = self.settings.get("language", "ru")
+        loc.set_language(lang)
+
+        self.storage = CampaignStorageManager(base_dir="data")
+
+        self.left_panel = None
+        self.center_panel = None
+        self.right_panel = None
+
+        self._load_last_campaign()
+
+        # Инициализация PromptManager с учётом языка
+        self.prompt_manager = PromptManager(prompts_base_dir="System_Prompts")
+        self.prompt_manager.set_language(lang)
+
+        self.random_event_chance = self.settings.get("random_event_chance", 30)
+
+        self.logs_dir = os.path.join("data", "logs")
+        self.max_log_files = 20
+        os.makedirs(self.logs_dir, exist_ok=True)
+        self.current_debug_log_path = None
+
+        self.narrators: Dict[str, Narrator] = {}
+        self.characters: Dict[str, Character] = {}
+        self.locations: Dict[str, Location] = {}
+        self.items: Dict[str, Item] = {}
+        self.events: Dict[str, Event] = {}
+        self.scenarios: Dict[str, Scenario] = {}
+        self.emotions: Dict[str, Emotion] = {}
+
+        self.current_session_id: Optional[str] = None
+        self.current_profile: GameProfile = GameProfile(name="Default")
+        self.conversation_history: List[Dict] = []
+        self.last_user_message: str = ""
+        self.max_history_messages = 10
+        self.max_memory_summaries = 5
+
+        self.local_descriptions: Dict[str, str] = {}
+
+        self.last_original_response: Optional[str] = None
+        self.last_translated_response: Optional[str] = None
+
+        self.enable_memory_summary = True
+        self.memory_summaries: List[str] = []
+        self.associative_memory: Dict[str, List[str]] = {}
+        self.max_associative_memory_entries = self.settings.get("max_associative_memory_entries", 5)
+        self.enable_associative_memory = self.settings.get("enable_associative_memory", True)
+
+        self.memory_turn_index: List[int] = []
+        self.assoc_turn_changes: List[List[Dict]] = []
+        self.significant_changes_flags: List[bool] = []
+
+        self.lm_client = LMStudioClient(base_url=self.settings.get("api_url", "http://localhost:1234/v1"))
+
+        self.is_generating = False
+        self.stop_generation_flag = False
+
+        self.stage_processor = StageProcessor(self)
+        self.stage_names = StageProcessor.ALL_STAGES
+
+        self.use_two_models = self.settings.get("use_two_models", False)
+        self.primary_model = self.settings.get("primary_model", "local-model")
+        self.translator_model = self.settings.get("translator_model", "local-model")
+        self.enable_assistant_translation = self.settings.get("enable_assistant_translation", False)
+        self.model_name = self.settings.get("model_name", "local-model")
+        self.primary_temperature = self.settings.get("primary_temperature", 0.7)
+        self.primary_max_tokens = self.settings.get("primary_max_tokens", 4096)
+        self.translator_temperature = self.settings.get("translator_temperature", 0.3)
+        self.translator_max_tokens = self.settings.get("translator_max_tokens", 4096)
+
+        if not self.use_two_models:
+            self.enable_assistant_translation = False
+            self.settings["enable_assistant_translation"] = False
+
+        self.max_locations_per_scene = self.settings.get("max_locations_per_scene", 5)
+        self.max_characters_per_scene = self.settings.get("max_characters_per_scene", 10)
+        self.max_items_per_scene = self.settings.get("max_items_per_scene", 20)
+        self.max_events_per_scene = self.settings.get("max_events_per_scene", 10)
+        self.max_scenarios_per_scene = self.settings.get("max_scenarios_per_scene", 5)
+
+        self.lm_client.set_default_params(
+            max_tokens=self.settings.get("max_tokens", 4096),
+            temperature=self.settings.get("temperature", 0.7)
+        )
+
+        self.stage_prompts_config = self.settings.get("stage_prompts_config", {})
+
+        all_stages = StageProcessor.ALL_STAGES
+        saved_enabled = self.settings.get("enabled_stages", {})
+        self.enabled_stages = {stage: saved_enabled.get(stage, True) for stage in all_stages}
+        saved_retries = self.settings.get("stage_retry_limits", {})
+        self.stage_retry_limits = {stage: saved_retries.get(stage, 2) for stage in all_stages}
+
+        saved_memory_config = self.settings.get("stage_memory_config", {})
+        self.stage_memory_config = {}
+        for stage in all_stages:
+            default = {"max_history": 10, "max_summaries": 5}
+            if stage in saved_memory_config:
+                cfg = saved_memory_config[stage]
+                default["max_history"] = cfg.get("max_history", 10)
+                default["max_summaries"] = cfg.get("max_summaries", 5)
+            self.stage_memory_config[stage] = default
+
+        self.stage_model_selection = self.settings.get("stage_model_selection", {})
+        for stage in all_stages:
+            if stage not in self.stage_model_selection:
+                self.stage_model_selection[stage] = "primary"
+
+        self.stage_temperature_config = self.settings.get("stage_temperature_config", {})
+        for stage in all_stages:
+            if stage not in self.stage_temperature_config:
+                self.stage_temperature_config[stage] = None
+
+        self.current_generation_added_summaries = []
+        self.current_generation_added_assoc = []
+
+        self.event_handlers = {
+            "send_message": self._handle_send_message,
+            "start_game": self._handle_start_game,
+            "stop_generation": self._handle_stop_generation,
+            "new_session": self._handle_new_session,
+            "load_session": self._handle_load_session,
+            "delete_session": self._handle_delete_session,
+            "rename_session": self._handle_rename_session,
+            "save_current_session": self._handle_save_current_session,
+            "regenerate_last_response": self._handle_regenerate_last_response,
+            "regenerate_translation": self._handle_regenerate_translation,
+            "regenerate_last_step": self._handle_regenerate_last_step,
+            "delete_last_user_message": self._handle_delete_last_user_message,
+            "edit_session": self._handle_edit_session,
+            "update_narrator": lambda data: self._handle_update_object("narrators", data),
+            "create_narrator": lambda data: self._handle_create_object("narrators", data),
+            "delete_narrator": lambda data: self._handle_delete_object("narrators", data.get("id")),
+            "create_character": lambda data: self._handle_create_object("characters", data),
+            "update_character": lambda data: self._handle_update_object("characters", data),
+            "delete_character": lambda data: self._handle_delete_object("characters", data.get("id")),
+            "create_location": lambda data: self._handle_create_object("locations", data),
+            "update_location": lambda data: self._handle_update_object("locations", data),
+            "delete_location": lambda data: self._handle_delete_object("locations", data.get("id")),
+            "create_item": lambda data: self._handle_create_object("items", data),
+            "update_item": lambda data: self._handle_update_object("items", data),
+            "delete_item": lambda data: self._handle_delete_object("items", data.get("id")),
+            "create_event": lambda data: self._handle_create_object("events", data),
+            "update_event": lambda data: self._handle_update_object("events", data),
+            "delete_event": lambda data: self._handle_delete_object("events", data.get("id")),
+            "create_scenario": lambda data: self._handle_create_object("scenarios", data),
+            "update_scenario": lambda data: self._handle_update_object("scenarios", data),
+            "delete_scenario": lambda data: self._handle_delete_object("scenarios", data.get("id")),
+            "create_emotion": lambda data: self._handle_create_object("emotions", data),
+            "update_emotion": lambda data: self._handle_update_object("emotions", data),
+            "delete_emotion": lambda data: self._handle_delete_object("emotions", data.get("id")),
+            "refresh_ui": self._handle_refresh_ui,
+            "update_settings": self._handle_update_settings,
+            "update_profile": self._handle_update_profile,
+            "save_profile": self._handle_save_profile,
+            "load_profile": self._handle_load_profile,
+            "new_profile": self._handle_new_profile,
+            "update_prompt": self._handle_update_prompt,
+            "create_prompt": self._handle_create_prompt,
+            "delete_prompt": self._handle_delete_prompt,
+            "clear_chat": self._handle_clear_chat,
+            "set_local_description": self._handle_set_local_description,
+            "clear_local_description": self._handle_clear_local_description,
+            "select_campaign": self._handle_select_campaign,
+            "create_campaign": self._handle_create_campaign,
+            "rename_campaign": self._handle_rename_campaign,
+            "delete_campaign": self._handle_delete_campaign,
+            "toggle_display_mode": self._toggle_display_mode,
+            "set_debug_mode": self._handle_set_debug_mode,
+            "step_continue": self._handle_step_continue,
+            "stage1_request_descriptions": lambda data: self.stage_processor._stage1_request_descriptions(data.get("retry_count", 0) if data else 0),
+            "stage1_player_action": lambda data: self.stage_processor._stage1_player_action(data.get("retry_count", 0) if data else 0),
+            "stage1_random_event": lambda data: self.stage_processor._stage1_random_event_determine(data.get("retry_count", 0) if data else 0),
+            "stage1_turn_order": lambda data: self.stage_processor._stage1_turn_order(data.get("retry_count", 0) if data else 0),
+            "stage2_process_npc": lambda data: self.stage_processor._stage2_npc_action(data.get("retry_count", 0) if data else 0),
+            "stage3_final": lambda data: self.stage_processor._stage3_final(data.get("retry_count", 0) if data else 0),
+            "stage4_summary": lambda data: self.stage_processor._stage4_summary(data.get("retry_count", 0) if data else 0),
+            "stage1_truth_check": lambda data: self.stage_processor._stage1_truth_check(data.get("retry_count", 0) if data else 0),
+            "stage1_validate_scene": lambda data: self.stage_processor._stage1_validate_scene(data.get("retry_count", 0) if data else 0),
+            "stage1_validate_random_event": lambda data: self.stage_processor._stage1_validate_random_event(data.get("retry_count", 0) if data else 0),
+        }
+
+        self._build_ui()
+
+        self._load_all_data()
+        self._load_last_session()
+        self.update_idletasks()
+        self.after(100, self._refresh_all_ui)
+        self.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+    # ---------- Вспомогательные методы ----------
+    def _delete_file_by_id(self, obj_type: str, obj_id: str):
+        type_path = os.path.join(self.storage._get_campaign_path(), obj_type)
+        if not os.path.exists(type_path):
+            return
+        for filename in os.listdir(type_path):
+            if not filename.endswith(".json") or filename == "_meta.json":
+                continue
+            filepath = os.path.join(type_path, filename)
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("id") == obj_id:
+                os.remove(filepath)
+                return
+
+    def update_visual_novel(self):
+        if hasattr(self, 'vn_frame') and self.vn_frame and self.vn_frame.winfo_viewable():
+            self.vn_frame.refresh_from_current_state()
+
+    def _toggle_display_mode(self):
+        if self.normal_frame.winfo_viewable():
+            self.normal_frame.pack_forget()
+            self.vn_frame.pack(fill=tk.BOTH, expand=True)
+            self.mode_switch_btn.config(text=loc.tr("vn_switch_to_normal"))
+            self.center_panel.display_system_message(loc.tr("messages_switch_to_vn"))
+            self.vn_frame.refresh_from_current_state()
+        else:
+            self.vn_frame.pack_forget()
+            self.normal_frame.pack(fill=tk.BOTH, expand=True)
+            self.mode_switch_btn.config(text=loc.tr("vn_switch_to_vn"))
+            self.center_panel.display_system_message(loc.tr("messages_switch_to_normal"))
+
+    def _load_last_campaign(self):
+        last_campaign = self.settings.get("last_campaign")
+        campaigns = self.storage.list_campaigns()
+        if last_campaign and last_campaign in campaigns:
+            self.storage.set_campaign(last_campaign)
+        elif campaigns:
+            self.storage.set_campaign(campaigns[0])
+        else:
+            self.storage.create_campaign("Default")
+            self.storage.set_campaign("Default")
+        self._refresh_campaign_ui()
+
+    def _refresh_campaign_ui(self):
+        if self.left_panel:
+            self.left_panel.refresh_campaign_list()
+        if self.right_panel:
+            self.right_panel.refresh()
+
+    def _handle_select_campaign(self, data):
+        campaign_name = data.get("name")
+        if not campaign_name:
+            return
+        if campaign_name == self.storage.current_campaign:
+            return
+        self._handle_save_current_session()
+        self.storage.set_campaign(campaign_name)
+        self.settings["last_campaign"] = campaign_name
+        self.save_settings()
+        self._load_all_data()
+        self.current_session_id = None
+        self.conversation_history = []
+        self.local_descriptions = {}
+        self.memory_summaries = []
+        self.associative_memory = {}
+        self.memory_turn_index = []
+        self.assoc_turn_changes = []
+        self.significant_changes_flags = []
+        self.last_original_response = None
+        self.last_translated_response = None
+        self.current_profile = GameProfile(name=f"Profile_{campaign_name}")
+        self._sync_profile_with_objects()
+        self._refresh_all_ui()
+        self.center_panel.clear_chat()
+        self.center_panel.display_message(f"Переключено на кампанию: {campaign_name}\n", "system")
+        self._load_last_session()
+
+    def _handle_create_campaign(self, data=None):
+        if data and data.get("name"):
+            name = data["name"]
+        else:
+            name = simpledialog.askstring(loc.tr("left_new_campaign"), loc.tr("left_new_campaign"), parent=self)
+            if not name:
+                return
+        if self.storage.create_campaign(name):
+            self._handle_select_campaign({"name": name})
+            messagebox.showinfo(loc.tr("left_campaigns"), f"Кампания '{name}' создана.")
+        else:
+            messagebox.showerror(loc.tr("error_invalid_name"), loc.tr("error_name_exists"))
+
+    def _handle_rename_campaign(self, data):
+        old_name = data.get("old_name")
+        new_name = data.get("new_name")
+        if not old_name or not new_name:
+            return
+        old_path = os.path.join(self.storage.campaigns_dir, old_name)
+        new_path = os.path.join(self.storage.campaigns_dir, new_name)
+        if not os.path.exists(old_path):
+            return
+        if os.path.exists(new_path):
+            messagebox.showerror(loc.tr("error_invalid_name"), loc.tr("error_name_exists"))
+            return
+        os.rename(old_path, new_path)
+        if self.storage.current_campaign == old_name:
+            self.storage.current_campaign = new_name
+            self.settings["last_campaign"] = new_name
+            self.save_settings()
+        self._refresh_campaign_ui()
+
+    def _handle_delete_campaign(self, data):
+        name = data.get("name")
+        if not name:
+            return
+        if name == "Default":
+            messagebox.showwarning(loc.tr("left_delete_campaign"), loc.tr("error_campaign_delete_default"))
+            return
+        if messagebox.askyesno(loc.tr("left_delete_campaign"), loc.tr("confirm_delete_campaign", name=name)):
+            self.storage.delete_campaign(name)
+            if self.storage.current_campaign == name:
+                self._handle_select_campaign({"name": "Default"})
+            else:
+                self._refresh_campaign_ui()
+
+    def _handle_edit_session(self, data=None):
+        if not self.current_session_id:
+            messagebox.showwarning(loc.tr("left_edit_json"), loc.tr("error_no_last_message"))
+            return
+        sessions_dir = os.path.join(self.storage._get_campaign_path(), "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+        session_path = os.path.join(sessions_dir, f"{self.current_session_id}.json")
+        if not os.path.exists(session_path):
+            messagebox.showerror(loc.tr("error_file_not_found"), loc.tr("error_file_not_found"))
+            return
+        try:
+            with open(session_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Не удалось прочитать файл:\n{e}")
+            return
+
+        edit_win = tk.Toplevel(self)
+        edit_win.title(f"Редактирование сессии: {self.current_session_id}")
+        edit_win.geometry("800x600")
+        edit_win.transient(self)
+        edit_win.grab_set()
+
+        text_area = scrolledtext.ScrolledText(edit_win, wrap=tk.WORD, font=("Courier", 10))
+        text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        text_area.insert(tk.END, content)
+
+        def save_and_reload():
+            new_content = text_area.get("1.0", tk.END).strip()
+            if not new_content:
+                messagebox.showerror(loc.tr("error_invalid_name"), loc.tr("error_invalid_name"))
+                return
+            try:
+                json.loads(new_content)
+            except json.JSONDecodeError as e:
+                messagebox.showerror(loc.tr("error_invalid_name"), f"Некорректный JSON:\n{e}")
+                return
+            try:
+                with open(session_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+            except Exception as e:
+                messagebox.showerror(loc.tr("error_invalid_name"), f"Не удалось сохранить файл:\n{e}")
+                return
+            self._handle_load_session({"session_id": self.current_session_id})
+            edit_win.destroy()
+            messagebox.showinfo(loc.tr("profile_save"), "Сессия сохранена и перезагружена.")
+
+        btn_frame = ttk.Frame(edit_win)
+        btn_frame.pack(pady=5)
+        ttk.Button(btn_frame, text=loc.tr("profile_save"), command=save_and_reload).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text=loc.tr("vn_cancel"), command=edit_win.destroy).pack(side=tk.LEFT, padx=5)
+
+    def record_added_summary(self, summary_text: str):
+        self.current_generation_added_summaries.append(summary_text)
+
+    def record_added_assoc(self, obj_id: str, change_text: str):
+        obj = self._get_object_by_id(obj_id)
+        obj_name = obj.name if obj else obj_id
+        self.current_generation_added_assoc.append({"object_id": obj_id, "change": change_text})
+
+    def _finalize_generation_memory_turn(self):
+        if self.current_generation_added_summaries:
+            self.memory_turn_index.append(len(self.current_generation_added_summaries))
+            self.memory_summaries.extend(self.current_generation_added_summaries)
+        else:
+            self.memory_turn_index.append(0)
+        if self.current_generation_added_assoc:
+            self.assoc_turn_changes.append(self.current_generation_added_assoc.copy())
+            for entry in self.current_generation_added_assoc:
+                obj_id = entry["object_id"]
+                change = entry["change"]
+                if obj_id not in self.associative_memory:
+                    self.associative_memory[obj_id] = []
+                self.associative_memory[obj_id].append(change)
+                if len(self.associative_memory[obj_id]) > self.max_associative_memory_entries:
+                    self.associative_memory[obj_id] = self.associative_memory[obj_id][-self.max_associative_memory_entries:]
+        else:
+            self.assoc_turn_changes.append([])
+        self.current_generation_added_summaries.clear()
+        self.current_generation_added_assoc.clear()
+        self._save_current_session_safe()
+
+    def display_generation_memory_summary(self):
+        if not self.current_generation_added_summaries and not self.current_generation_added_assoc:
+            return
+        self.center_panel.display_message("\n📝 **Итог обновления памяти:**\n", "system")
+        if self.current_generation_added_summaries:
+            self.center_panel.display_message("🧠 **Краткая память (новые записи):**\n", "system")
+            for summ in self.current_generation_added_summaries:
+                self.center_panel.display_message(f"  • {summ}\n", "system")
+        if self.current_generation_added_assoc:
+            self.center_panel.display_message("🔗 **Ассоциативная память (изменения):**\n", "system")
+            for entry in self.current_generation_added_assoc:
+                obj_id = entry["object_id"]
+                obj = self._get_object_by_id(obj_id)
+                obj_name = obj.name if obj else obj_id
+                self.center_panel.display_message(f"  • {obj_name} ({obj_id}): {entry['change']}\n", "system")
+        self.center_panel.display_message("\n", "system")
+
+    def get_description_for_model(self, obj_id: str) -> str:
+        obj = self._get_object_by_id(obj_id)
+        if not obj:
+            return f"Объект {obj_id} не найден."
+        global_desc = obj.description if obj.description else "Нет глобального описания."
+        local_desc = self.local_descriptions.get(obj_id, "")
+        if local_desc:
+            return f"Глобальное описание: {global_desc}\nЛокальное описание: {local_desc}"
+        else:
+            return f"Описание: {global_desc}"
+
+    def _add_to_profile_if_not_exists(self, obj_type: str, obj_id: str):
+        if obj_type == "narrators":
+            enabled_list = self.current_profile.enabled_narrators
+        elif obj_type == "characters":
+            enabled_list = self.current_profile.enabled_characters
+        elif obj_type == "locations":
+            enabled_list = self.current_profile.enabled_locations
+        elif obj_type == "items":
+            enabled_list = self.current_profile.enabled_items
+        elif obj_type == "events":
+            enabled_list = self.current_profile.enabled_events
+        elif obj_type == "scenarios":
+            enabled_list = self.current_profile.enabled_scenarios
+        elif obj_type == "emotions":
+            enabled_list = self.current_profile.enabled_emotions
+        else:
+            return
+        if obj_id not in enabled_list:
+            enabled_list.append(obj_id)
+            self._save_profile_to_file()
+
+    def _remove_from_profile(self, obj_type: str, obj_id: str):
+        if obj_type == "narrators":
+            enabled_list = self.current_profile.enabled_narrators
+        elif obj_type == "characters":
+            enabled_list = self.current_profile.enabled_characters
+        elif obj_type == "locations":
+            enabled_list = self.current_profile.enabled_locations
+        elif obj_type == "items":
+            enabled_list = self.current_profile.enabled_items
+        elif obj_type == "events":
+            enabled_list = self.current_profile.enabled_events
+        elif obj_type == "scenarios":
+            enabled_list = self.current_profile.enabled_scenarios
+        elif obj_type == "emotions":
+            enabled_list = self.current_profile.enabled_emotions
+        else:
+            return
+        if obj_id in enabled_list:
+            enabled_list.remove(obj_id)
+            self._save_profile_to_file()
+
+    def _save_profile_to_file(self):
+        self.storage.save_profile(self.current_profile)
+
+    def _handle_update_object(self, obj_type: str, data: dict):
+        obj_id = data.get("id")
+        name = data.get("name", "").strip()
+        desc = data.get("description", "").strip()
+        assoc_checks = data.get("associative_checks", "").strip()
+        if not name:
+            messagebox.showwarning(loc.tr("error_invalid_name"), loc.tr("error_invalid_name"))
+            return
+        objects_dict = getattr(self, obj_type, None)
+        if objects_dict is None:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Неизвестный тип объектов: {obj_type}")
+            return
+        cls_map = {
+            "narrators": Narrator,
+            "characters": Character,
+            "locations": Location,
+            "items": Item,
+            "events": Event,
+            "scenarios": Scenario,
+            "emotions": Emotion,
+        }
+        cls = cls_map.get(obj_type)
+        if cls is None:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Неизвестный класс для {obj_type}")
+            return
+
+        if obj_id and obj_id in objects_dict:
+            obj = objects_dict[obj_id]
+            old_name = obj.name
+            obj.name = name
+            obj.description = desc
+            obj.associative_checks = assoc_checks
+            if obj_type == "characters":
+                obj.is_player = data.get("is_player", obj.is_player)
+                obj.avatar_image = data.get("avatar_image", getattr(obj, 'avatar_image', ''))
+                obj.sprite_image = data.get("sprite_image", getattr(obj, 'sprite_image', ''))
+                obj.emotion_images = data.get("emotion_images", getattr(obj, 'emotion_images', {}))
+            if obj_type == "locations":
+                obj.background_image = data.get("background_image", getattr(obj, 'background_image', ''))
+            if obj_type == "emotions":
+                obj.avatar_image = data.get("avatar_image", getattr(obj, 'avatar_image', ''))
+                obj.sprite_image = data.get("sprite_image", getattr(obj, 'sprite_image', ''))
+            self.storage.save_object(obj_type, obj)
+            if old_name != name:
+                self._delete_file_by_id(obj_type, obj_id)
+                self.storage.save_object(obj_type, obj)
+            action = "обновлён"
+            if obj_type == "characters":
+                if obj.is_player and self.current_profile.player_character_id != obj.id:
+                    self.current_profile.player_character_id = obj.id
+                    self._save_profile_to_file()
+                elif not obj.is_player and self.current_profile.player_character_id == obj.id:
+                    self.current_profile.player_character_id = None
+                    self._save_profile_to_file()
+        else:
+            kwargs = {"name": name, "description": desc, "associative_checks": assoc_checks}
+            if obj_type == "characters":
+                kwargs["is_player"] = data.get("is_player", False)
+                kwargs["avatar_image"] = data.get("avatar_image", "")
+                kwargs["sprite_image"] = data.get("sprite_image", "")
+                kwargs["emotion_images"] = data.get("emotion_images", {})
+            if obj_type == "locations":
+                kwargs["background_image"] = data.get("background_image", "")
+            if obj_type == "emotions":
+                kwargs["avatar_image"] = data.get("avatar_image", "")
+                kwargs["sprite_image"] = data.get("sprite_image", "")
+            obj = cls(**kwargs)
+            self.storage.save_object(obj_type, obj)
+            objects_dict[obj.id] = obj
+            action = "создан"
+            self._add_to_profile_if_not_exists(obj_type, obj.id)
+            if obj_type == "characters" and obj.is_player:
+                self.current_profile.player_character_id = obj.id
+                self._save_profile_to_file()
+
+        self._refresh_all_ui()
+        self._save_current_session_safe()
+        messagebox.showinfo(loc.tr("profile_save"), f"{cls.__name__} '{name}' {action} (ID: {obj.id}).")
+
+    def _delete_object_file_by_id(self, obj_type: str, obj_id: str):
+        type_path = os.path.join(self.storage._get_campaign_path(), obj_type)
+        if not os.path.exists(type_path):
+            return
+        for filename in os.listdir(type_path):
+            if not filename.endswith(".json") or filename == "_meta.json":
+                continue
+            filepath = os.path.join(type_path, filename)
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("id") == obj_id:
+                os.remove(filepath)
+                break
+
+    def _handle_create_object(self, obj_type: str, data: dict):
+        name = data.get("name", "").strip()
+        description = data.get("description", "").strip()
+        assoc_checks = data.get("associative_checks", "").strip()
+        if not name:
+            messagebox.showwarning(loc.tr("error_invalid_name"), loc.tr("error_invalid_name"))
+            return
+        cls_map = {
+            "narrators": Narrator,
+            "characters": Character,
+            "locations": Location,
+            "items": Item,
+            "events": Event,
+            "scenarios": Scenario,
+            "emotions": Emotion,
+        }
+        cls = cls_map.get(obj_type)
+        if not cls:
+            return
+        kwargs = {"name": name, "description": description, "associative_checks": assoc_checks}
+        if obj_type == "characters":
+            kwargs["is_player"] = data.get("is_player", False)
+            kwargs["avatar_image"] = data.get("avatar_image", "")
+            kwargs["sprite_image"] = data.get("sprite_image", "")
+            kwargs["emotion_images"] = data.get("emotion_images", {})
+        if obj_type == "locations":
+            kwargs["background_image"] = data.get("background_image", "")
+        if obj_type == "emotions":
+            kwargs["avatar_image"] = data.get("avatar_image", "")
+            kwargs["sprite_image"] = data.get("sprite_image", "")
+        obj = cls(**kwargs)
+        self.storage.save_object(obj_type, obj)
+        objects_dict = getattr(self, obj_type)
+        objects_dict[obj.id] = obj
+        self._add_to_profile_if_not_exists(obj_type, obj.id)
+        if obj_type == "characters" and obj.is_player:
+            self.current_profile.player_character_id = obj.id
+            self._save_profile_to_file()
+        self._refresh_all_ui()
+        self._save_current_session_safe()
+        messagebox.showinfo(loc.tr("profile_save"), f"{cls.__name__} '{name}' создан (ID: {obj.id}).")
+
+    def _handle_delete_object(self, obj_type: str, obj_id: str):
+        if not obj_id:
+            return
+        objects_dict = getattr(self, obj_type)
+        obj = objects_dict.get(obj_id)
+        if not obj:
+            return
+        if not messagebox.askyesno(loc.tr("editor_delete"), loc.tr("confirm_delete_object", name=obj.name)):
+            return
+        self.storage.delete_object(obj_type, obj_id)
+        del objects_dict[obj_id]
+        self._remove_from_profile(obj_type, obj_id)
+        if obj_type == "characters" and self.current_profile.player_character_id == obj_id:
+            self.current_profile.player_character_id = None
+            self._save_profile_to_file()
+        self._refresh_all_ui()
+        self._save_current_session_safe()
+        if obj_type == "narrators":
+            self._cleanup_stage_prompts_narrators()
+        messagebox.showinfo(loc.tr("editor_delete"), f"{obj_type[:-1].capitalize()} '{obj.name}' удалён.")
+
+    def _cleanup_old_logs(self):
+        if not os.path.exists(self.logs_dir):
+            return
+        files = []
+        for f in os.listdir(self.logs_dir):
+            if f.startswith("debug_") and f.endswith(".txt"):
+                full = os.path.join(self.logs_dir, f)
+                files.append((full, os.path.getmtime(full)))
+        files.sort(key=lambda x: x[1])
+        if len(files) > self.max_log_files:
+            to_delete = files[:len(files) - self.max_log_files]
+            for full_path, _ in to_delete:
+                try:
+                    os.remove(full_path)
+                except Exception:
+                    pass
+
+    def _cleanup_stage_prompts_narrators(self):
+        if self.right_panel:
+            self.right_panel.cleanup_inactive_narrators()
+
+    def save_stage_prompts_config(self):
+        self.settings["stage_prompts_config"] = self.stage_prompts_config
+        self.save_settings()
+
+    def _log_debug_step(self, step: str, content: str = "", error: str = None):
+        self._log_debug(step, content, error)
+
+    def update(self, event_type: str, data: Any = None):
+        handler = self.event_handlers.get(event_type)
+        if handler:
+            handler(data)
+
+    def _on_closing(self):
+        if self.current_session_id:
+            self._handle_save_current_session()
+        if self.vn_frame is not None:
+            self.vn_frame.cleanup()
+        self.destroy()
+
+    def _start_debug_log(self, user_message: str):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"debug_{timestamp}.txt"
+        self.current_debug_log_path = os.path.join(self.logs_dir, filename)
+        with open(self.current_debug_log_path, "w", encoding="utf-8") as f:
+            f.write(f"=== DEBUG LOG ===\nUser message at {datetime.now().isoformat()}:\n{user_message}\n\n")
+        self._cleanup_old_logs()
+
+    def _log_debug(self, step_name: str, content: str = "", error: str = None):
+        if not self.current_debug_log_path:
+            return
+        try:
+            with open(self.current_debug_log_path, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now().isoformat()}] {step_name}\n")
+                if content:
+                    if len(content) > 50000:
+                        f.write(content[:50000] + "\n... (truncated)\n")
+                    else:
+                        f.write(content)
+                    f.write("\n")
+                if error:
+                    f.write(f"ERROR: {error}\n")
+                f.write("\n")
+        except Exception:
+            pass
+
+    def load_settings(self) -> dict:
+        default = {
+            "api_url": "http://localhost:1234/v1",
+            "model_name": "",
+            "max_history_messages": 10,
+            "use_two_models": False,
+            "primary_model": "",
+            "translator_model": "",
+            "enable_assistant_translation": False,
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "primary_temperature": 0.7,
+            "primary_max_tokens": 4096,
+            "translator_temperature": 0.3,
+            "translator_max_tokens": 4096,
+            "stage_prompts_config": {},
+            "enable_memory_summary": True,
+            "max_memory_summaries": 5,
+            "enable_associative_memory": True,
+            "max_associative_memory_entries": 5,
+            "max_events_per_scene": 10,
+            "max_scenarios_per_scene": 5,
+            "language": "ru",
+            "enabled_stages": {
+                "stage1_request_descriptions": True,
+                "stage1_create_scene": True,
+                "stage1_truth_check": True,
+                "stage1_player_action": True,
+                "stage1_random_event_determine": True,
+                "stage1_random_event_request_objects": True,
+                "stage1_random_event_details": True,
+                "stage2_npc_action": True,
+                "stage3_final": True,
+                "stage8_history_check": True,
+                "stage11_validation": True,
+                "stage12_emotions": True,
+                "stage11_significant_changes": True,
+                "stage4_summary": True,
+                "stage10_associative_memory": True,
+            },
+            "stage_memory_config": {},
+            "stage_model_selection": {},
+            "stage_temperature_config": {},
+            "last_campaign": "Default"
+        }
+        if os.path.exists(self.settings_file):
+            with open(self.settings_file, "r") as f:
+                loaded = json.load(f)
+                default.update(loaded)
+        if not default["model_name"] or default["model_name"] == "local-model":
+            try:
+                temp_client = LMStudioClient(base_url=default["api_url"])
+                url = default["api_url"].rstrip('/').replace('/v1', '') + '/v1/models'
+                resp = requests.get(url, timeout=2)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = []
+                    if "data" in data:
+                        models = [m["id"] for m in data["data"] if m.get("id")]
+                    if models:
+                        default["model_name"] = models[0]
+                    else:
+                        default["model_name"] = "local-model"
+                else:
+                    default["model_name"] = "local-model"
+            except Exception:
+                default["model_name"] = "local-model"
+        if not default["primary_model"] or default["primary_model"] == "local-model":
+            default["primary_model"] = default["model_name"]
+        if not default["translator_model"] or default["translator_model"] == "local-model":
+            default["translator_model"] = default["model_name"]
+        return default
+
+    def _sync_significant_flags_with_history(self):
+        history = self.conversation_history
+        pairs_count = 0
+        i = 0
+        while i < len(history) - 1:
+            if history[i]['role'] == 'user' and history[i+1]['role'] == 'assistant':
+                pairs_count += 1
+                i += 2
+            else:
+                i += 1
+
+        if len(self.significant_changes_flags) > pairs_count:
+            self.significant_changes_flags = self.significant_changes_flags[:pairs_count]
+        elif len(self.significant_changes_flags) < pairs_count:
+            self.significant_changes_flags += [False] * (pairs_count - len(self.significant_changes_flags))
+
+    def save_settings(self):
+        with open(self.settings_file, "w") as f:
+            json.dump(self.settings, f, indent=2)
+
+    def _safe_stop_generation(self, callback=None):
+        if hasattr(self, '_stopping') and self._stopping:
+            return
+        if self.is_generating:
+            self._stopping = True
+            self.stop_generation_flag = True
+            self._wait_for_generation_stop(callback)
+        else:
+            if callback:
+                callback()
+        if hasattr(self, '_stopping'):
+            self._stopping = False
+
+    def _wait_for_generation_stop(self, callback):
+        if not self.is_generating:
+            if callback:
+                callback()
+        else:
+            self.after(100, lambda: self._wait_for_generation_stop(callback))
+
+    def _save_current_session_safe(self):
+        if not self.current_session_id:
+            return
+        self._sync_significant_flags_with_history()
+
+        history_to_save = self.conversation_history.copy()
+        while history_to_save and history_to_save[0]["role"] == "assistant":
+            history_to_save.pop(0)
+
+        session_data = self.storage.load_session(self.current_session_id)
+        if session_data is None:
+            session_data = {
+                "name": "Безымянный чат",
+                "profile": self.current_profile.to_dict(),
+                "history": history_to_save,
+                "created": datetime.now().isoformat(),
+                "local_descriptions": self.local_descriptions,
+                "memory_summaries": self.memory_summaries,
+                "associative_memory": self.associative_memory,
+                "memory_turn_index": self.memory_turn_index,
+                "assoc_turn_changes": self.assoc_turn_changes,
+                "significant_changes_flags": self.significant_changes_flags,
+            }
+        else:
+            session_data["profile"] = self.current_profile.to_dict()
+            session_data["history"] = history_to_save
+            session_data["local_descriptions"] = self.local_descriptions
+            session_data["memory_summaries"] = self.memory_summaries
+            session_data["associative_memory"] = self.associative_memory
+            session_data["memory_turn_index"] = self.memory_turn_index
+            session_data["assoc_turn_changes"] = self.assoc_turn_changes
+            session_data["significant_changes_flags"] = self.significant_changes_flags
+
+        sp = self.stage_processor
+        scene_data = {
+            "scene_location_id": sp.stage_data.get("scene_location_id"),
+            "scene_character_ids": sp.stage_data.get("scene_character_ids", []),
+            "scene_item_ids": sp.stage_data.get("scene_item_ids", []),
+            "scene_scenario_ids": sp.stage_data.get("scene_scenario_ids", []),
+            "descriptions": sp.stage_data.get("descriptions", {}),
+            "scene_summary": sp.stage_data.get("scene_summary", ""),
+            "emotion_map": sp.stage_data.get("emotion_map", {})
+        }
+        session_data["scene_state"] = scene_data
+
+        if sp.debug_mode:
+            debug_state = sp.get_debug_state()
+            if debug_state:
+                session_data["debug_state"] = debug_state
+        else:
+            session_data.pop("debug_state", None)
+
+        session_data["last_used"] = datetime.now().isoformat()
+        self.storage.save_session(self.current_session_id, session_data)
+
+    def list_sessions(self) -> List[str]:
+        return self.storage.list_sessions()
+
+    def delete_session(self, session_id: str):
+        self.storage.delete_session(session_id)
+
+    def _load_last_session(self):
+        sessions = self.list_sessions()
+        if not sessions:
+            self._handle_new_session()
+            return
+
+        latest_sid = None
+        latest_time = None
+        for sid in sessions:
+            data = self.storage.load_session(sid)
+            if data is None:
+                continue
+            last_used = data.get("last_used")
+            if last_used:
+                try:
+                    dt = datetime.fromisoformat(last_used)
+                    if latest_time is None or dt > latest_time:
+                        latest_time = dt
+                        latest_sid = sid
+                except:
+                    pass
+        if latest_sid is None:
+            self._handle_new_session()
+        else:
+            self._handle_load_session({"session_id": latest_sid})
+
+    def _handle_save_current_session(self, data=None):
+        self._save_current_session_safe()
+
+    def get_associative_memory_for_object(self, object_id: str) -> str:
+        changes = self.associative_memory.get(object_id, [])
+        if not changes:
+            return ""
+        return "Изменения: " + "; ".join(changes)
+
+    def _handle_clear_chat(self, data=None):
+        if messagebox.askyesno(loc.tr("center_clear"), loc.tr("confirm_clear_chat")):
+            self.stop_generation_flag = True
+            self.stage_processor.abort()
+            self.associative_memory = {}
+            self.memory_turn_index = []
+            self.assoc_turn_changes = []
+            self.significant_changes_flags = []
+            if self.is_generating:
+                self.stop_generation_flag = True
+            self.conversation_history = []
+            self.last_user_message = ""
+            self.local_descriptions = {}
+            self.memory_summaries = []
+            self.last_original_response = None
+            self.last_translated_response = None
+            self._save_current_session_safe()
+            self.center_panel.clear_chat()
+            self.center_panel.display_message(loc.tr("center_clear") + "\n", "system")
+            self.center_panel.update_translation_button_state()
+            self.center_panel.update_token_count(0, 0)
+            self._log_debug("MEMORY_CLEARED", "All memory cleared")
+
+    def _handle_delete_last_user_message(self, data=None):
+        if self.is_generating:
+            messagebox.showwarning(loc.tr("center_stop"), loc.tr("error_stop_first"))
+            return
+        self.stop_generation_flag = True
+        self.stage_processor.abort()
+
+        if not self.conversation_history:
+            return
+
+        last_user_index = -1
+        last_assistant_index = -1
+        for i in range(len(self.conversation_history) - 1, -1, -1):
+            if self.conversation_history[i]["role"] == "user":
+                last_user_index = i
+                if i + 1 < len(self.conversation_history) and self.conversation_history[i + 1]["role"] == "assistant":
+                    last_assistant_index = i + 1
+                break
+
+        if last_user_index == -1:
+            messagebox.showinfo(loc.tr("center_delete_last"), loc.tr("error_no_last_message"))
+            return
+
+        if last_assistant_index != -1:
+            del self.conversation_history[last_user_index:last_assistant_index + 1]
+            if self.memory_turn_index:
+                num_summaries = self.memory_turn_index.pop()
+                for _ in range(num_summaries):
+                    if self.memory_summaries:
+                        self.memory_summaries.pop()
+            if self.assoc_turn_changes:
+                changes = self.assoc_turn_changes.pop()
+                for entry in changes:
+                    obj_id = entry["object_id"]
+                    change = entry["change"]
+                    if obj_id in self.associative_memory:
+                        if change in self.associative_memory[obj_id]:
+                            self.associative_memory[obj_id].remove(change)
+                        if not self.associative_memory[obj_id]:
+                            del self.associative_memory[obj_id]
+            if self.significant_changes_flags:
+                self.significant_changes_flags.pop()
+        else:
+            del self.conversation_history[last_user_index]
+
+        self._sync_last_user_message()
+        self.last_original_response = None
+        self.last_translated_response = None
+        self._sync_significant_flags_with_history()
+        self._save_current_session_safe()
+
+        self.center_panel.clear_chat()
+        for msg in self.conversation_history:
+            role = loc.tr("center_user_prefix").rstrip(": ") if msg["role"] == "user" else loc.tr("center_assistant_prefix").rstrip(": ")
+            tag = "user" if msg["role"] == "user" else "assistant"
+            self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+
+        self.center_panel.update_translation_button_state()
+        messagebox.showinfo(loc.tr("center_delete_last"), loc.tr("center_delete_last"))
+
+    def _handle_new_session(self, data=None):
+        def do_new():
+            self.stop_generation_flag = True
+            self.stage_processor.abort()
+
+            self.associative_memory = {}
+            self.memory_turn_index = []
+            self.assoc_turn_changes = []
+            self.significant_changes_flags = []
+            if self.current_session_id:
+                self._save_current_session_safe()
+            session_id = str(uuid.uuid4())
+            default_name = f"Чат {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            new_profile = GameProfile(
+                name=f"Profile_{session_id[:8]}",
+                enabled_narrators=self.current_profile.enabled_narrators.copy(),
+                enabled_characters=self.current_profile.enabled_characters.copy(),
+                enabled_locations=self.current_profile.enabled_locations.copy(),
+                enabled_items=self.current_profile.enabled_items.copy(),
+                enabled_events=self.current_profile.enabled_events.copy(),
+                enabled_scenarios=self.current_profile.enabled_scenarios.copy(),
+                enabled_emotions=self.current_profile.enabled_emotions.copy()
+            )
+            session_data = {
+                "name": default_name,
+                "profile": new_profile.to_dict(),
+                "history": [],
+                "created": datetime.now().isoformat(),
+                "last_used": datetime.now().isoformat(),
+                "local_descriptions": {},
+                "memory_summaries": [],
+                "associative_memory": {},
+                "memory_turn_index": [],
+                "assoc_turn_changes": [],
+                "significant_changes_flags": [],
+                "scene_state": {}
+            }
+            self.storage.save_session(session_id, session_data)
+            self.current_session_id = session_id
+            self.current_profile = new_profile
+            self.conversation_history = []
+            self.local_descriptions = {}
+            self.memory_summaries = []
+            self.last_original_response = None
+            self.last_translated_response = None
+            self._sync_profile_with_objects()
+            self.left_panel.refresh_session_list()
+            self.center_panel.clear_chat()
+            self.center_panel.display_message(loc.tr("left_new_session") + "\n", "system")
+            self._refresh_all_ui()
+            self.center_panel.update_translation_button_state()
+            self.center_panel.update_token_count(0, 0)
+
+            self.stage_processor.stage_data.update({
+                "scene_location_id": None,
+                "scene_character_ids": [],
+                "scene_item_ids": [],
+                "scene_scenario_ids": [],
+                "descriptions": {},
+                "scene_summary": "",
+                "emotion_map": {}
+            })
+            if hasattr(self, 'vn_frame') and self.vn_frame and self.vn_frame.winfo_viewable():
+                self.vn_frame.refresh_from_current_state()
+
+        self._safe_stop_generation(do_new)
+
+    def _sync_last_user_message(self):
+        for msg in reversed(self.conversation_history):
+            if msg["role"] == "user":
+                self.last_user_message = msg["content"]
+                return
+        self.last_user_message = ""
+
+    def _handle_load_session(self, data):
+        session_id = data.get("session_id")
+        if not session_id:
+            return
+
+        def do_load():
+            self.stage_processor.abort()
+            self.stop_generation_flag = True
+            self.stage_processor.abort()
+
+            if self.current_session_id:
+                self._save_current_session_safe()
+
+            session_data = self.storage.load_session(session_id)
+            if session_data is None:
+                messagebox.showerror(loc.tr("error_invalid_name"), "Сессия повреждена и не может быть загружена.\nПопробуйте удалить её вручную.")
+                self.left_panel.refresh_session_list()
+                return
+
+            self.current_session_id = session_id
+            self.current_profile = GameProfile.from_dict(session_data.get("profile", {}))
+            if not hasattr(self.current_profile, 'player_character_id'):
+                self.current_profile.player_character_id = None
+            if not hasattr(self.current_profile, 'enabled_events'):
+                self.current_profile.enabled_events = []
+            if not hasattr(self.current_profile, 'enabled_scenarios'):
+                self.current_profile.enabled_scenarios = []
+            if not hasattr(self.current_profile, 'enabled_emotions'):
+                self.current_profile.enabled_emotions = []
+
+            raw_history = session_data.get("history", [])
+            while raw_history and raw_history[0]["role"] == "assistant":
+                raw_history.pop(0)
+            cleaned_history = []
+            for i, msg in enumerate(raw_history):
+                if msg["role"] == "assistant" and cleaned_history and cleaned_history[-1]["role"] == "assistant":
+                    continue
+                cleaned_history.append(msg)
+            self.conversation_history = cleaned_history
+
+            self.local_descriptions = session_data.get("local_descriptions", {})
+            self.memory_summaries = session_data.get("memory_summaries", [])
+            self.associative_memory = session_data.get("associative_memory", {})
+            self.memory_turn_index = session_data.get("memory_turn_index", [])
+            self.assoc_turn_changes = session_data.get("assoc_turn_changes", [])
+            self.significant_changes_flags = session_data.get("significant_changes_flags", [])
+
+            scene_state = session_data.get("scene_state", {})
+            if scene_state:
+                self.stage_processor.restore_scene_from_session(scene_state)
+            else:
+                self.stage_processor._create_default_scene()
+
+            debug_state = session_data.get("debug_state")
+            if debug_state:
+                self.stage_processor.restore_debug_state(debug_state)
+                self.center_panel.debug_mode.set(True)
+                self.center_panel._toggle_debug_mode()
+            else:
+                self.stage_processor.debug_mode = False
+                self.center_panel.debug_mode.set(False)
+
+            self._sync_significant_flags_with_history()
+
+            if self.max_associative_memory_entries > 0:
+                for obj_id in list(self.associative_memory.keys()):
+                    if len(self.associative_memory[obj_id]) > self.max_associative_memory_entries:
+                        self.associative_memory[obj_id] = self.associative_memory[obj_id][-self.max_associative_memory_entries:]
+
+            self._log_debug("MEMORY_LOADED", f"Loaded {len(self.memory_summaries)} summaries, turn index length {len(self.memory_turn_index)}")
+            self._sync_last_user_message()
+            self.last_original_response = None
+            self.last_translated_response = None
+            self._sync_profile_with_objects()
+
+            self.left_panel.refresh_session_list()
+            self.center_panel.clear_chat()
+            for msg in self.conversation_history:
+                role = loc.tr("center_user_prefix").rstrip(": ") if msg["role"] == "user" else loc.tr("center_assistant_prefix").rstrip(": ")
+                tag = "user" if msg["role"] == "user" else "assistant"
+                self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+
+            self.center_panel.display_message(f"Загружена сессия: {session_data.get('name', 'Без имени')}\n", "system")
+            self._refresh_all_ui()
+            self.center_panel.update_translation_button_state()
+            self.center_panel.update_token_count(0, 0)
+
+            if hasattr(self, 'vn_frame') and self.vn_frame and self.vn_frame.winfo_viewable():
+                self.vn_frame.refresh_from_current_state()
+
+            if self.right_panel:
+                self.right_panel.refresh()
+
+            session_data["last_used"] = datetime.now().isoformat()
+            self.storage.save_session(session_id, session_data)
+
+        self._safe_stop_generation(do_load)
+
+    def _handle_delete_session(self, data):
+        session_id = data.get("session_id")
+        if not session_id:
+            return
+
+        def do_delete():
+            sessions = self.list_sessions()
+            if session_id not in sessions:
+                messagebox.showwarning(loc.tr("left_delete_session"), loc.tr("error_invalid_name"))
+                self.left_panel.refresh_session_list()
+                return
+
+            session_name = self.left_panel.get_session_name(session_id)
+            if not messagebox.askyesno(loc.tr("left_delete_session"), loc.tr("confirm_delete_session", name=session_name)):
+                return
+
+            self.delete_session(session_id)
+
+            if session_id == self.current_session_id:
+                self.current_session_id = None
+                self.conversation_history = []
+                self.last_user_message = ""
+                self.local_descriptions = {}
+                self.memory_summaries = []
+                self.associative_memory = {}
+                self.memory_turn_index = []
+                self.assoc_turn_changes = []
+                self.significant_changes_flags = []
+                self.last_original_response = None
+                self.last_translated_response = None
+
+                remaining_sessions = self.list_sessions()
+                if remaining_sessions:
+                    latest_sid = None
+                    latest_time = None
+                    for sid in remaining_sessions:
+                        data = self.storage.load_session(sid)
+                        if data is None:
+                            continue
+                        last_used = data.get("last_used")
+                        if last_used:
+                            try:
+                                dt = datetime.fromisoformat(last_used)
+                                if latest_time is None or dt > latest_time:
+                                    latest_time = dt
+                                    latest_sid = sid
+                            except:
+                                pass
+                    if latest_sid is None:
+                        latest_sid = remaining_sessions[0]
+                    self._handle_load_session({"session_id": latest_sid})
+                else:
+                    self._handle_new_session()
+            else:
+                self.left_panel.refresh_session_list()
+
+        self._safe_stop_generation(do_delete)
+
+    def _handle_rename_session(self, data):
+        session_id = data.get("session_id")
+        new_name = data.get("new_name")
+        if not session_id or not new_name:
+            return
+        self.storage.rename_session(session_id, new_name)
+        self.left_panel.refresh_session_list()
+
+    def _handle_regenerate_last_response(self, data=None):
+        if self.is_generating:
+            messagebox.showwarning(loc.tr("center_regenerate"), loc.tr("error_generation_in_progress"))
+            return
+        if not self.last_user_message:
+            messagebox.showinfo(loc.tr("center_regenerate"), loc.tr("error_no_last_message"))
+            return
+
+        if len(self.conversation_history) >= 2 and self.conversation_history[-2]["role"] == "user" and self.conversation_history[-1]["role"] == "assistant":
+            self.conversation_history.pop()
+        elif self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
+            self.conversation_history.pop()
+
+        if self.memory_turn_index:
+            num_summaries = self.memory_turn_index.pop()
+            for _ in range(num_summaries):
+                if self.memory_summaries:
+                    self.memory_summaries.pop()
+        if self.assoc_turn_changes:
+            changes = self.assoc_turn_changes.pop()
+            for entry in changes:
+                obj_id = entry["object_id"]
+                change = entry["change"]
+                if obj_id in self.associative_memory:
+                    if change in self.associative_memory[obj_id]:
+                        self.associative_memory[obj_id].remove(change)
+                    if not self.associative_memory[obj_id]:
+                        del self.associative_memory[obj_id]
+        if self.significant_changes_flags:
+            self.significant_changes_flags.pop()
+
+        self._sync_significant_flags_with_history()
+        self._save_current_session_safe()
+
+        self.last_original_response = None
+        self.last_translated_response = None
+        self.center_panel.clear_chat()
+        for msg in self.conversation_history:
+            role = loc.tr("center_user_prefix").rstrip(": ") if msg["role"] == "user" else loc.tr("center_assistant_prefix").rstrip(": ")
+            tag = "user" if msg["role"] == "user" else "assistant"
+            self.center_panel.display_message(f"{role}: {msg['content']}\n\n", tag)
+
+        if self.right_panel:
+            self.right_panel.refresh()
+        if hasattr(self, 'vn_frame') and self.vn_frame and self.vn_frame.winfo_viewable():
+            self.vn_frame.refresh_from_current_state()
+
+        self.stop_generation_flag = False
+        self.stage_processor.reset()
+
+        self._start_debug_log(f"REGENERATE: {self.last_user_message}")
+        self._start_generation(self.last_user_message)
+
+    def _handle_regenerate_translation(self, data=None):
+        if self.is_generating:
+            messagebox.showwarning(loc.tr("center_regenerate_translation"), loc.tr("error_generation_in_progress"))
+            return
+        if not self.enable_assistant_translation or not self.use_two_models:
+            messagebox.showinfo(loc.tr("center_regenerate_translation"), loc.tr("error_invalid_name"))
+            return
+        if not self.last_original_response:
+            messagebox.showinfo(loc.tr("center_regenerate_translation"), loc.tr("error_no_last_message"))
+            return
+        if self.conversation_history and self.conversation_history[-1]["role"] == "assistant":
+            self.conversation_history.pop()
+            self._save_current_session_safe()
+        self.center_panel.remove_last_response()
+        self._translate_response_stream(self.last_original_response, response_start_index=None)
+
+    def _handle_regenerate_last_step(self, data=None):
+        if self.is_generating:
+            messagebox.showwarning(loc.tr("center_regenerate_step"), loc.tr("error_stop_first"))
+            return
+        if not self.stage_processor.debug_mode:
+            messagebox.showinfo(loc.tr("center_debug_mode"), loc.tr("error_debug_mode_off"))
+            return
+        if not self.stage_processor.regenerate_last_step():
+            pass
+        else:
+            self._save_current_session_safe()
+
+    def _handle_send_message(self, data):
+        message = data.get("message", "").strip()
+        if not message:
+            return
+
+        if self.conversation_history and self.conversation_history[-1]["role"] == "user":
+            self.center_panel.display_message(
+                loc.tr("messages_model_generating").replace("Дождитесь или нажмите «Стоп».", "Нельзя отправлять два сообщения пользователя подряд. Дождитесь ответа ассистента."),
+                "system"
+            )
+            return
+
+        self.conversation_history.append({"role": "user", "content": message})
+        self.last_user_message = message
+
+        self.last_original_response = None
+        self.last_translated_response = None
+
+        self._save_current_session_safe()
+        self._start_debug_log(message)
+        self._start_generation(message)
+
+    def _handle_start_game(self, data=None):
+        if messagebox.askyesno(loc.tr("center_start_game"), loc.tr("confirm_start_game")):
+            self._handle_save_current_session()
+            self.center_panel.clear_chat()
+            self.conversation_history = []
+            self.last_user_message = ""
+            self.last_original_response = None
+            self.last_translated_response = None
+            self.memory_summaries = []
+            self.memory_turn_index = []
+            self.assoc_turn_changes = []
+            self.significant_changes_flags = []
+            self.associative_memory = {}
+            self.local_descriptions = {}
+            self.center_panel.update_translation_button_state()
+            self._start_debug_log("SYSTEM: Начнем игру")
+            start_message = "Начнем игру. Пожалуйста, опиши, где находится персонаж игрока и что он видит."
+            self.conversation_history.append({"role": "user", "content": start_message})
+            self.last_user_message = start_message
+            self._save_current_session_safe()
+            self._start_generation(start_message)
+
+    def _handle_stop_generation(self, data=None):
+        if self.is_generating:
+            self.stage_processor.abort()
+            self._log_debug("USER_STOPPED_GENERATION")
+
+    def _start_generation(self, user_message: str):
+        if self.is_generating:
+            messagebox.showwarning(loc.tr("center_send"), loc.tr("error_generation_in_progress"))
+            return
+        if self.vn_frame and self.vn_frame.winfo_viewable():
+            self.vn_frame.set_freeze(True)
+
+        self.stop_generation_flag = False
+        self.stage_processor.reset()
+
+        self.current_generation_added_summaries.clear()
+        self.current_generation_added_assoc.clear()
+        self.is_generating = True
+        self.stop_generation_flag = False
+        self.center_panel.set_input_state(tk.DISABLED)
+        self.center_panel.start_new_response(clear_thinking=True)
+        configurable_stages = ["stage1_request_descriptions", "stage1_validate_scene", "stage1_truth_check",
+                            "stage1_player_action", "stage1_random_event", "stage2_npc_action",
+                            "stage4_summary", "stage10_associative_memory"]
+        any_enabled = any(self.enabled_stages.get(stage, True) for stage in configurable_stages)
+        if not any_enabled:
+            self._direct_chat(user_message)
+        else:
+            self.stage_processor.last_changed_objects = []
+            self.stage_processor.start_generation(user_message)
+
+    def _direct_chat(self, user_message: str):
+        self._log_debug("DIRECT_CHAT", f"User message: {user_message}")
+        system_prompt = self.prompt_manager.get_prompt_content("stage3_final")
+        user_data = f"Сообщение пользователя: {user_message}\n\nДай ответ."
+        self.center_panel.start_temp_response()
+        self._send_model_request(
+            user_content=user_data,
+            callback=self._after_direct_chat,
+            extra=None,
+            stage_name="direct_chat",
+            use_temp=True,
+            show_in_thinking=False
+        )
+
+    def _after_direct_chat(self, content, extra):
+        final_text = content.strip()
+        if not final_text:
+            final_text = "(Модель не дала ответа)"
+        self.center_panel.clear_temp_response()
+        self.center_panel.display_message(f"\n{loc.tr('center_assistant_prefix')}{final_text}\n\n", "assistant")
+        self.conversation_history.append({"role": "assistant", "content": final_text})
+        self._finalize_generation_memory_turn()
+        self._save_current_session_safe()
+        self._finish_direct_chat()
+
+    def _finish_direct_chat(self):
+        self.is_generating = False
+        self.center_panel.set_input_state("normal")
+        self.center_panel.update_translation_button_state()
+        self.current_debug_log_path = None
+
+    def _send_model_request(self, user_content: str, callback, extra=None,
+                            stage_name: str = None, use_temp: bool = False,
+                            show_in_thinking: bool = False,
+                            context_data: Dict = None,
+                            model_choice: str = None,
+                            temperature_override: float = None):
+        messages = []
+        if context_data is None:
+            context_data = {}
+
+        if stage_name and stage_name in self.stage_prompts_config:
+            config = self.stage_prompts_config.get(stage_name, [])
+            for entry in config:
+                if entry.startswith("narrator:"):
+                    continue
+                elif entry == "history:auto":
+                    continue
+                else:
+                    try:
+                        raw_content = self.prompt_manager.get_prompt_content(entry)
+                        try:
+                            formatted = raw_content.format(**{k: v for k, v in context_data.items() if k in raw_content})
+                        except KeyError as e:
+                            self._log_debug("PROMPT_FORMAT_WARNING", f"Missing key {e} in prompt {entry}")
+                            formatted = raw_content
+                        except Exception as e:
+                            self._log_debug("PROMPT_FORMAT_ERROR", f"Error formatting {entry}: {e}")
+                            formatted = raw_content
+                        if formatted:
+                            messages.append({"role": "system", "content": formatted})
+                    except Exception as e:
+                        self._log_debug("ERROR", f"Failed to load system prompt '{entry}': {e}")
+
+        messages.append({"role": "user", "content": user_content})
+
+        if stage_name and stage_name in self.stage_prompts_config:
+            config = self.stage_prompts_config.get(stage_name, [])
+            extra_user_messages = []
+            for entry in reversed(config):
+                if entry.startswith("narrator:"):
+                    narr_id = entry[9:]
+                    narr = self.narrators.get(narr_id)
+                    if narr and narr.description:
+                        extra_user_messages.insert(0, {"role": "user", "content": f"Стиль рассказчика {narr.name}:\n{narr.description}"})
+                elif entry == "history:auto":
+                    mem_cfg = self.stage_memory_config.get(stage_name, {"max_history": 10, "max_summaries": 5})
+                    max_history = mem_cfg.get("max_history", 10)
+                    max_summaries = mem_cfg.get("max_summaries", 5)
+                    if max_history > 0 and self.conversation_history:
+                        history_msgs = [msg for msg in self.conversation_history if msg["role"] in ("user", "assistant")]
+                        history_msgs = history_msgs[-max_history:]
+                        if history_msgs:
+                            history_text = "Предыдущий диалог:\n" + "\n".join(f"{msg['role']}: {msg['content']}" for msg in history_msgs)
+                            extra_user_messages.insert(0, {"role": "user", "content": history_text})
+                    if max_summaries > 0 and self.memory_summaries:
+                        recent_summaries = self.memory_summaries[-max_summaries:]
+                        if recent_summaries:
+                            summary_text = "Краткая история предыдущих событий (справочно):\n" + "\n".join(f"- {s}" for s in recent_summaries)
+                            extra_user_messages.insert(0, {"role": "user", "content": summary_text})
+            for msg in extra_user_messages:
+                messages.insert(-1, msg)
+
+        if self.use_two_models:
+            if model_choice is not None:
+                chosen = model_choice
+            elif stage_name is not None and stage_name in self.stage_model_selection:
+                chosen = self.stage_model_selection[stage_name]
+            else:
+                chosen = "primary"
+            if chosen == "primary":
+                model = self.primary_model
+                default_temp = self.primary_temperature
+                max_tok = self.primary_max_tokens
+            else:
+                model = self.translator_model
+                default_temp = self.translator_temperature
+                max_tok = self.translator_max_tokens
+        else:
+            model = self.model_name
+            default_temp = self.settings.get("temperature", 0.7)
+            max_tok = self.settings.get("max_tokens", 4096)
+
+        temp = temperature_override if temperature_override is not None else default_temp
+
+        full_prompt_lines = []
+        full_prompt_lines.append(f"=== МОДЕЛЬ: {model} ===")
+        full_prompt_lines.append(f"Температура: {temp}, Max tokens: {max_tok}\n")
+        for i, msg in enumerate(messages, 1):
+            role = msg.get("role", "unknown").upper()
+            content = msg.get("content", "")
+            full_prompt_lines.append(f"[{i}] {role}:")
+            for line in content.split('\n'):
+                full_prompt_lines.append(f"  {line}")
+            full_prompt_lines.append("")
+        full_prompt = "\n".join(full_prompt_lines)
+        self.center_panel.log_system_prompt(full_prompt, stage_name)
+        self._log_debug("SEND_MODEL_REQUEST", full_prompt)
+
+        def stream_and_process():
+            full_content = ""
+            thinking_buffer = ""
+            error = None
+            try:
+                for chunk in self.lm_client.chat_completion_stream(
+                    messages=messages,
+                    model=model,
+                    temperature=temp,
+                    max_tokens=max_tok,
+                ):
+                    if self.stop_generation_flag:
+                        break
+                    if chunk["type"] == "reasoning":
+                        thinking_buffer += chunk["text"]
+                        if show_in_thinking:
+                            self.after(0, lambda t=chunk["text"]: self.center_panel.append_thinking(t))
+                    elif chunk["type"] == "content":
+                        full_content += chunk["text"]
+                        if show_in_thinking:
+                            thinking_buffer += chunk["text"]
+                            self.after(0, lambda t=chunk["text"]: self.center_panel.append_thinking(t))
+                        else:
+                            if use_temp:
+                                self.after(0, lambda t=chunk["text"]: self.center_panel.append_temp_content(t))
+                            else:
+                                self.after(0, lambda t=chunk["text"]: self.center_panel.append_response(t))
+                    elif chunk["type"] == "error":
+                        error = chunk["message"]
+                        break
+            except Exception as e:
+                error = str(e)
+
+            if thinking_buffer.strip():
+                self._log_debug(f"FULL_REASONING_{stage_name}", thinking_buffer)
+
+            if error:
+                self._log_debug("MODEL_ERROR", error=error)
+                self.after(0, lambda: self.center_panel.display_message(f"\n[Ошибка: {error}]\n", "error"))
+                self.after(0, lambda: setattr(self, 'is_generating', False))
+                self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
+                return
+            if self.stop_generation_flag:
+                self.after(0, lambda: self.center_panel.display_message("\n[Остановлено]\n", "system"))
+                self.after(0, lambda: setattr(self, 'is_generating', False))
+                self.after(0, lambda: self.center_panel.set_input_state(tk.NORMAL))
+                return
+
+            self.after(0, lambda: callback(full_content, extra))
+
+        threading.Thread(target=stream_and_process, daemon=True).start()
+
+    def _load_all_data(self):
+        self.narrators = {obj.id: obj for obj in self.storage.load_all_objects("narrators")}
+        self.characters = {obj.id: obj for obj in self.storage.load_all_objects("characters")}
+        self.locations = {obj.id: obj for obj in self.storage.load_all_objects("locations")}
+        self.items = {obj.id: obj for obj in self.storage.load_all_objects("items")}
+        self.events = {obj.id: obj for obj in self.storage.load_all_objects("events")}
+        self.scenarios = {obj.id: obj for obj in self.storage.load_all_objects("scenarios")}
+        self.emotions = {obj.id: obj for obj in self.storage.load_all_objects("emotions")}
+
+    def _sync_profile_with_objects(self):
+        self.current_profile.enabled_narrators = [nid for nid in self.current_profile.enabled_narrators if nid in self.narrators]
+        self.current_profile.enabled_characters = [cid for cid in self.current_profile.enabled_characters if cid in self.characters]
+        self.current_profile.enabled_locations = [lid for lid in self.current_profile.enabled_locations if lid in self.locations]
+        self.current_profile.enabled_items = [iid for iid in self.current_profile.enabled_items if iid in self.items]
+        self.current_profile.enabled_events = [eid for eid in self.current_profile.enabled_events if eid in self.events]
+        self.current_profile.enabled_scenarios = [sid for sid in self.current_profile.enabled_scenarios if sid in self.scenarios]
+        self.current_profile.enabled_emotions = [eid for eid in self.current_profile.enabled_emotions if eid in self.emotions]
+
+    def get_object_description_with_local(self, obj_id: str) -> str:
+        obj = self._get_object_by_id(obj_id)
+        if not obj:
+            return f"Объект {obj_id} не найден."
+        global_desc = obj.description if obj.description else "Нет глобального описания."
+        local_desc = self.local_descriptions.get(obj_id, "")
+        if local_desc:
+            return f"Глобальное описание: {global_desc}\nЛокальное описание: {local_desc}"
+        else:
+            return f"Описание: {global_desc}"
+
+    def _handle_refresh_ui(self, data=None):
+        self._refresh_all_ui()
+        if self.center_panel:
+            self.center_panel.update_translation_button_state()
+
+    def _handle_update_settings(self, data):
+        if not data:
+            return
+        self.random_event_chance = data.get("random_event_chance", 30)
+        self.settings.update(data)
+        self.save_settings()
+        self.max_history_messages = data.get("max_history_messages", 10)
+        self.max_memory_summaries = data.get("max_memory_summaries", 5)
+        self.use_two_models = data.get("use_two_models", False)
+        self.primary_model = data.get("primary_model", "local-model")
+        self.translator_model = data.get("translator_model", "local-model")
+        self.enable_assistant_translation = data.get("enable_assistant_translation", False)
+        if not self.use_two_models:
+            self.enable_assistant_translation = False
+            self.settings["enable_assistant_translation"] = False
+        self.model_name = data.get("model_name", "local-model")
+        self.primary_temperature = data.get("primary_temperature", 0.7)
+        self.primary_max_tokens = data.get("primary_max_tokens", 4096)
+        self.translator_temperature = data.get("translator_temperature", 0.3)
+        self.translator_max_tokens = data.get("translator_max_tokens", 4096)
+        self.lm_client.base_url = data.get("api_url", "http://localhost:1234/v1")
+        self.lm_client.set_default_params(
+            max_tokens=data.get("max_tokens", 4096),
+            temperature=data.get("temperature", 0.7)
+        )
+        self.max_associative_memory_entries = data.get("max_associative_memory_entries", 5)
+        self.enable_associative_memory = data.get("enable_associative_memory", True)
+        if self.center_panel:
+            self.center_panel.update_translation_button_state()
+        self.enable_memory_summary = data.get("enable_memory_summary", False)
+        self.max_memory_summaries = data.get("max_memory_summaries", 5)
+
+        self.max_locations_per_scene = data.get("max_locations_per_scene", 5)
+        self.max_characters_per_scene = data.get("max_characters_per_scene", 10)
+        self.max_items_per_scene = data.get("max_items_per_scene", 20)
+        self.max_events_per_scene = data.get("max_events_per_scene", 10)
+        self.max_scenarios_per_scene = data.get("max_scenarios_per_scene", 5)
+
+        # Обновление языка, если изменился
+        new_lang = data.get("language", "ru")
+        if new_lang != loc.get_language():
+            loc.set_language(new_lang)
+            self.prompt_manager.set_language(new_lang)
+            self._refresh_all_ui()
+            # обновляем заголовок окна
+            self.title(loc.tr("app_title"))
+            # принудительно обновляем все тексты на существующих виджетах
+            if self.left_panel:
+                self.left_panel.refresh_language()
+            if self.center_panel:
+                self.center_panel.refresh_language()
+            if self.right_panel:
+                self.right_panel.refresh()
+            if self.mode_switch_btn:
+                if self.normal_frame.winfo_viewable():
+                    self.mode_switch_btn.config(text=loc.tr("vn_switch_to_vn"))
+                else:
+                    self.mode_switch_btn.config(text=loc.tr("vn_switch_to_normal"))
+
+        all_stages = StageProcessor.ALL_STAGES
+        saved_enabled = data.get("enabled_stages", {})
+        self.enabled_stages = {stage: saved_enabled.get(stage, True) for stage in all_stages}
+        saved_retries = data.get("stage_retry_limits", {})
+        self.stage_retry_limits = {stage: saved_retries.get(stage, 2) for stage in all_stages}
+
+        saved_mem_config = data.get("stage_memory_config", {})
+        for stage in all_stages:
+            if stage in saved_mem_config:
+                cfg = saved_mem_config[stage]
+                self.stage_memory_config[stage] = {
+                    "max_history": cfg.get("max_history", 10),
+                    "max_summaries": cfg.get("max_summaries", 5)
+                }
+
+        saved_model_choice = data.get("stage_model_selection", {})
+        for stage in all_stages:
+            if stage in saved_model_choice:
+                self.stage_model_selection[stage] = saved_model_choice[stage]
+
+        saved_temp_config = data.get("stage_temperature_config", {})
+        for stage in all_stages:
+            if stage in saved_temp_config:
+                self.stage_temperature_config[stage] = saved_temp_config[stage]
+            else:
+                self.stage_temperature_config[stage] = None
+
+        self.save_settings()
+        messagebox.showinfo(loc.tr("settings_title"), loc.tr("profile_save"))
+
+    def _handle_update_profile(self, data):
+        if not data:
+            return
+        self.current_profile.enabled_narrators = data.get("enabled_narrators", self.current_profile.enabled_narrators)
+        self.current_profile.enabled_characters = data.get("enabled_characters", self.current_profile.enabled_characters)
+        self.current_profile.enabled_locations = data.get("enabled_locations", self.current_profile.enabled_locations)
+        self.current_profile.enabled_items = data.get("enabled_items", self.current_profile.enabled_items)
+        self.current_profile.enabled_events = data.get("enabled_events", self.current_profile.enabled_events)
+        self.current_profile.enabled_scenarios = data.get("enabled_scenarios", self.current_profile.enabled_scenarios)
+        self.current_profile.enabled_emotions = data.get("enabled_emotions", self.current_profile.enabled_emotions)
+        self._sync_profile_with_objects()
+        self._save_current_session_safe()
+        self._save_profile_to_file()
+        self._refresh_all_ui()
+        self._cleanup_stage_prompts_narrators()
+
+    def _handle_save_profile(self, data=None):
+        name = self.current_profile.name
+        if not name or name == "Default":
+            new_name = simpledialog.askstring(loc.tr("profile_save"), loc.tr("profile_save"), initialvalue=name, parent=self)
+            if not new_name:
+                return
+            self.current_profile.name = new_name
+        self._save_profile_to_file()
+        messagebox.showinfo(loc.tr("profile_save"), f"Профиль '{self.current_profile.name}' сохранён.")
+        self._refresh_all_ui()
+
+    def _handle_load_profile(self, data):
+        name = data.get("name")
+        if not name:
+            return
+        profile = self.storage.load_profile(name)
+        if profile is None:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Профиль '{name}' не найден.")
+            return
+        self.current_profile = profile
+        self._sync_profile_with_objects()
+        self._save_current_session_safe()
+        self._refresh_all_ui()
+        self._cleanup_stage_prompts_narrators()
+        messagebox.showinfo(loc.tr("profile_load"), f"Профиль '{name}' загружен.")
+
+    def _handle_new_profile(self, data=None):
+        name = simpledialog.askstring(loc.tr("profile_new"), loc.tr("profile_new"), parent=self)
+        if not name:
+            return
+        if self.storage.load_profile(name) is not None:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Профиль с именем '{name}' уже существует.")
+            return
+        new_profile = GameProfile(name=name)
+        self.current_profile = new_profile
+        self._save_profile_to_file()
+        self._sync_profile_with_objects()
+        self._save_current_session_safe()
+        self._refresh_all_ui()
+        self._cleanup_stage_prompts_narrators()
+        messagebox.showinfo(loc.tr("profile_new"), f"Новый профиль '{name}' создан.")
+
+    def list_profiles(self) -> List[str]:
+        return self.storage.list_profiles()
+
+    def _handle_update_prompt(self, data):
+        name = data.get("name")
+        content = data.get("content", "")
+        if not name:
+            return
+        self.prompt_manager.save_prompt(name, content)
+        if self.right_panel:
+            self.right_panel.notify_prompt_updated(name)
+        messagebox.showinfo(loc.tr("prompts_save"), f"Промт '{name}' сохранён.")
+
+    def _handle_create_prompt(self, data):
+        name = data.get("name")
+        if not name:
+            return
+        if self.prompt_manager.create_prompt(name):
+            if self.right_panel:
+                self.right_panel.notify_prompt_created(name)
+            messagebox.showinfo(loc.tr("prompts_create"), f"Промт '{name}' создан.")
+        else:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Промт с именем '{name}' уже существует.")
+
+    def _handle_delete_prompt(self, data):
+        name = data.get("name")
+        if not name:
+            return
+        if name in self.prompt_manager.REQUIRED_PROMPTS:
+            messagebox.showwarning(loc.tr("prompts_delete"), loc.tr("error_prompt_delete_required"))
+            return
+        if messagebox.askyesno(loc.tr("prompts_delete"), loc.tr("confirm_delete_prompt", name=name)):
+            self.prompt_manager.delete_prompt(name)
+            if self.right_panel:
+                self.right_panel.notify_prompt_deleted(name)
+            messagebox.showinfo(loc.tr("prompts_delete"), f"Промт '{name}' удалён.")
+
+    def _handle_set_local_description(self, data):
+        obj_id = data.get("obj_id")
+        description = data.get("description", "").strip()
+        if not obj_id:
+            return
+        if description:
+            self.local_descriptions[obj_id] = description
+        else:
+            self.local_descriptions.pop(obj_id, None)
+        self._save_current_session_safe()
+        if self.right_panel:
+            self.right_panel.refresh()
+        messagebox.showinfo(loc.tr("editor_reset_local"), f"Локальное описание для {obj_id} сохранено.")
+
+    def _handle_clear_local_description(self, data):
+        obj_id = data.get("obj_id")
+        if not obj_id:
+            return
+        if obj_id in self.local_descriptions:
+            del self.local_descriptions[obj_id]
+            self._save_current_session_safe()
+            if self.right_panel:
+                self.right_panel.refresh()
+            messagebox.showinfo(loc.tr("editor_reset_local"), f"Локальное описание для {obj_id} удалено.")
+
+    def _refresh_all_ui(self):
+        if self.right_panel:
+            self.right_panel.refresh()
+        if self.left_panel:
+            self.left_panel.refresh_session_list()
+            self.left_panel.refresh_campaign_list()
+
+    def _get_object_by_id(self, obj_id: str) -> Optional[BaseObject]:
+        if obj_id.startswith('c'):
+            return self.characters.get(obj_id)
+        if obj_id.startswith('l'):
+            return self.locations.get(obj_id)
+        if obj_id.startswith('i'):
+            return self.items.get(obj_id)
+        if obj_id.startswith('n'):
+            return self.narrators.get(obj_id)
+        if obj_id.startswith('e'):
+            return self.events.get(obj_id)
+        if obj_id.startswith('s'):
+            return self.scenarios.get(obj_id)
+        if obj_id.startswith('em'):
+            return self.emotions.get(obj_id)
+        return None
+
+    def _build_ui(self):
+        self.container = ttk.Frame(self)
+        self.container.pack(fill=tk.BOTH, expand=True)
+
+        self.normal_frame = ttk.Frame(self.container)
+        top_bar = ttk.Frame(self.normal_frame)
+        top_bar.pack(side=tk.TOP, fill=tk.X, padx=5, pady=2)
+        ttk.Label(top_bar, text=loc.tr("mode_normal")).pack(side=tk.LEFT, padx=5)
+        self.mode_switch_btn = ttk.Button(top_bar, text=loc.tr("vn_switch_to_vn"), command=self._toggle_display_mode)
+        self.mode_switch_btn.pack(side=tk.LEFT, padx=2)
+
+        main_pane = ttk.PanedWindow(self.normal_frame, orient=tk.HORIZONTAL)
+        main_pane.pack(fill=tk.BOTH, expand=True)
+        self.left_panel = LeftPanel(main_pane, self)
+        main_pane.add(self.left_panel, weight=1)
+        self.center_panel = CenterPanel(main_pane, self)
+        main_pane.add(self.center_panel, weight=4)
+        self.right_panel = RightPanel(main_pane, self)
+        main_pane.add(self.right_panel, weight=3)
+
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=loc.tr("menu_file"), menu=file_menu)
+        file_menu.add_command(label=loc.tr("menu_new_session"), command=lambda: self.update("new_session"))
+        file_menu.add_command(label=loc.tr("menu_save_session"), command=lambda: self.update("save_current_session"))
+        file_menu.add_separator()
+        file_menu.add_command(label=loc.tr("menu_exit"), command=self._on_closing)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=loc.tr("menu_settings"), menu=settings_menu)
+        settings_menu.add_command(label=loc.tr("menu_settings_api"), command=self._open_settings_dialog)
+
+        self.vn_frame = VisualNovelFrame(self.container, self)
+        self.vn_frame.pack(fill=tk.BOTH, expand=True)
+        self.vn_frame.pack_forget()
+
+        self.normal_frame.pack(fill=tk.BOTH, expand=True)
+
+    def _open_settings_dialog(self):
+        dialog = SettingsDialog(self, self.settings, self.stage_memory_config, self.stage_model_selection, self.stage_temperature_config)
+        self.wait_window(dialog.top)
+        if dialog.result:
+            self.update("update_settings", dialog.result)
+
+    def _translate_response_stream(self, original_content: str, response_start_index: str = None):
+        system_prompt = self.prompt_manager.load_prompt("translator_system")
+        user_prompt = f"Translate to Russian:\n\n{original_content}"
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+        full_prompt_lines = []
+        full_prompt_lines.append(f"=== ПЕРЕВОД (модель: {self.translator_model}) ===")
+        full_prompt_lines.append(f"Температура: {self.translator_temperature}, Max tokens: {self.translator_max_tokens}\n")
+        for msg in messages:
+            role = msg["role"].upper()
+            content = msg["content"]
+            full_prompt_lines.append(f"{role}:\n{content}\n")
+        full_prompt = "\n".join(full_prompt_lines)
+        self.center_panel.log_system_prompt(full_prompt)
+        self._log_debug("TRANSLATE_REQUEST", full_prompt)
+
+        self.center_panel.log_system_prompt(f"=== ПРОМТ ПЕРЕВОДА ===\n{system_prompt}\n{user_prompt}")
+        self.after(0, lambda: self.center_panel.display_system_message("🌐 Перевод ответа...\n"))
+        if response_start_index is None:
+            self.after(0, lambda: self.center_panel.start_translation_response())
+            response_start_index = self.center_panel.get_current_response_start()
+        self.after(0, lambda: self.center_panel.start_translation_stream(response_start_index))
+        temp = self.settings.get("translator_temperature", 0.3)
+        max_tok = self.settings.get("translator_max_tokens", 4096)
+        model = self.settings.get("translator_model", "local-model")
+
+        def translate_stream():
+            full_translation = ""
+            thinking_buffer = ""
+            try:
+                for chunk in self.lm_client.chat_completion_stream(messages=messages, model=model, temperature=temp, max_tokens=max_tok):
+                    if self.stop_generation_flag:
+                        break
+                    if chunk["type"] == "reasoning":
+                        thinking_buffer += chunk["text"]
+                    elif chunk["type"] == "content":
+                        thinking_buffer += chunk["text"]
+                        full_translation += chunk["text"]
+                        self.after(0, lambda text=chunk["text"]: self.center_panel.append_translation_stream(text))
+                    elif chunk["type"] == "error":
+                        self.after(0, lambda msg=chunk["message"]: self.center_panel.display_message(f"\n[Translation error: {msg}]\n", "error"))
+                        return
+                if thinking_buffer.strip():
+                    self._log_debug("FULL_REASONING_translation", thinking_buffer)
+
+                if full_translation:
+                    last_msg = self.conversation_history[-1] if self.conversation_history else None
+                    if last_msg and last_msg["role"] == "assistant" and last_msg["content"] == full_translation:
+                        self.after(0, lambda: self.center_panel.display_message("\n[Перевод совпадает с оригиналом, пропущен]\n", "system"))
+                    else:
+                        self.after(0, lambda: self.conversation_history.append({"role": "assistant", "content": full_translation}))
+                    self.after(0, lambda: self.center_panel.finalize_translation(full_translation, response_start_index))
+                    self.after(0, lambda: setattr(self, 'last_translated_response', full_translation))
+                    self.after(0, lambda: self.center_panel.update_translation_button_state())
+                    self.after(0, lambda: self._save_current_session_safe())
+                else:
+                    self.after(0, lambda: self.center_panel.display_message("\n[Translation failed]\n", "error"))
+            except Exception as e:
+                self.after(0, lambda: self.center_panel.display_message(f"\n[Translation error: {e}]\n", "error"))
+        threading.Thread(target=translate_stream, daemon=True).start()
+
+    def _handle_set_debug_mode(self, data):
+        enabled = data.get("enabled", False)
+        self.stage_processor.set_debug_mode(enabled)
+
+    def _handle_step_continue(self, data=None):
+        self.stage_processor.step_continue()
+
+
+# ---------- Диалог настроек с выбором языка ----------
+class SettingsDialog:
+    def __init__(self, parent, current_settings, stage_memory_config, stage_model_selection, stage_temperature_config):
+        self.top = tk.Toplevel(parent)
+        self.top.title(loc.tr("settings_title"))
+        self.top.transient(parent)
+        self.top.grab_set()
+
+        # ---- ИСПРАВЛЕНИЕ ГЕОМЕТРИИ (динамическое ограничение) ----
+        parent.update_idletasks()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+
+        desired_width = 950
+        desired_height = 1200
+
+        new_width = min(desired_width, parent_width - 20)
+        new_height = min(desired_height, parent_height - 50)
+
+        self.top.geometry(f"{new_width}x{new_height}")
+
+        # Центрирование
+        x = parent.winfo_rootx() + (parent_width // 2) - (new_width // 2)
+        y = parent.winfo_rooty() + (parent_height // 2) - (new_height // 2)
+        self.top.geometry(f"+{x}+{y}")
+        # ---------------------------------------------------------
+
+        self.result = None
+        self.parent = parent
+        self.stage_memory_config = stage_memory_config
+        self.stage_model_selection = stage_model_selection
+        self.stage_temperature_config = stage_temperature_config
+
+        main_canvas = tk.Canvas(self.top, borderwidth=0)
+        scrollbar = ttk.Scrollbar(self.top, orient="vertical", command=main_canvas.yview)
+        main_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        main_canvas.pack(side="left", fill="both", expand=True)
+        main_frame = ttk.Frame(main_canvas, padding="10")
+        main_canvas.create_window((0, 0), window=main_frame, anchor="nw")
+        main_frame.bind("<Configure>", lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all")))
+
+        # --- остальной код без изменений ---
+        ttk.Label(main_frame, text=loc.tr("settings_language")).grid(row=0, column=0, sticky="w", pady=5)
+        self.lang_var = tk.StringVar(value=current_settings.get("language", "ru"))
+        lang_combo = ttk.Combobox(main_frame, values=["ru", "en"], state="readonly", textvariable=self.lang_var, width=10)
+        lang_combo.grid(row=0, column=1, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_api_url")).grid(row=1, column=0, sticky="w", pady=5)
+        self.api_url = ttk.Entry(main_frame, width=50)
+        self.api_url.insert(0, current_settings.get("api_url", "http://localhost:1234/v1"))
+        self.api_url.grid(row=1, column=1, sticky="ew", pady=5)
+        add_context_menu(self.api_url)
+
+        self.use_two_models_var = tk.BooleanVar(value=current_settings.get("use_two_models", False))
+        ttk.Checkbutton(main_frame, text=loc.tr("settings_use_two_models"), variable=self.use_two_models_var, command=self._toggle_two_models).grid(row=2, column=0, columnspan=2, sticky="w", pady=5)
+
+        self.single_frame = ttk.LabelFrame(main_frame, text=loc.tr("settings_single_mode"))
+        self.single_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Label(self.single_frame, text=loc.tr("settings_model")).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        self.model_name_combo = ttk.Combobox(self.single_frame, width=40)
+        self.model_name_combo.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
+        self.model_name_combo.set(current_settings.get("model_name", "local-model"))
+        ttk.Label(self.single_frame, text=loc.tr("settings_temperature")).grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        self.single_temp = ttk.Spinbox(self.single_frame, from_=0.0, to=2.0, increment=0.1, width=10)
+        self.single_temp.delete(0, tk.END)
+        self.single_temp.insert(0, str(current_settings.get("temperature", 0.7)))
+        self.single_temp.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        ttk.Label(self.single_frame, text=loc.tr("settings_max_tokens")).grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.single_max_tokens = ttk.Spinbox(self.single_frame, from_=0, to=200000, width=10)
+        self.single_max_tokens.delete(0, tk.END)
+        self.single_max_tokens.insert(0, str(current_settings.get("max_tokens", 4096)))
+        self.single_max_tokens.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+        self.single_frame.columnconfigure(1, weight=1)
+
+        self.dual_frame = ttk.LabelFrame(main_frame, text=loc.tr("settings_dual_mode"))
+        self.dual_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Label(self.dual_frame, text=loc.tr("settings_primary_model")).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        self.primary_model_combo = ttk.Combobox(self.dual_frame, width=40)
+        self.primary_model_combo.grid(row=0, column=1, sticky="ew", padx=5, pady=2)
+        self.primary_model_combo.set(current_settings.get("primary_model", "local-model"))
+        ttk.Label(self.dual_frame, text=loc.tr("settings_primary_temp")).grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        self.primary_temp = ttk.Spinbox(self.dual_frame, from_=0.0, to=2.0, increment=0.1, width=10)
+        self.primary_temp.delete(0, tk.END)
+        self.primary_temp.insert(0, str(current_settings.get("primary_temperature", 0.7)))
+        self.primary_temp.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        ttk.Label(self.dual_frame, text=loc.tr("settings_primary_max_tokens")).grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.primary_max_tokens = ttk.Spinbox(self.dual_frame, from_=0, to=200000, width=10)
+        self.primary_max_tokens.delete(0, tk.END)
+        self.primary_max_tokens.insert(0, str(current_settings.get("primary_max_tokens", 4096)))
+        self.primary_max_tokens.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+        ttk.Label(self.dual_frame, text=loc.tr("settings_translator_model")).grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        self.translator_model_combo = ttk.Combobox(self.dual_frame, width=40)
+        self.translator_model_combo.grid(row=3, column=1, sticky="ew", padx=5, pady=2)
+        self.translator_model_combo.set(current_settings.get("translator_model", "local-model"))
+        ttk.Label(self.dual_frame, text=loc.tr("settings_translator_temp")).grid(row=4, column=0, sticky="w", padx=5, pady=2)
+        self.translator_temp = ttk.Spinbox(self.dual_frame, from_=0.0, to=2.0, increment=0.1, width=10)
+        self.translator_temp.delete(0, tk.END)
+        self.translator_temp.insert(0, str(current_settings.get("translator_temperature", 0.3)))
+        self.translator_temp.grid(row=4, column=1, sticky="w", padx=5, pady=2)
+        ttk.Label(self.dual_frame, text=loc.tr("settings_translator_max_tokens")).grid(row=5, column=0, sticky="w", padx=5, pady=2)
+        self.translator_max_tokens = ttk.Spinbox(self.dual_frame, from_=0, to=200000, width=10)
+        self.translator_max_tokens.delete(0, tk.END)
+        self.translator_max_tokens.insert(0, str(current_settings.get("translator_max_tokens", 4096)))
+        self.translator_max_tokens.grid(row=5, column=1, sticky="w", padx=5, pady=2)
+        self.dual_frame.columnconfigure(1, weight=1)
+
+        refresh_btn = ttk.Button(main_frame, text=loc.tr("settings_refresh_models"), command=self._refresh_models_list)
+        refresh_btn.grid(row=4, column=0, columnspan=2, pady=5)
+
+        self.enable_assistant_translation_var = tk.BooleanVar(value=current_settings.get("enable_assistant_translation", False))
+        self.translation_cb = ttk.Checkbutton(main_frame, text=loc.tr("settings_enable_translation"), variable=self.enable_assistant_translation_var)
+        self.translation_cb.grid(row=5, column=0, columnspan=2, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_max_locations")).grid(row=6, column=0, sticky="w", pady=5)
+        self.max_locations = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
+        self.max_locations.delete(0, tk.END)
+        self.max_locations.insert(0, str(current_settings.get("max_locations_per_scene", 5)))
+        self.max_locations.grid(row=6, column=1, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_max_characters")).grid(row=7, column=0, sticky="w", pady=5)
+        self.max_characters = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
+        self.max_characters.delete(0, tk.END)
+        self.max_characters.insert(0, str(current_settings.get("max_characters_per_scene", 10)))
+        self.max_characters.grid(row=7, column=1, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_max_items")).grid(row=8, column=0, sticky="w", pady=5)
+        self.max_items = ttk.Spinbox(main_frame, from_=0, to=100, width=10)
+        self.max_items.delete(0, tk.END)
+        self.max_items.insert(0, str(current_settings.get("max_items_per_scene", 20)))
+        self.max_items.grid(row=8, column=1, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_max_events")).grid(row=9, column=0, sticky="w", pady=5)
+        self.max_events = ttk.Spinbox(main_frame, from_=0, to=100, width=10)
+        self.max_events.delete(0, tk.END)
+        self.max_events.insert(0, str(current_settings.get("max_events_per_scene", 10)))
+        self.max_events.grid(row=9, column=1, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_max_scenarios")).grid(row=10, column=0, sticky="w", pady=5)
+        self.max_scenarios = ttk.Spinbox(main_frame, from_=0, to=50, width=10)
+        self.max_scenarios.delete(0, tk.END)
+        self.max_scenarios.insert(0, str(current_settings.get("max_scenarios_per_scene", 5)))
+        self.max_scenarios.grid(row=10, column=1, sticky="w", pady=5)
+
+        self.enable_assoc_memory_var = tk.BooleanVar(value=current_settings.get("enable_associative_memory", True))
+        ttk.Checkbutton(main_frame, text=loc.tr("settings_enable_assoc_memory"), variable=self.enable_assoc_memory_var).grid(row=11, column=0, columnspan=2, sticky="w", pady=5)
+
+        ttk.Label(main_frame, text=loc.tr("settings_max_assoc_entries")).grid(row=12, column=0, sticky="w", pady=5)
+        self.max_assoc_entries = ttk.Spinbox(main_frame, from_=1, to=20, width=10)
+        self.max_assoc_entries.delete(0, tk.END)
+        self.max_assoc_entries.insert(0, str(current_settings.get("max_associative_memory_entries", 5)))
+        self.max_assoc_entries.grid(row=12, column=1, sticky="w", pady=5)
+
+        stages_frame = ttk.LabelFrame(main_frame, text=loc.tr("settings_stage_config"))
+        stages_frame.grid(row=13, column=0, columnspan=2, sticky="ew", pady=10)
+
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_stage"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_enabled"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_retries"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=5, pady=2)
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_history"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=5, pady=2)
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_summaries"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=4, padx=5, pady=2)
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_model"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=5, padx=5, pady=2)
+        ttk.Label(stages_frame, text=loc.tr("settings_stage_col_temperature"), font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=6, padx=5, pady=2)
+
+        stage_list = [
+            ("stage1_request_descriptions", "1.1 Запрос описаний объектов"),
+            ("stage1_create_scene", "1.2 Создание сцены"),
+            ("stage1_truth_check", "2. Проверка правдивости"),
+            ("stage1_player_action", "3. Действие игрока (d20)"),
+            ("stage1_random_event_determine", "4. Определение случайного события (d100)"),
+            ("stage1_random_event_request_objects", "5.1 Запрос объектов для события"),
+            ("stage1_random_event_details", "5.2 Описание события (d20)"),
+            ("stage2_npc_action", "6. Обработка NPC"),
+            ("stage3_final", "7. Финальный рассказ"),
+            ("stage8_history_check", "8.1 Проверка истории"),
+            ("stage11_validation", "8.2 Валидация результата"),
+            ("stage12_emotions", "12. Определение эмоций персонажей"),
+            ("stage11_significant_changes", "11. Проверка значительных изменений"),
+            ("stage4_summary", "9. Краткая память"),
+            ("stage10_associative_memory", "10. Ассоциативная память"),
+        ]
+
+        self.stage_vars = {}
+        self.retry_vars = {}
+        self.history_vars = {}
+        self.summary_vars = {}
+        self.model_choice_vars = {}
+        self.model_choice_widgets = {}
+        self.temp_vars = {}
+
+        for i, (key, label) in enumerate(stage_list, start=1):
+            ttk.Label(stages_frame, text=label).grid(row=i, column=0, sticky="w", padx=5, pady=2)
+            var_enabled = tk.BooleanVar(value=current_settings.get("enabled_stages", {}).get(key, True))
+            self.stage_vars[key] = var_enabled
+            cb = ttk.Checkbutton(stages_frame, variable=var_enabled)
+            cb.grid(row=i, column=1, padx=5, pady=2)
+            var_retry = tk.StringVar(value=str(current_settings.get("stage_retry_limits", {}).get(key, 2)))
+            self.retry_vars[key] = var_retry
+            spin_retry = ttk.Spinbox(stages_frame, from_=0, to=10, width=5, textvariable=var_retry)
+            spin_retry.grid(row=i, column=2, padx=5, pady=2)
+
+            mem_cfg = self.stage_memory_config.get(key, {"max_history": 10, "max_summaries": 5})
+            var_history = tk.StringVar(value=str(mem_cfg.get("max_history", 10)))
+            self.history_vars[key] = var_history
+            spin_history = ttk.Spinbox(stages_frame, from_=0, to=100, width=6, textvariable=var_history)
+            spin_history.grid(row=i, column=3, padx=5, pady=2)
+            var_summary = tk.StringVar(value=str(mem_cfg.get("max_summaries", 5)))
+            self.summary_vars[key] = var_summary
+            spin_summary = ttk.Spinbox(stages_frame, from_=0, to=50, width=6, textvariable=var_summary)
+            spin_summary.grid(row=i, column=4, padx=5, pady=2)
+
+            model_var = tk.StringVar(value=self.stage_model_selection.get(key, "primary"))
+            self.model_choice_vars[key] = model_var
+            model_combo = ttk.Combobox(stages_frame, values=["primary", "translator"], state="readonly", width=10)
+            model_combo.set(model_var.get())
+            model_combo.grid(row=i, column=5, padx=5, pady=2)
+            model_combo.bind("<<ComboboxSelected>>", lambda e, k=key, v=model_var: v.set(model_combo.get()))
+            self.model_choice_widgets[key] = model_combo
+
+            temp_val = self.stage_temperature_config.get(key)
+            if temp_val is None:
+                temp_str = ""
+            else:
+                temp_str = str(temp_val)
+            temp_var = tk.StringVar(value=temp_str)
+            self.temp_vars[key] = temp_var
+            temp_spin = ttk.Spinbox(stages_frame, from_=0.0, to=2.0, increment=0.05, width=8, textvariable=temp_var)
+            temp_spin.grid(row=i, column=6, padx=5, pady=2)
+            self._add_tooltip(temp_spin, loc.tr("settings_stage_col_temperature"))
+
+        stages_frame.columnconfigure(0, weight=1)
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.grid(row=14, column=0, columnspan=2, pady=20)
+        ttk.Button(btn_frame, text=loc.tr("settings_save"), command=self._save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text=loc.tr("settings_cancel"), command=self.top.destroy).pack(side=tk.LEFT, padx=5)
+
+        main_frame.columnconfigure(1, weight=1)
+
+        self._refresh_models_list()
+        self._toggle_two_models()
+
+    def _add_tooltip(self, widget, text):
+        def show(event):
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            label = ttk.Label(tooltip, text=text, background="#ffffe0", relief="solid", borderwidth=1)
+            label.pack()
+            widget.tooltip = tooltip
+        def hide(event):
+            if hasattr(widget, 'tooltip') and widget.tooltip:
+                widget.tooltip.destroy()
+                widget.tooltip = None
+        widget.bind("<Enter>", show)
+        widget.bind("<Leave>", hide)
+
+    def _refresh_models_list(self):
+        api_url = self.api_url.get().strip()
+        base_url = api_url.rstrip('/')
+        if base_url.endswith('/v1'):
+            base_url = base_url[:-3]
+        models = ["local-model"]
+        try:
+            url = f"{base_url}/v1/models"
+            response = requests.get(url, timeout=5)
+            if response.status_code != 200:
+                url = f"{base_url}/models"
+                response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if "data" in data:
+                    for item in data["data"]:
+                        if "id" in item:
+                            models.append(item["id"])
+                elif "models" in data:
+                    for item in data["models"]:
+                        if "id" in item:
+                            models.append(item["id"])
+                seen = set()
+                unique = []
+                for m in models:
+                    if m not in seen:
+                        seen.add(m)
+                        unique.append(m)
+                models = unique
+            else:
+                messagebox.showwarning(loc.tr("settings_refresh_models"), f"Не удалось получить список моделей (HTTP {response.status_code})")
+        except Exception as e:
+            messagebox.showerror(loc.tr("error_invalid_name"), f"Ошибка при запросе к LM Studio:\n{e}")
+        self.model_name_combo['values'] = models
+        self.primary_model_combo['values'] = models
+        self.translator_model_combo['values'] = models
+        if self.model_name_combo.get() not in models:
+            self.model_name_combo.set(models[0] if models else "local-model")
+        if self.primary_model_combo.get() not in models:
+            self.primary_model_combo.set(models[0] if models else "local-model")
+        if self.translator_model_combo.get() not in models:
+            self.translator_model_combo.set(models[0] if models else "local-model")
+
+    def _toggle_two_models(self):
+        if self.use_two_models_var.get():
+            self.dual_frame.grid()
+            self.single_frame.grid_remove()
+            self.translation_cb.config(state="normal")
+            for widget in self.model_choice_widgets.values():
+                widget.config(state="readonly")
+        else:
+            self.single_frame.grid()
+            self.dual_frame.grid_remove()
+            self.translation_cb.config(state="disabled")
+            self.enable_assistant_translation_var.set(False)
+            for widget in self.model_choice_widgets.values():
+                widget.config(state="disabled")
+
+    def _save(self):
+        use_two = self.use_two_models_var.get()
+        enabled_stages = {key: var.get() for key, var in self.stage_vars.items()}
+        stage_retry_limits = {key: int(var.get()) for key, var in self.retry_vars.items()}
+        stage_memory_config = {}
+        for key in self.history_vars:
+            stage_memory_config[key] = {
+                "max_history": int(self.history_vars[key].get()),
+                "max_summaries": int(self.summary_vars[key].get())
+            }
+        stage_model_selection = {key: var.get() for key, var in self.model_choice_vars.items()}
+        stage_temperature_config = {}
+        for key, var in self.temp_vars.items():
+            val = var.get().strip()
+            if val:
+                try:
+                    temp = float(val)
+                    if 0.0 <= temp <= 2.0:
+                        stage_temperature_config[key] = temp
+                    else:
+                        stage_temperature_config[key] = None
+                except ValueError:
+                    stage_temperature_config[key] = None
+            else:
+                stage_temperature_config[key] = None
+        self.result = {
+            "api_url": self.api_url.get().strip(),
+            "model_name": self.model_name_combo.get(),
+            "max_history_messages": 10,
+            "use_two_models": use_two,
+            "primary_model": self.primary_model_combo.get(),
+            "translator_model": self.translator_model_combo.get(),
+            "enable_assistant_translation": self.enable_assistant_translation_var.get(),
+            "primary_temperature": float(self.primary_temp.get()),
+            "primary_max_tokens": int(self.primary_max_tokens.get()),
+            "translator_temperature": float(self.translator_temp.get()),
+            "translator_max_tokens": int(self.translator_max_tokens.get()),
+            "temperature": float(self.single_temp.get()),
+            "max_tokens": int(self.single_max_tokens.get()),
+            "enable_memory_summary": True,
+            "max_memory_summaries": 5,
+            "enable_associative_memory": self.enable_assoc_memory_var.get(),
+            "max_associative_memory_entries": int(self.max_assoc_entries.get()),
+            "max_locations_per_scene": int(self.max_locations.get()),
+            "max_characters_per_scene": int(self.max_characters.get()),
+            "max_items_per_scene": int(self.max_items.get()),
+            "max_events_per_scene": int(self.max_events.get()),
+            "max_scenarios_per_scene": int(self.max_scenarios.get()),
+            "enabled_stages": enabled_stages,
+            "stage_retry_limits": stage_retry_limits,
+            "stage_memory_config": stage_memory_config,
+            "stage_model_selection": stage_model_selection,
+            "stage_temperature_config": stage_temperature_config,
+            "language": self.lang_var.get(),
+        }
+        self.top.destroy()
+
+
+if __name__ == "__main__":
+    app = MainApp()
+    app.mainloop()
