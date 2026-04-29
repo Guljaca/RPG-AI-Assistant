@@ -1051,6 +1051,161 @@ class MainApp(tk.Tk):
             return ""
         return "Изменения: " + "; ".join(changes)
 
+    def _copy_image_to_campaign(self, source_path: str, target_subdir: str) -> str:
+        """Копирует изображение в папку кампании и возвращает относительный путь."""
+        if not source_path or not os.path.exists(source_path):
+            return ""
+        campaign_path = self.storage._get_campaign_path()
+        target_dir = os.path.join(campaign_path, target_subdir)
+        os.makedirs(target_dir, exist_ok=True)
+        base_name = os.path.basename(source_path)
+        target_path = os.path.join(target_dir, base_name)
+        # Если файл уже существует, генерируем уникальное имя
+        if os.path.exists(target_path):
+            name, ext = os.path.splitext(base_name)
+            counter = 1
+            while os.path.exists(os.path.join(target_dir, f"{name}_{counter}{ext}")):
+                counter += 1
+            target_path = os.path.join(target_dir, f"{name}_{counter}{ext}")
+        import shutil
+        shutil.copy2(source_path, target_path)
+        rel_path = os.path.relpath(target_path, campaign_path).replace("\\", "/")
+        return rel_path
+
+    def _import_character_card(self):
+        """Импорт Character Card v3 из JSON или PNG."""
+        file_path = filedialog.askopenfilename(
+            title=loc.tr("menu_import_character_card"),
+            filetypes=[("Character Card files", "*.json *.png"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return
+
+        is_png = file_path.lower().endswith('.png')
+
+        try:
+            if is_png:
+                import base64
+                from PIL import Image
+                with Image.open(file_path) as img:
+                    # Пробуем найти данные в чанках chara или ccv3
+                    chunk_data = img.info.get("chara") or img.info.get("ccv3")
+                    if not chunk_data:
+                        messagebox.showerror(loc.tr("error_import"), "PNG-файл не содержит чанк 'chara' или 'ccv3' с данными карты.")
+                        return
+
+                    json_str = chunk_data
+                    if isinstance(chunk_data, bytes):
+                        json_str = chunk_data.decode('utf-8', errors='ignore')
+
+                    json_str = json_str.lstrip('\x00\xef\xbb\xbf')
+
+                    # Пытаемся декодировать base64
+                    try:
+                        if all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/= \n\r\t' for c in json_str.strip()):
+                            decoded_bytes = base64.b64decode(json_str.strip())
+                            json_str = decoded_bytes.decode('utf-8', errors='ignore')
+                    except Exception:
+                        pass
+
+                    start = json_str.find('{')
+                    if start != -1:
+                        json_str = json_str[start:]
+
+                    if not json_str.strip():
+                        raise ValueError("Empty JSON after cleaning")
+            else:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    json_str = f.read()
+
+            card = json.loads(json_str)
+
+            spec = card.get("spec", card.get("spec_version", ""))
+            if "v3" not in spec and card.get("data", {}).get("character_version") != "v3":
+                if not messagebox.askyesno(loc.tr("warning"), "Файл не похож на Character Card v3. Продолжить?"):
+                    return
+
+            data = card.get("data", {})
+            if not data:
+                messagebox.showerror(loc.tr("error_import"), "Отсутствует поле 'data' в карте.")
+                return
+
+            name = data.get("name", "").strip()
+            if not name:
+                name = "Без имени"
+
+            description_parts = []
+            for field in ("description", "personality", "scenario", "system_prompt", "post_history_instructions"):
+                val = data.get(field, "")
+                if val:
+                    description_parts.append(f"--- {field} ---\n{val}")
+
+            full_description = "\n\n".join(description_parts) if description_parts else "Нет описания."
+            assoc_checks = data.get("post_history_instructions", "")
+
+            from models import Character
+            new_char = Character(
+                name=name,
+                description=full_description,
+                associative_checks=assoc_checks,
+                is_player=False,
+                avatar_image=""
+            )
+
+            # Импорт аватара
+            if is_png:
+                avatar_rel = self._copy_image_to_campaign(file_path, "characters/avatars")
+                new_char.avatar_image = avatar_rel
+            else:
+                avatar_url = data.get("avatar", "")
+                if avatar_url and os.path.exists(avatar_url):
+                    avatar_rel = self._copy_image_to_campaign(avatar_url, "characters/avatars")
+                    new_char.avatar_image = avatar_rel
+                else:
+                    if messagebox.askyesno(loc.tr("import_avatar"), f"Добавить аватар для '{name}'?"):
+                        avatar_path = filedialog.askopenfilename(title="Выберите изображение аватара",
+                                                                 filetypes=[("Images", "*.png *.jpg *.jpeg")])
+                        if avatar_path:
+                            avatar_rel = self._copy_image_to_campaign(avatar_path, "characters/avatars")
+                            new_char.avatar_image = avatar_rel
+
+            self.storage.save_object("characters", new_char)
+            self.characters[new_char.id] = new_char
+
+            if new_char.id not in self.current_profile.enabled_characters:
+                self.current_profile.enabled_characters.append(new_char.id)
+                self._save_profile_to_file()
+
+            scenario_text = data.get("scenario", "")
+            if scenario_text and len(scenario_text.strip()) > 10:
+                if messagebox.askyesno(loc.tr("import_scenario"), f"Создать сценарий из поля 'scenario'?"):
+                    from models import Scenario
+                    scenario_name = f"{name} — начало"
+                    new_scenario = Scenario(
+                        name=scenario_name,
+                        description=scenario_text.strip(),
+                        associative_checks=""
+                    )
+                    self.storage.save_object("scenarios", new_scenario)
+                    self.scenarios[new_scenario.id] = new_scenario
+                    if new_scenario.id not in self.current_profile.enabled_scenarios:
+                        self.current_profile.enabled_scenarios.append(new_scenario.id)
+                        self._save_profile_to_file()
+                    messagebox.showinfo(loc.tr("import_success"), f"Сценарий '{scenario_name}' создан.")
+
+            self._refresh_all_ui()
+            messagebox.showinfo(loc.tr("import_success"), f"Персонаж '{name}' (ID: {new_char.id}) успешно импортирован.")
+
+            if self.right_panel:
+                self.right_panel.show_tab("characters")
+                char_tab = self.right_panel.tab_frames.get("characters")
+                if char_tab and hasattr(char_tab, "_select_object_by_id"):
+                    char_tab._select_object_by_id(new_char.id)
+
+        except Exception as e:
+            messagebox.showerror(loc.tr("error_import"), f"Ошибка импорта:\n{e}")
+            self._log_debug("IMPORT_ERROR", str(e))
+
     def _handle_clear_chat(self, data=None):
         if messagebox.askyesno(loc.tr("center_clear"), loc.tr("confirm_clear_chat")):
             self.stop_generation_flag = True
@@ -2004,6 +2159,7 @@ class MainApp(tk.Tk):
         menubar.add_cascade(label=loc.tr("menu_file"), menu=file_menu)
         file_menu.add_command(label=loc.tr("menu_new_session"), command=lambda: self.update("new_session"))
         file_menu.add_command(label=loc.tr("menu_save_session"), command=lambda: self.update("save_current_session"))
+        file_menu.add_command(label=loc.tr("menu_import_character_card"), command=self._import_character_card)
         file_menu.add_separator()
         file_menu.add_command(label=loc.tr("menu_exit"), command=self._on_closing)
         settings_menu = tk.Menu(menubar, tearoff=0)
@@ -2088,6 +2244,7 @@ class MainApp(tk.Tk):
 
     def _handle_step_continue(self, data=None):
         self.stage_processor.step_continue()
+
 
 # ---------- Диалог настроек с выбором языка и этапом 13 ----------
 class SettingsDialog:

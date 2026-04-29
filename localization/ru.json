@@ -280,5 +280,10 @@
     "label_global": "Global",
     "label_local": "Session",
     "label_primary": "primary",
-    "label_translator": "translator"
+    "label_translator": "translator",
+    "menu_import_character_card": "Импорт карты персонажа (Character Card v3)",
+    "error_import": "Ошибка импорта",
+    "import_avatar": "Аватар",
+    "import_scenario": "Сценарий",
+    "import_success": "Успешный импорт"
 }
