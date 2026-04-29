@@ -83,6 +83,8 @@ class RightPanel(ttk.Frame):
             self.tab_frames[tab_name].refresh()
 
     def refresh(self):
+        if not self.app.storage.current_campaign:
+            return
         for frame in self.tab_frames.values():
             if hasattr(frame, "refresh"):
                 frame.refresh()

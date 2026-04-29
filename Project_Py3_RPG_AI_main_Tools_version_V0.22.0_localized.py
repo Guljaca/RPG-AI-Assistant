@@ -370,7 +370,8 @@ class MainApp(tk.Tk):
     def _refresh_campaign_ui(self):
         if self.left_panel:
             self.left_panel.refresh_campaign_list()
-        if self.right_panel:
+        # Не обновляем правую панель, если нет активной кампании
+        if self.right_panel and self.storage.current_campaign:
             self.right_panel.refresh()
 
     def _handle_select_campaign(self, data):
@@ -441,10 +442,23 @@ class MainApp(tk.Tk):
             messagebox.showwarning(loc.tr("left_delete_campaign"), loc.tr("error_campaign_delete_default"))
             return
         if messagebox.askyesno(loc.tr("left_delete_campaign"), loc.tr("confirm_delete_campaign", name=name)):
+            # Запоминаем, была ли удаляемая кампания текущей
+            was_current = (self.storage.current_campaign == name)
+            # Удаляем кампанию
             self.storage.delete_campaign(name)
-            if self.storage.current_campaign == name:
-                self._handle_select_campaign({"name": "Default"})
+            # Если удалили текущую – выбираем другую
+            if was_current or not self.storage.current_campaign:
+                campaigns = self.storage.list_campaigns()
+                if "Default" in campaigns:
+                    self._handle_select_campaign({"name": "Default"})
+                elif campaigns:
+                    self._handle_select_campaign({"name": campaigns[0]})
+                else:
+                    # Создаём кампанию по умолчанию, если пусто
+                    self.storage.create_campaign("Default")
+                    self._handle_select_campaign({"name": "Default"})
             else:
+                # Если удалили не текущую – просто обновляем интерфейс
                 self._refresh_campaign_ui()
 
     def _handle_edit_session(self, data=None):
@@ -956,7 +970,7 @@ class MainApp(tk.Tk):
             self.after(100, lambda: self._wait_for_generation_stop(callback))
 
     def _save_current_session_safe(self):
-        if not self.current_session_id:
+        if not self.current_session_id or not self.storage.current_campaign:
             return
         self._sync_significant_flags_with_history()
 
@@ -1043,7 +1057,8 @@ class MainApp(tk.Tk):
             self._handle_load_session({"session_id": latest_sid})
 
     def _handle_save_current_session(self, data=None):
-        self._save_current_session_safe()
+        if self.storage.current_campaign and self.current_session_id:
+            self._save_current_session_safe()
 
     def get_associative_memory_for_object(self, object_id: str) -> str:
         changes = self.associative_memory.get(object_id, [])
