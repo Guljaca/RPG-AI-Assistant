@@ -1248,7 +1248,7 @@ class BaseEditorTab(ttk.Frame):
     def _create_new(self):
         default_name = loc.tr("editor_create")
         default_desc = ""
-        data = {"name": default_name, "description": default_desc, "associative_checks": []}
+        data = {"name": default_name, "description": default_desc, "associative_checks": ""}
         if self.obj_type == "characters":
             data["is_player"] = False
         if self.obj_type == "narrators":
@@ -1701,6 +1701,7 @@ class StagePromptsTab(ttk.Frame):
         ("8.1 Проверка истории", "stage8_history_check"),
         ("8.2 Валидация результата", "stage11_validation"),
         ("12. Определение эмоций персонажей", "stage12_emotions"),
+        ("13. Автосоздание персонажей", "stage13_auto_character_creator"),
         ("11. Проверка значительных изменений", "stage11_significant_changes"),
         ("9. Краткая память", "stage4_summary"),
         ("10. Ассоциативная память", "stage10_associative_memory"),

@@ -1,0 +1,12 @@
+{
+  "id": "c8",
+  "name": "Май (Школьная медсестра)",
+  "description": "Возраст: 25 лет\n\nЛокации, где можно встретить:\nШкола",
+  "associative_checks": "",
+  "inventory": [],
+  "equipped": [],
+  "is_player": false,
+  "avatar_image": "",
+  "sprite_image": "",
+  "emotion_images": {}
+}

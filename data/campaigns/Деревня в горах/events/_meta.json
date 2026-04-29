@@ -1,7 +1,4 @@
 {
   "next_num": 3,
-  "free_nums": [
-    1,
-    2
-  ]
+  "free_nums": []
 }

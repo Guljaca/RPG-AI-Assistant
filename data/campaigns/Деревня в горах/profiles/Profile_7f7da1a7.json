@@ -9,15 +9,42 @@
   "enabled_characters": [
     "c2",
     "c3",
-    "c4"
+    "c4",
+    "c7",
+    "c8",
+    "c9",
+    "c10",
+    "c11",
+    "c12"
   ],
   "enabled_locations": [
     "l1",
     "l2",
     "l3",
     "l4",
+    "l7",
+    "l8",
+    "l9",
+    "l10",
+    "l11",
+    "l12",
+    "l13",
+    "l14",
+    "l15",
+    "l16",
+    "l17",
+    "l18",
+    "l19",
+    "l20",
+    "l21",
+    "l22",
+    "l23",
+    "l24",
+    "l25",
     "l5",
-    "l7"
+    "l26",
+    "l27",
+    "l28"
   ],
   "enabled_items": [
     "i1",
@@ -27,7 +54,10 @@
     "i5",
     "i6"
   ],
-  "enabled_events": [],
+  "enabled_events": [
+    "e1",
+    "e2"
+  ],
   "enabled_scenarios": [],
   "enabled_emotions": [
     "em1",
