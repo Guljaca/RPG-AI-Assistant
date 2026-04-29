@@ -10,6 +10,9 @@
 # RPG Assistant — Role-playing game with local LLMs
 
 - The script allows you to play role-playing games even using small models like **Qwen 3.5 9B**, **Qwen 3.5 35B**, **Gemma-4 e4b**.
+- The script supports importing spec-v3 character cards. More details here:
+- https://github.com/kwaroran/character-card-spec-v3
+- https://chub.ai/characters
 
 **Who this project is for:**
 - Those who need honest reasoning from the neural network with full justification of decisions.
