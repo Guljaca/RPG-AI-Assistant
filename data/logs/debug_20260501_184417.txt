@@ -1,0 +1,1797 @@
+=== DEBUG LOG ===
+User message at 2026-05-01T18:44:17.997919:
+REGENERATE: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+
+[2026-05-01T18:44:18.000286] === STAGE1.1: request_descriptions (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage1_request_descriptions (total 3) ===
+
+[1] ROLE: SYSTEM
+Ты — рассказчик.
+
+Игрок написал: 'Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй'
+
+Доступные объекты (из базы, но ты не ограничен только ими):
+Персонаж: c1 - The Kingdom's Finest
+Персонаж: c2 - Рюйжон
+Персонаж: c3 - Комара
+Персонаж: c4 - Силерд
+Персонаж: c5 - темный владыка (ИГРОК)
+Персонаж: c6 - Церера (Служанка владыки тьмы)
+Сценарий: s1 - The Kingdom's Finest — начало (описание: Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naiv...)
+
+Лимиты: локаций=3, персонажей=4, предметов=20, сценариев=5, событий=5
+
+**Задача:**
+Выбери ID объектов, которые необходимы для новой сцены. Учитывай:
+- Кто из персонажей ушел со сцены. Должно быть четкое описание свершившегося действия, описывающее покидание персонажем локации.**КЛЮЧЕВОЕ ПРАВИЛО:** Если игрок только ПРОСИТ персонажей покинуть локацию (но они ещё физически не вышли), ты ОБЯЗАН включить их в сцену. Персонаж покидает сцену ТОЛЬКО после того, как в истории ОПИСАНО его реальное действие по выходу. Простая просьба игрока не удаляет персонажа
+- Игрок всегда нужен (если его ID неизвестен, используй 'c_player').
+- Если истории нет — выбери объекты, исходя из доступной информации
+
+Ты ОБЯЗАН вызвать функцию send_object_info ровно один раз. Передай список строковых ID в качестве единственного аргумента. 
+
+Формат: send_object_info(["локация_1", "персонаж_1", "предмет_1", ...])
+
+⚠️ Ответь ТОЛЬКО этим вызовом. Никаких пояснений, рассуждений.
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Ты — рассказчик.
+
+Игрок написал: 'Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй'
+
+Доступные объекты (из базы, но ты не ограничен только ими):
+Персонаж: c1 - The Kingdom's Finest
+Персонаж: c2 - Рюйжон
+Персонаж: c3 - Комара
+Персонаж: c4 - Силерд
+Персонаж: c5 - темный владыка (ИГРОК)
+Персонаж: c6 - Церера (Служанка владыки тьмы)
+Сценарий: s1 - The Kingdom's Finest — начало (описание: Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naiv...)
+
+Лимиты: локаций=3, персонажей=4, предметов=20, сценариев=5, событий=5
+
+**Задача:**
+Выбери ID объектов, которые необходимы для новой сцены. Учитывай:
+- Кто из персонажей ушел со сцены. Должно быть четкое описание свершившегося действия, описывающее покидание персонажем локации.**КЛЮЧЕВОЕ ПРАВИЛО:** Если игрок только ПРОСИТ персонажей покинуть локацию (но они ещё физически не вышли), ты ОБЯЗАН включить их в сцену. Персонаж покидает сцену ТОЛЬКО после того, как в истории ОПИСАНО его реальное действие по выходу. Простая просьба игрока не удаляет персонажа
+- Игрок всегда нужен (если его ID неизвестен, используй 'c_player').
+- Если истории нет — выбери объекты, исходя из доступной информации
+
+Ты ОБЯЗАН вызвать функцию send_object_info ровно один раз. Передай список строковых ID в качестве единственного аргумента. 
+
+Формат: send_object_info(["локация_1", "персонаж_1", "предмет_1", ...])
+
+⚠️ Ответь ТОЛЬКО этим вызовом. Никаких пояснений, рассуждений.
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:44:22.768153] FULL_REASONING_stage1_request_descriptions
+send_object_info(["c1", "c2", "c3", "c4", "c5", "c6"])
+
+[2026-05-01T18:44:22.769918] FULL_RESPONSE_stage1_request_descriptions
+Content:
+send_object_info(["c1", "c2", "c3", "c4", "c5", "c6"])
+
+[2026-05-01T18:44:23.079365] === STAGE1.2: create_scene (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage1_create_scene (total 3) ===
+
+[1] ROLE: SYSTEM
+Ты — рассказчик.
+
+Игрок: 'Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй'
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+**Задача:**
+1. Сначала напиши **текстовое описание сцены** — обстановку, кто где находится, что происходит в момент начала. Не описывай действия игрока (он ещё не действовал). Просто задай контекст.
+2. Затем вызови функцию `confirm_scene` со списком ID объектов, которые участвуют в сцене (локация, персонажи, предметы).
+
+**Формат ответа:**
+<текстовое описание сцены>
+confirm_scene(["l1", "c2", "c3", "i5"])
+
+⚠️ Сначала текст, потом вызов функции. Никаких лишних рассуждений.
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Ты — рассказчик.
+
+Игрок: 'Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй'
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+**Задача:**
+1. Сначала напиши **текстовое описание сцены** — обстановку, кто где находится, что происходит в момент начала. Не описывай действия игрока (он ещё не действовал). Просто задай контекст.
+2. Затем вызови функцию `confirm_scene` со списком ID объектов, которые участвуют в сцене (локация, персонажи, предметы).
+
+**Формат ответа:**
+<текстовое описание сцены>
+confirm_scene(["l1", "c2", "c3", "i5"])
+
+⚠️ Сначала текст, потом вызов функции. Никаких лишних рассуждений.
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:45:51.829720] FULL_REASONING_stage1_create_scene
+Величественный и мрачный вход в подземелье зловещего Владыки встретил экспедицию холодным, сырым воздухом, веющим из глубин земли. Толпа авантюристов, состоящая из десятков воинов, лучников и магов Королевской Гвардии, гудела как рой тревожных пчел. На переднем плане выделялись три фигуры, чья уверенность в победе казалась почти ослепительной на фоне сумрака пещеры.
+
+Первой вперед ступила Руйион, Первая Рыцарь королевства. Ее высокая фигура, облаченная в стальную броню с золотым орнаментом и развевающийся белый плащ, сияла под факелами сопровождающих. За ней плотным строем следовал легион из ста рыжих, мускулистых воинов — ее верная стража, чьи лица были серьезны, но глаза горели преданностью. Руйион держала в руке длинную рапиру, лезвие которой ловило отблески огня, и смотрела вдаль с царственным достоинством, ожидая указаний.
+
+Справа от нее, почесывая затылок и оглядываясь на блестящую экипировку других участников, стоял Сайлерд. Высокий, широкоплечий страж в серебряных доспехах и синем плаще сжимал огромную стальную шпагу. Его лицо выражало смесь амбициозного энтузиазма и легкой наивности; он уже представлял себе славу рыцарского звания и аплодисменты толпы, которая встретит его после победы над древним злом.
+
+А вот Комоара, рыжеволосая плутовка, занимала немного обособленное положение ближе к краю группы, где тень от свода была гуще. Она небрежно крутила кинжалом в пальцах, ее взгляд жадно скользил по украшенным рунами дверям подземелья, предвкушая сокровища внутри. «Богатство или смерть», — мелькнуло у нее в голове, хотя для нее первый вариант всегда был предпочтительнее.
+
+Среди прочих авантюристов слышались шутки и звон оружия. Маги настраивали заклинания огня и льда, чувствуя свою незаменимость. Все они считали, что против отступающего Владыки, чья слава затихла десятилетия назад, легко справиться мощью молодой элитной группы. Никто еще не знал о ловушках, спрятанных в камнях, или о страже, охраняющей тронный зал.
+
+confirm_scene(["c2", "c3", "c4", "l1"])
+
+```
+Morale: Высокое (Настроенческие шутки, уверенность в силе королевского отряда)
+Warriors: ~150 (Основной состав экспедиции включает Руйион, Сайлерда, Комоару, легион из 100 рыцарей и дополнительных бойцов/магов)
+```
+
+[2026-05-01T18:45:51.833943] FULL_RESPONSE_stage1_create_scene
+Content:
+Величественный и мрачный вход в подземелье зловещего Владыки встретил экспедицию холодным, сырым воздухом, веющим из глубин земли. Толпа авантюристов, состоящая из десятков воинов, лучников и магов Королевской Гвардии, гудела как рой тревожных пчел. На переднем плане выделялись три фигуры, чья уверенность в победе казалась почти ослепительной на фоне сумрака пещеры.
+
+Первой вперед ступила Руйион, Первая Рыцарь королевства. Ее высокая фигура, облаченная в стальную броню с золотым орнаментом и развевающийся белый плащ, сияла под факелами сопровождающих. За ней плотным строем следовал легион из ста рыжих, мускулистых воинов — ее верная стража, чьи лица были серьезны, но глаза горели преданностью. Руйион держала в руке длинную рапиру, лезвие которой ловило отблески огня, и смотрела вдаль с царственным достоинством, ожидая указаний.
+
+Справа от нее, почесывая затылок и оглядываясь на блестящую экипировку других участников, стоял Сайлерд. Высокий, широкоплечий страж в серебряных доспехах и синем плаще сжимал огромную стальную шпагу. Его лицо выражало смесь амбициозного энтузиазма и легкой наивности; он уже представлял себе славу рыцарского звания и аплодисменты толпы, которая встретит его после победы над древним злом.
+
+А вот Комоара, рыжеволосая плутовка, занимала немного обособленное положение ближе к краю группы, где тень от свода была гуще. Она небрежно крутила кинжалом в пальцах, ее взгляд жадно скользил по украшенным рунами дверям подземелья, предвкушая сокровища внутри. «Богатство или смерть», — мелькнуло у нее в голове, хотя для нее первый вариант всегда был предпочтительнее.
+
+Среди прочих авантюристов слышались шутки и звон оружия. Маги настраивали заклинания огня и льда, чувствуя свою незаменимость. Все они считали, что против отступающего Владыки, чья слава затихла десятилетия назад, легко справиться мощью молодой элитной группы. Никто еще не знал о ловушках, спрятанных в камнях, или о страже, охраняющей тронный зал.
+
+confirm_scene(["c2", "c3", "c4", "l1"])
+
+```
+Morale: Высокое (Настроенческие шутки, уверенность в силе королевского отряда)
+Warriors: ~150 (Основной состав экспедиции включает Руйион, Сайлерда, Комоару, легион из 100 рыцарей и дополнительных бойцов/магов)
+```
+
+[2026-05-01T18:45:51.952300] STAGE2_SKIPPED
+Stage2 (truth_check) disabled
+
+[2026-05-01T18:45:51.952513] === STAGE3: player_action (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage1_player_action (total 3) ===
+
+[1] ROLE: SYSTEM
+d20: 1=крит.провал, 2-4=провал, 5-15=успех, 16-19=большой успех, 20=крит.успех.
+d100: 1-100. Событие происходит, если выпавшее значение <= шанса.
+d6: 1-2 плохо, 3-4 нормально, 5-6 хорошо.
+--------------------------------------------------------------------------------
+
+[2] ROLE: SYSTEM
+ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ.
+
+Ты — рассказчик.
+
+Игрок написал: 'Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй'
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Правила кубиков: d20: 1=крит.провал, 2-4=провал, 5-15=успех, 16-19=большой успех, 20=крит.успех.
+d100: 1-100. Событие происходит, если выпавшее значение <= шанса.
+d6: 1-2 плохо, 3-4 нормально, 5-6 хорошо.
+
+
+Бросок d20 = 15.
+
+**ТВОЯ ЗАДАЧА:**
+Опиши результат попытки игрока, учитывая значение броска.
+- Не описывай действия, мысли или речь других персонажей (NPC).
+- Не описывай окружение, если оно не связано с результатом действия игрока.
+- Результат должен быть следствием именно действия игрока.
+- Описание должно быть КОНКРЕТНЫМ, связанным с тем, что именно написал игрок. Не используй абстрактные фразы типа «атмосфера изменилась», «взаимодействие нарушилось», «резкое прерывание».
+- Если бросок — провал (1-4), опиши, что именно пошло не так в действии игрока или в реакции на его слова.
+- Если игрок задал вопрос — провал может означать, что NPC не ответили, ответили грубо, не так, или что-то отвлекло.
+
+**ФОРМАТ ОТВЕТА:**
+Ты ОБЯЗАН вызвать функцию act ровно один раз. Никакого другого текста.
+
+act([15, "описание результата"])
+
+⚠️ Твой ответ — ТОЛЬКО эта строка. Убедись, что скобки и кавычки закрыты.
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ.
+
+Ты — рассказчик.
+
+Игрок написал: 'Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй'
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Правила кубиков: d20: 1=крит.провал, 2-4=провал, 5-15=успех, 16-19=большой успех, 20=крит.успех.
+d100: 1-100. Событие происходит, если выпавшее значение <= шанса.
+d6: 1-2 плохо, 3-4 нормально, 5-6 хорошо.
+
+
+Бросок d20 = 15.
+
+**ТВОЯ ЗАДАЧА:**
+Опиши результат попытки игрока, учитывая значение броска.
+- Не описывай действия, мысли или речь других персонажей (NPC).
+- Не описывай окружение, если оно не связано с результатом действия игрока.
+- Результат должен быть следствием именно действия игрока.
+- Описание должно быть КОНКРЕТНЫМ, связанным с тем, что именно написал игрок. Не используй абстрактные фразы типа «атмосфера изменилась», «взаимодействие нарушилось», «резкое прерывание».
+- Если бросок — провал (1-4), опиши, что именно пошло не так в действии игрока или в реакции на его слова.
+- Если игрок задал вопрос — провал может означать, что NPC не ответили, ответили грубо, не так, или что-то отвлекло.
+
+**ФОРМАТ ОТВЕТА:**
+Ты ОБЯЗАН вызвать функцию act ровно один раз. Никакого другого текста.
+
+act([15, "описание результата"])
+
+⚠️ Твой ответ — ТОЛЬКО эта строка. Убедись, что скобки и кавычки закрыты.
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:46:29.515180] FULL_REASONING_stage1_player_action
+act([15, "Перед тронным залом возвышаются массивные дубовые ворота, увенчанные гербом королевства. Рядом с ними стоит высокая женщина в белых одеждах с золотой вышивкой; ее взгляд спокойный и уверенный, она держит руку на эфесе длинного клинка. У ее ног шуршит короткая рыжеволосая девушка в легкой броне, перебирая пальцами кинжалы и поглядывая на щели в дверях. За ними возвышается широкоплечий мужчина в серебряных доспехах с синим плащом, его огромный стальной меч надежно зафиксирован на спине, а взгляд устремлен прямо вперед, сканируя пространство перед входом."])
+
+[2026-05-01T18:46:29.535382] FULL_RESPONSE_stage1_player_action
+Content:
+act([15, "Перед тронным залом возвышаются массивные дубовые ворота, увенчанные гербом королевства. Рядом с ними стоит высокая женщина в белых одеждах с золотой вышивкой; ее взгляд спокойный и уверенный, она держит руку на эфесе длинного клинка. У ее ног шуршит короткая рыжеволосая девушка в легкой броне, перебирая пальцами кинжалы и поглядывая на щели в дверях. За ними возвышается широкоплечий мужчина в серебряных доспехах с синим плащом, его огромный стальной меч надежно зафиксирован на спине, а взгляд устремлен прямо вперед, сканируя пространство перед входом."])
+
+[2026-05-01T18:46:29.628291] STAGE4_SKIPPED
+Stage4 (random_event_determine) disabled
+
+[2026-05-01T18:46:29.628504] === STAGE6: NPCs (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage2_npc_action (total 4) ===
+
+[1] ROLE: SYSTEM
+Ты — рассказчик. Опиши намерения персонажа (ID c2).
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Действие игрока: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+Случайное событие: Нет события
+Предыдущие намерения других NPC:
+Нет
+
+**ВАЖНЫЕ ОГРАНИЧЕНИЯ ПО ПРЕДМЕТАМ:**
+- Ты можешь использовать только те предметы, которые логично находятся в текущей локации.
+- Посмотри на описание локации. Например, во дворе может быть мяч, бассейн, трава, но не может быть подушки, кровати, шкафа, посуды.
+- Запрещено придумывать предметы, которые явно не соответствуют месту: подушка, одеяло, мебель — только внутри дома.
+- Если ты хочешь использовать предмет, которого нет в описании, но он **абсолютно логичен** для этой обстановки (например, камень на улице, палка), — это допустимо.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ:**
+Прежде чем планировать действие, оцени положение персонажа относительно игрока и других NPC.
+Не планируй действие, которое требует неестественного положения тела (например, гладить по голове того, кто сзади).
+Если нужно изменить положение — сначала опиши это в плане (например, «повернуться к игроку», «развернуться корпусом»).
+
+**ФОРМАТ ОТВЕТА:**
+Думает: <одна короткая фраза о текущей ситуации>
+Планирует: <конкретное физическое действие И/ИЛИ **одна** реплика в кавычках>
+
+- **Планируемое действие должно быть значимым, продвигать сцену и быть КОНКРЕТНЫМ.**
+
+**ВАЖНО:** Ты описываешь действие только этого NPC. Не описывай действия, мысли или речь игрока. Не пиши от лица игрока.
+
+**ВАЖНО:** Здесь ты описываешь ТОЛЬКО намерение (что персонаж хочет сделать). Результат будет определён позже на основе броска. Не нужно предрешать успех или неудачу.
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Стиль рассказчика Сценарий:
+--- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+--------------------------------------------------------------------------------
+
+[4] ROLE: USER
+Ты — рассказчик. Опиши намерения персонажа (ID c2).
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Действие игрока: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+Случайное событие: Нет события
+Предыдущие намерения других NPC:
+Нет
+
+**ВАЖНЫЕ ОГРАНИЧЕНИЯ ПО ПРЕДМЕТАМ:**
+- Ты можешь использовать только те предметы, которые логично находятся в текущей локации.
+- Посмотри на описание локации. Например, во дворе может быть мяч, бассейн, трава, но не может быть подушки, кровати, шкафа, посуды.
+- Запрещено придумывать предметы, которые явно не соответствуют месту: подушка, одеяло, мебель — только внутри дома.
+- Если ты хочешь использовать предмет, которого нет в описании, но он **абсолютно логичен** для этой обстановки (например, камень на улице, палка), — это допустимо.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ:**
+Прежде чем планировать действие, оцени положение персонажа относительно игрока и других NPC.
+Не планируй действие, которое требует неестественного положения тела (например, гладить по голове того, кто сзади).
+Если нужно изменить положение — сначала опиши это в плане (например, «повернуться к игроку», «развернуться корпусом»).
+
+**ФОРМАТ ОТВЕТА:**
+Думает: <одна короткая фраза о текущей ситуации>
+Планирует: <конкретное физическое действие И/ИЛИ **одна** реплика в кавычках>
+
+- **Планируемое действие должно быть значимым, продвигать сцену и быть КОНКРЕТНЫМ.**
+
+**ВАЖНО:** Ты описываешь действие только этого NPC. Не описывай действия, мысли или речь игрока. Не пиши от лица игрока.
+
+**ВАЖНО:** Здесь ты описываешь ТОЛЬКО намерение (что персонаж хочет сделать). Результат будет определён позже на основе броска. Не нужно предрешать успех или неудачу.
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:47:09.806583] FULL_REASONING_stage2_npc_action
+Думает: Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.
+Планирует: Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»
+
+```
+Morale: Высокое (герои уверены в своей победе)
+Warriors: ~105 (включая легион Руйион и основных героев, потери пока минимальны или отсутствуют)
+```
+
+[2026-05-01T18:47:09.811986] stage2_npc_action_c2
+Content:
+Думает: Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.
+Планирует: Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»
+
+```
+Morale: Высокое (герои уверены в своей победе)
+Warriors: ~105 (включая легион Руйион и основных героев, потери пока минимальны или отсутствуют)
+```
+
+[2026-05-01T18:47:09.852513] === STAGE6: NPCs (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage2_npc_action (total 4) ===
+
+[1] ROLE: SYSTEM
+Ты — рассказчик. Опиши намерения персонажа (ID c3).
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Действие игрока: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+Случайное событие: Нет события
+Предыдущие намерения других NPC:
+Рюйжон: {'thought': 'Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.', 'plan': 'Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»', 'name': 'Рюйжон'}
+
+**ВАЖНЫЕ ОГРАНИЧЕНИЯ ПО ПРЕДМЕТАМ:**
+- Ты можешь использовать только те предметы, которые логично находятся в текущей локации.
+- Посмотри на описание локации. Например, во дворе может быть мяч, бассейн, трава, но не может быть подушки, кровати, шкафа, посуды.
+- Запрещено придумывать предметы, которые явно не соответствуют месту: подушка, одеяло, мебель — только внутри дома.
+- Если ты хочешь использовать предмет, которого нет в описании, но он **абсолютно логичен** для этой обстановки (например, камень на улице, палка), — это допустимо.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ:**
+Прежде чем планировать действие, оцени положение персонажа относительно игрока и других NPC.
+Не планируй действие, которое требует неестественного положения тела (например, гладить по голове того, кто сзади).
+Если нужно изменить положение — сначала опиши это в плане (например, «повернуться к игроку», «развернуться корпусом»).
+
+**ФОРМАТ ОТВЕТА:**
+Думает: <одна короткая фраза о текущей ситуации>
+Планирует: <конкретное физическое действие И/ИЛИ **одна** реплика в кавычках>
+
+- **Планируемое действие должно быть значимым, продвигать сцену и быть КОНКРЕТНЫМ.**
+
+**ВАЖНО:** Ты описываешь действие только этого NPC. Не описывай действия, мысли или речь игрока. Не пиши от лица игрока.
+
+**ВАЖНО:** Здесь ты описываешь ТОЛЬКО намерение (что персонаж хочет сделать). Результат будет определён позже на основе броска. Не нужно предрешать успех или неудачу.
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Стиль рассказчика Сценарий:
+--- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+--------------------------------------------------------------------------------
+
+[4] ROLE: USER
+Ты — рассказчик. Опиши намерения персонажа (ID c3).
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Действие игрока: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+Случайное событие: Нет события
+Предыдущие намерения других NPC:
+Рюйжон: {'thought': 'Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.', 'plan': 'Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»', 'name': 'Рюйжон'}
+
+**ВАЖНЫЕ ОГРАНИЧЕНИЯ ПО ПРЕДМЕТАМ:**
+- Ты можешь использовать только те предметы, которые логично находятся в текущей локации.
+- Посмотри на описание локации. Например, во дворе может быть мяч, бассейн, трава, но не может быть подушки, кровати, шкафа, посуды.
+- Запрещено придумывать предметы, которые явно не соответствуют месту: подушка, одеяло, мебель — только внутри дома.
+- Если ты хочешь использовать предмет, которого нет в описании, но он **абсолютно логичен** для этой обстановки (например, камень на улице, палка), — это допустимо.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ:**
+Прежде чем планировать действие, оцени положение персонажа относительно игрока и других NPC.
+Не планируй действие, которое требует неестественного положения тела (например, гладить по голове того, кто сзади).
+Если нужно изменить положение — сначала опиши это в плане (например, «повернуться к игроку», «развернуться корпусом»).
+
+**ФОРМАТ ОТВЕТА:**
+Думает: <одна короткая фраза о текущей ситуации>
+Планирует: <конкретное физическое действие И/ИЛИ **одна** реплика в кавычках>
+
+- **Планируемое действие должно быть значимым, продвигать сцену и быть КОНКРЕТНЫМ.**
+
+**ВАЖНО:** Ты описываешь действие только этого NPC. Не описывай действия, мысли или речь игрока. Не пиши от лица игрока.
+
+**ВАЖНО:** Здесь ты описываешь ТОЛЬКО намерение (что персонаж хочет сделать). Результат будет определён позже на основе броска. Не нужно предрешать успех или неудачу.
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:47:51.828449] FULL_REASONING_stage2_npc_action
+Думает: Шум входящего отряда раздражает тишину чертогов, и мой взгляд цепляется за фигуру рыжеволосой разбойницы, чьи пальцы ловко играют кинжалом.
+Планирует: Комуару остановится на полшага впереди остальных, слегка отклонившись назад, чтобы не касаться стены, и продолжит медленно крутить короткий клинок между пальцев, оценивая расстояние до трона с легким интересом в взгляде.
+
+```
+Morale: High
+Warriors: ~100 (Ruyijon's legion) + 3 heroes + support staff/adventurers
+```
+
+[2026-05-01T18:47:51.834011] stage2_npc_action_c3
+Content:
+Думает: Шум входящего отряда раздражает тишину чертогов, и мой взгляд цепляется за фигуру рыжеволосой разбойницы, чьи пальцы ловко играют кинжалом.
+Планирует: Комуару остановится на полшага впереди остальных, слегка отклонившись назад, чтобы не касаться стены, и продолжит медленно крутить короткий клинок между пальцев, оценивая расстояние до трона с легким интересом в взгляде.
+
+```
+Morale: High
+Warriors: ~100 (Ruyijon's legion) + 3 heroes + support staff/adventurers
+```
+
+[2026-05-01T18:47:51.861813] === STAGE6: NPCs (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage2_npc_action (total 4) ===
+
+[1] ROLE: SYSTEM
+Ты — рассказчик. Опиши намерения персонажа (ID c4).
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Действие игрока: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+Случайное событие: Нет события
+Предыдущие намерения других NPC:
+Рюйжон: {'thought': 'Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.', 'plan': 'Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»', 'name': 'Рюйжон'}
+Комара: {'thought': 'Шум входящего отряда раздражает тишину чертогов, и мой взгляд цепляется за фигуру рыжеволосой разбойницы, чьи пальцы ловко играют кинжалом.', 'plan': 'Комуару остановится на полшага впереди остальных, слегка отклонившись назад, чтобы не касаться стены, и продолжит медленно крутить короткий клинок между пальцев, оценивая расстояние до трона с легким интересом в взгляде.', 'name': 'Комара'}
+
+**ВАЖНЫЕ ОГРАНИЧЕНИЯ ПО ПРЕДМЕТАМ:**
+- Ты можешь использовать только те предметы, которые логично находятся в текущей локации.
+- Посмотри на описание локации. Например, во дворе может быть мяч, бассейн, трава, но не может быть подушки, кровати, шкафа, посуды.
+- Запрещено придумывать предметы, которые явно не соответствуют месту: подушка, одеяло, мебель — только внутри дома.
+- Если ты хочешь использовать предмет, которого нет в описании, но он **абсолютно логичен** для этой обстановки (например, камень на улице, палка), — это допустимо.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ:**
+Прежде чем планировать действие, оцени положение персонажа относительно игрока и других NPC.
+Не планируй действие, которое требует неестественного положения тела (например, гладить по голове того, кто сзади).
+Если нужно изменить положение — сначала опиши это в плане (например, «повернуться к игроку», «развернуться корпусом»).
+
+**ФОРМАТ ОТВЕТА:**
+Думает: <одна короткая фраза о текущей ситуации>
+Планирует: <конкретное физическое действие И/ИЛИ **одна** реплика в кавычках>
+
+- **Планируемое действие должно быть значимым, продвигать сцену и быть КОНКРЕТНЫМ.**
+
+**ВАЖНО:** Ты описываешь действие только этого NPC. Не описывай действия, мысли или речь игрока. Не пиши от лица игрока.
+
+**ВАЖНО:** Здесь ты описываешь ТОЛЬКО намерение (что персонаж хочет сделать). Результат будет определён позже на основе броска. Не нужно предрешать успех или неудачу.
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Стиль рассказчика Сценарий:
+--- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+--------------------------------------------------------------------------------
+
+[4] ROLE: USER
+Ты — рассказчик. Опиши намерения персонажа (ID c4).
+
+Описания объектов:
+c1: Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+c2: Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+c3: Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+c4: Описание: Внешность: широкие плечи, держит огромный меч
+c5: Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+c6: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+
+Действие игрока: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+Случайное событие: Нет события
+Предыдущие намерения других NPC:
+Рюйжон: {'thought': 'Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.', 'plan': 'Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»', 'name': 'Рюйжон'}
+Комара: {'thought': 'Шум входящего отряда раздражает тишину чертогов, и мой взгляд цепляется за фигуру рыжеволосой разбойницы, чьи пальцы ловко играют кинжалом.', 'plan': 'Комуару остановится на полшага впереди остальных, слегка отклонившись назад, чтобы не касаться стены, и продолжит медленно крутить короткий клинок между пальцев, оценивая расстояние до трона с легким интересом в взгляде.', 'name': 'Комара'}
+
+**ВАЖНЫЕ ОГРАНИЧЕНИЯ ПО ПРЕДМЕТАМ:**
+- Ты можешь использовать только те предметы, которые логично находятся в текущей локации.
+- Посмотри на описание локации. Например, во дворе может быть мяч, бассейн, трава, но не может быть подушки, кровати, шкафа, посуды.
+- Запрещено придумывать предметы, которые явно не соответствуют месту: подушка, одеяло, мебель — только внутри дома.
+- Если ты хочешь использовать предмет, которого нет в описании, но он **абсолютно логичен** для этой обстановки (например, камень на улице, палка), — это допустимо.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ:**
+Прежде чем планировать действие, оцени положение персонажа относительно игрока и других NPC.
+Не планируй действие, которое требует неестественного положения тела (например, гладить по голове того, кто сзади).
+Если нужно изменить положение — сначала опиши это в плане (например, «повернуться к игроку», «развернуться корпусом»).
+
+**ФОРМАТ ОТВЕТА:**
+Думает: <одна короткая фраза о текущей ситуации>
+Планирует: <конкретное физическое действие И/ИЛИ **одна** реплика в кавычках>
+
+- **Планируемое действие должно быть значимым, продвигать сцену и быть КОНКРЕТНЫМ.**
+
+**ВАЖНО:** Ты описываешь действие только этого NPC. Не описывай действия, мысли или речь игрока. Не пиши от лица игрока.
+
+**ВАЖНО:** Здесь ты описываешь ТОЛЬКО намерение (что персонаж хочет сделать). Результат будет определён позже на основе броска. Не нужно предрешать успех или неудачу.
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:48:35.786653] FULL_REASONING_stage2_npc_action
+Думает: Огромный клинок в моих руках кажется легким перышком, и я готов расправить широкие плечи, чтобы продемонстрировать мощь своего вооружения перед тронным залом.
+Планирует: Вытянуть руки с обеими руками, удерживая стальной меч на уровне груди, и сделать шаг вперед, демонстрируя готовность к удару.
+
+```
+Morale: Высокое (оптимизм лидеров подкрепляет ряды)
+Warriors: ~105-110 (включая легион Рюйжон и отряд Силерда/Комуару, пока нет потерь)
+```
+
+[2026-05-01T18:48:35.791003] stage2_npc_action_c4
+Content:
+Думает: Огромный клинок в моих руках кажется легким перышком, и я готов расправить широкие плечи, чтобы продемонстрировать мощь своего вооружения перед тронным залом.
+Планирует: Вытянуть руки с обеими руками, удерживая стальной меч на уровне груди, и сделать шаг вперед, демонстрируя готовность к удару.
+
+```
+Morale: Высокое (оптимизм лидеров подкрепляет ряды)
+Warriors: ~105-110 (включая легион Рюйжон и отряд Силерда/Комуару, пока нет потерь)
+```
+
+[2026-05-01T18:48:35.814718] === STAGE6: NPCs (attempt 1) ===
+
+[2026-05-01T18:48:35.857066] === STAGE7: final (attempt 1) ===
+
+[2026-05-01T18:48:35.899015] PLAYER_DICE_VERDICT
+d20=15 -> Успех
+
+
+=== FULL_MESSAGES_stage3_final (total 5) ===
+
+[1] ROLE: SYSTEM
+ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ.
+
+Ты — рассказчик в визуальной новелле. Пиши просто, живо, без пафоса.
+
+**СТИЛЬ: ЖИВОЙ, НЕ ШАБЛОННЫЙ**
+- Не повторяй одни и те же прилагательные и конструкции в пределах одного ответа.
+- Короткое предложение лучше длинного. Один абзац = максимум 3 предложения.
+- Добавляй неожиданные мелкие детали: звуки, движения, паузы, смену дыхания, взгляд в сторону.
+- Избегай «идеальных» описаний — пусть персонажи моргают, запинаются, смотрят в пустоту.
+- Если персонаж говорит — иногда прерывай описание действия его репликой, а не наоборот.
+- Относись к предыдущим своим ответам как к уже сказанному. Не цитируй себя. Каждое новое сообщение должно добавлять новую информацию или новый поворот.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ (ОБЯЗАТЕЛЬНО):**
+Перед тем как описать действие персонажа, мысленно представь, где находится каждый персонаж относительно других.
+- Если игрок спрятался за спину Ай — он сзади неё. Ай не может гладить его по голове, не развернувшись корпусом.
+- Действие должно быть анатомически возможным. Если нужно — сначала опиши, как персонаж меняет позу/положение.
+- Запрещено описывать действия, которые требуют «вывернутой руки» или невозможного угла.
+
+**ЗАПРЕЩЕНО**
+- Начинать два соседних предложения с одинаковой грамматической конструкции («Она… Она…»).
+- Использовать более одного сложного прилагательного (типа «уверенно-спокойный») на ответ.
+- Описывать одно и то же действие с разных сторон (сделал шаг — не нужно потом объяснять, как он шагнул).
+- Повторять дословно или почти дословно реплики и описания, которые уже были в истории диалога (в предыдущих ответах ассистента).
+- Добавлять в сцену предметы, которые нелогичны для текущей локации. Например, подушка во дворе, кровать на улице, чашка в бассейне. Используй только то, что описано в локации или логически там находится.
+- Описывать действие, которое физически невозможно при текущем расположении персонажей (например, гладить по голове того, кто стоит за спиной, не развернувшись).
+
+**ПРОВЕРКА ПЕРЕД ОТВЕТОМ**
+Задай себе вопросы:
+- Звучит ли это так, как сказал бы живой человек?
+- Если выкинуть каждое второе слово — станет ли понятнее и короче?
+- Не повторяю ли я фразу из предыдущего ответа ассистента?
+- Ответил ли я на вопрос, который игрок задал в этом сообщении? Если игрок задал прямой вопрос, ты ОБЯЗАН дать на него ответ (или показать, почему NPC не отвечают). Игнорирование вопроса — ошибка.
+
+**ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ПО ВРЕМЕНИ**
+В начале каждого твоего ответа пиши текущее игровое время в формате:
+`[День недели, ДД Месяц, ЧЧ:ММ]`
+Пример: `[Вторник, 15 Октября, 14:30]`
+Отслеживай время по предыдущему своему ответу. Сдвигай время сообразно действиям (быстрый разговор — 1–2 минуты, действие — 5–15 минут, длительная сцена — 20–40 минут). Если сцена затянулась, добавь фразу «Прошло около X минут».
+
+**СТРУКТУРА ОТВЕТА**
+- Сначала время, потом повествование.
+- Отделяй действия разных персонажей пустой строкой.
+- Прямую речь персонажей оформляй с новой строки, с тире в начале.
+- Не описывай действия, мысли или речь игрока.
+
+**ИСПОЛЬЗУЙ ДАННЫЕ, НО НЕ ПЕРЕСКАЗЫВАЙ ИХ**
+- У тебя есть `Действия и мысли NPC` и `Результаты бросков NPC`.
+- НЕ КОПИРУЙ тексты из «Действия» без изменений. Примени к ним бросок.
+- Например, если NPC хотел отодвинуть игрока и выбросил 7 (успех), опиши, как он успешно отодвинул. Если выбросил 3 (провал) – опиши, почему у него не вышло (поскользнулся, игрок увернулся, помешал другой NPC).
+
+Описания объектов: === The Kingdom's Finest (ID: c1) ===
+Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+
+=== Рюйжон (ID: c2) ===
+Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+
+=== Комара (ID: c3) ===
+Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+
+=== Силерд (ID: c4) ===
+Описание: Внешность: широкие плечи, держит огромный меч
+
+=== темный владыка (ID: c5) ===
+Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+
+=== Церера (Служанка владыки тьмы) (ID: c6) ===
+Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+Локация: l1
+Случайное событие: 
+Действия и мысли NPC: Рюйжон:
+  Мысли: Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.
+  Действие: Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»
+
+Комара:
+  Мысли: Шум входящего отряда раздражает тишину чертогов, и мой взгляд цепляется за фигуру рыжеволосой разбойницы, чьи пальцы ловко играют кинжалом.
+  Действие: Комуару остановится на полшага впереди остальных, слегка отклонившись назад, чтобы не касаться стены, и продолжит медленно крутить короткий клинок между пальцев, оценивая расстояние до трона с легким интересом в взгляде.
+
+Силерд:
+  Мысли: Огромный клинок в моих руках кажется легким перышком, и я готов расправить широкие плечи, чтобы продемонстрировать мощь своего вооружения перед тронным залом.
+  Действие: Вытянуть руки с обеими руками, удерживая стальной меч на уровне груди, и сделать шаг вперед, демонстрируя готовность к удару.
+Результаты бросков NPC (только значения): Рюйжон: d20=17
+Комара: d20=16
+Силерд: d20=5
+
+**РЕЗУЛЬТАТ ДЕЙСТВИЯ ИГРОКА**
+d20: 1=крит.провал, 2-4=провал, 5-15=успех, 16-19=большой успех, 20=крит.успех.
+d100: 1-100. Событие происходит, если выпавшее значение <= шанса.
+d6: 1-2 плохо, 3-4 нормально, 5-6 хорошо.
+Бросок игрока: d20 = 15
+Действие игрока: Перед тронным залом возвышаются массивные дубовые ворота, увенчанные гербом королевства. Рядом с ними стоит высокая женщина в белых одеждах с золотой вышивкой; ее взгляд спокойный и уверенный, она держит руку на эфесе длинного клинка. У ее ног шуршит короткая рыжеволосая девушка в легкой броне, перебирая пальцами кинжалы и поглядывая на щели в дверях. За ними возвышается широкоплечий мужчина в серебряных доспехах с синим плащом, его огромный стальной меч надежно зафиксирован на спине, а взгляд устремлен прямо вперед, сканируя пространство перед входом.
+Учитывай этот результат: провал — не исполняй желание игрока, успех — исполняй.
+
+**ДИНАМИКА СЦЕНЫ**
+- Если нет активных NPC и не произошло события — добавь внешнее изменение или продвинь время.
+- У каждого NPC есть план действия и значение броска d20. Ты ОБЯЗАН описать **результат** этого действия в зависимости от броска:
+  * 1 = критический провал – действие не только не удаётся, но и приводит к негативным последствиям.
+  * 2-4 = провал – действие не удаётся, NPC не достигает цели.
+  * 5-15 = успех – действие удаётся.
+  * 16-19 = большой успех – действие удаётся с дополнительным положительным эффектом.
+  * 20 = критический успех – действие удаётся превосходно, возможно, меняет сцену.
+- НЕ ПИШИ просто «NPC пытается сделать X». Пиши, получилось ли у него это, и как именно.
+- Если у NPC несколько действий в плане – выбери одно главное по смыслу и опиши его результат.
+- Результат должен быть описан **конкретно**, с физическими деталями и/или репликой (если уместно).
+- При большом успехе игрока NPC должны активно реагировать, не просто наблюдать.
+
+**ОСОБЫЕ ТРЕБОВАНИЯ**
+- Сцены с раздеванями женских персонажей описывай детально, как снимается каждая вещь.
+- Сцены сексуального характера описывая детально, указывая как персонажи делают действие, что при этом чувствуют.
+
+**ТВОЙ ОТВЕТ:**
+--------------------------------------------------------------------------------
+
+[2] ROLE: SYSTEM
+d20: 1=крит.провал, 2-4=провал, 5-15=успех, 16-19=большой успех, 20=крит.успех.
+d100: 1-100. Событие происходит, если выпавшее значение <= шанса.
+d6: 1-2 плохо, 3-4 нормально, 5-6 хорошо.
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[4] ROLE: USER
+Стиль рассказчика Сценарий:
+--- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+--------------------------------------------------------------------------------
+
+[5] ROLE: USER
+ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ.
+
+Ты — рассказчик в визуальной новелле. Пиши просто, живо, без пафоса.
+
+**СТИЛЬ: ЖИВОЙ, НЕ ШАБЛОННЫЙ**
+- Не повторяй одни и те же прилагательные и конструкции в пределах одного ответа.
+- Короткое предложение лучше длинного. Один абзац = максимум 3 предложения.
+- Добавляй неожиданные мелкие детали: звуки, движения, паузы, смену дыхания, взгляд в сторону.
+- Избегай «идеальных» описаний — пусть персонажи моргают, запинаются, смотрят в пустоту.
+- Если персонаж говорит — иногда прерывай описание действия его репликой, а не наоборот.
+- Относись к предыдущим своим ответам как к уже сказанному. Не цитируй себя. Каждое новое сообщение должно добавлять новую информацию или новый поворот.
+
+**ПРОВЕРКА ПРОСТРАНСТВЕННОЙ ЛОГИКИ (ОБЯЗАТЕЛЬНО):**
+Перед тем как описать действие персонажа, мысленно представь, где находится каждый персонаж относительно других.
+- Если игрок спрятался за спину Ай — он сзади неё. Ай не может гладить его по голове, не развернувшись корпусом.
+- Действие должно быть анатомически возможным. Если нужно — сначала опиши, как персонаж меняет позу/положение.
+- Запрещено описывать действия, которые требуют «вывернутой руки» или невозможного угла.
+
+**ЗАПРЕЩЕНО**
+- Начинать два соседних предложения с одинаковой грамматической конструкции («Она… Она…»).
+- Использовать более одного сложного прилагательного (типа «уверенно-спокойный») на ответ.
+- Описывать одно и то же действие с разных сторон (сделал шаг — не нужно потом объяснять, как он шагнул).
+- Повторять дословно или почти дословно реплики и описания, которые уже были в истории диалога (в предыдущих ответах ассистента).
+- Добавлять в сцену предметы, которые нелогичны для текущей локации. Например, подушка во дворе, кровать на улице, чашка в бассейне. Используй только то, что описано в локации или логически там находится.
+- Описывать действие, которое физически невозможно при текущем расположении персонажей (например, гладить по голове того, кто стоит за спиной, не развернувшись).
+
+**ПРОВЕРКА ПЕРЕД ОТВЕТОМ**
+Задай себе вопросы:
+- Звучит ли это так, как сказал бы живой человек?
+- Если выкинуть каждое второе слово — станет ли понятнее и короче?
+- Не повторяю ли я фразу из предыдущего ответа ассистента?
+- Ответил ли я на вопрос, который игрок задал в этом сообщении? Если игрок задал прямой вопрос, ты ОБЯЗАН дать на него ответ (или показать, почему NPC не отвечают). Игнорирование вопроса — ошибка.
+
+**ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ ПО ВРЕМЕНИ**
+В начале каждого твоего ответа пиши текущее игровое время в формате:
+`[День недели, ДД Месяц, ЧЧ:ММ]`
+Пример: `[Вторник, 15 Октября, 14:30]`
+Отслеживай время по предыдущему своему ответу. Сдвигай время сообразно действиям (быстрый разговор — 1–2 минуты, действие — 5–15 минут, длительная сцена — 20–40 минут). Если сцена затянулась, добавь фразу «Прошло около X минут».
+
+**СТРУКТУРА ОТВЕТА**
+- Сначала время, потом повествование.
+- Отделяй действия разных персонажей пустой строкой.
+- Прямую речь персонажей оформляй с новой строки, с тире в начале.
+- Не описывай действия, мысли или речь игрока.
+
+**ИСПОЛЬЗУЙ ДАННЫЕ, НО НЕ ПЕРЕСКАЗЫВАЙ ИХ**
+- У тебя есть `Действия и мысли NPC` и `Результаты бросков NPC`.
+- НЕ КОПИРУЙ тексты из «Действия» без изменений. Примени к ним бросок.
+- Например, если NPC хотел отодвинуть игрока и выбросил 7 (успех), опиши, как он успешно отодвинул. Если выбросил 3 (провал) – опиши, почему у него не вышло (поскользнулся, игрок увернулся, помешал другой NPC).
+
+Описания объектов: === The Kingdom's Finest (ID: c1) ===
+Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.
+</Silerd>
+<Komoaru>
+A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.
+</Komoaru>
+<Ruyijon>
+A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.
+</Ruyijon>
+<Scenario>
+Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.
+</Scenario>
+<Rules>
+Describe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.
+
+Always end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:
+```
+Morale: Morale of the troops while moving inside {{user}}'s dungeon.
+Warriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.
+```
+</Rules>
+
+--- scenario ---
+Ruyijon, Silerd and Komoaru have been tasked to slain the powerful evil lord {{user}}. They are naive and, bolstered by their numbers and strength, they are overconfident and sure of victory.
+
+=== Рюйжон (ID: c2) ===
+Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+
+=== Комара (ID: c3) ===
+Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+
+=== Силерд (ID: c4) ===
+Описание: Внешность: широкие плечи, держит огромный меч
+
+=== темный владыка (ID: c5) ===
+Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)
+
+=== Церера (Служанка владыки тьмы) (ID: c6) ===
+Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.
+Локация: l1
+Случайное событие: 
+Действия и мысли NPC: Рюйжон:
+  Мысли: Группа вошла в чертоги, и мой долг — встретиться с ними лицом к лицу, демонстрируя величие своего владыки.
+  Действие: Развернуться на троне, чтобы лучше видеть входящих, и высокомерно проговорить: «Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий?»
+
+Комара:
+  Мысли: Шум входящего отряда раздражает тишину чертогов, и мой взгляд цепляется за фигуру рыжеволосой разбойницы, чьи пальцы ловко играют кинжалом.
+  Действие: Комуару остановится на полшага впереди остальных, слегка отклонившись назад, чтобы не касаться стены, и продолжит медленно крутить короткий клинок между пальцев, оценивая расстояние до трона с легким интересом в взгляде.
+
+Силерд:
+  Мысли: Огромный клинок в моих руках кажется легким перышком, и я готов расправить широкие плечи, чтобы продемонстрировать мощь своего вооружения перед тронным залом.
+  Действие: Вытянуть руки с обеими руками, удерживая стальной меч на уровне груди, и сделать шаг вперед, демонстрируя готовность к удару.
+Результаты бросков NPC (только значения): Рюйжон: d20=17
+Комара: d20=16
+Силерд: d20=5
+
+**РЕЗУЛЬТАТ ДЕЙСТВИЯ ИГРОКА**
+d20: 1=крит.провал, 2-4=провал, 5-15=успех, 16-19=большой успех, 20=крит.успех.
+d100: 1-100. Событие происходит, если выпавшее значение <= шанса.
+d6: 1-2 плохо, 3-4 нормально, 5-6 хорошо.
+Бросок игрока: d20 = 15
+Действие игрока: Перед тронным залом возвышаются массивные дубовые ворота, увенчанные гербом королевства. Рядом с ними стоит высокая женщина в белых одеждах с золотой вышивкой; ее взгляд спокойный и уверенный, она держит руку на эфесе длинного клинка. У ее ног шуршит короткая рыжеволосая девушка в легкой броне, перебирая пальцами кинжалы и поглядывая на щели в дверях. За ними возвышается широкоплечий мужчина в серебряных доспехах с синим плащом, его огромный стальной меч надежно зафиксирован на спине, а взгляд устремлен прямо вперед, сканируя пространство перед входом.
+Учитывай этот результат: провал — не исполняй желание игрока, успех — исполняй.
+
+**ДИНАМИКА СЦЕНЫ**
+- Если нет активных NPC и не произошло события — добавь внешнее изменение или продвинь время.
+- У каждого NPC есть план действия и значение броска d20. Ты ОБЯЗАН описать **результат** этого действия в зависимости от броска:
+  * 1 = критический провал – действие не только не удаётся, но и приводит к негативным последствиям.
+  * 2-4 = провал – действие не удаётся, NPC не достигает цели.
+  * 5-15 = успех – действие удаётся.
+  * 16-19 = большой успех – действие удаётся с дополнительным положительным эффектом.
+  * 20 = критический успех – действие удаётся превосходно, возможно, меняет сцену.
+- НЕ ПИШИ просто «NPC пытается сделать X». Пиши, получилось ли у него это, и как именно.
+- Если у NPC несколько действий в плане – выбери одно главное по смыслу и опиши его результат.
+- Результат должен быть описан **конкретно**, с физическими деталями и/или репликой (если уместно).
+- При большом успехе игрока NPC должны активно реагировать, не просто наблюдать.
+
+**ОСОБЫЕ ТРЕБОВАНИЯ**
+- Сцены с раздеванями женских персонажей описывай детально, как снимается каждая вещь.
+- Сцены сексуального характера описывая детально, указывая как персонажи делают действие, что при этом чувствуют.
+
+**ТВОЙ ОТВЕТ:**
+
+**Контекст сцены (начало):**
+Величественный и мрачный вход в подземелье зловещего Владыки встретил экспедицию холодным, сырым воздухом, веющим из глубин земли. Толпа авантюристов, состоящая из десятков воинов, лучников и магов Королевской Гвардии, гудела как рой тревожных пчел. На переднем плане выделялись три фигуры, чья уверенность в победе казалась почти ослепительной на фоне сумрака пещеры.
+
+Первой вперед ступила Руйион, Первая Рыцарь королевства. Ее высокая фигура, облаченная в стальную броню с золотым орнаментом и развевающийся белый плащ, сияла под факелами сопровождающих. За ней плотным строем следовал легион из ста рыжих, мускулистых воинов — ее верная стража, чьи лица были серьезны, но глаза горели преданностью. Руйион держала в руке длинную рапиру, лезвие которой ловило отблески огня, и смотрела вдаль с царственным достоинством, ожидая указаний.
+
+Справа от нее, почесывая затылок и оглядываясь на блестящую экипировку других участников, стоял Сайлерд. Высокий, широкоплечий страж в серебряных доспехах и синем плаще сжимал огромную стальную шпагу. Его лицо выражало смесь амбициозного энтузиазма и легкой наивности; он уже представлял себе славу рыцарского звания и аплодисменты толпы, которая встретит его после победы над древним злом.
+
+А вот Комоара, рыжеволосая плутовка, занимала немного обособленное положение ближе к краю группы, где тень от свода была гуще. Она небрежно крутила кинжалом в пальцах, ее взгляд жадно скользил по украшенным рунами дверям подземелья, предвкушая сокровища внутри. «Богатство или смерть», — мелькнуло у нее в голове, хотя для нее первый вариант всегда был предпочтительнее.
+
+Среди прочих авантюристов слышались шутки и звон оружия. Маги настраивали заклинания огня и льда, чувствуя свою незаменимость. Все они считали, что против отступающего Владыки, чья слава затихла десятилетия назад, легко справиться мощью молодой элитной группы. Никто еще не знал о ловушках, спрятанных в камнях, или о страже, охраняющей тронный зал.
+
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:50:19.935663] FULL_REASONING_stage3_final
+[Пятница, 13 Октября, 09:15]
+
+Массивные ворота с треском распахиваются наружу. В проеме стоит Руйион, и её рапира уже нацелена в центр зала. Она выпрямилась во весь рост, белый плащ застыл неподвижно под тягучим воздухом подземелья.
+
+— Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий? — её голос звенит, эхо бежит по стенам, ударяясь о высокие колонны. Она смотрит не на трон, а прямо в глаза входящим, ожидая почтения.
+
+За ней, почти сливаясь с тенью арки, стоит Комоара. Рыжеволосая девушка отклонилась чуть назад, чтобы её лёгкая броня не звякнула о камень, когда мимо проходят солдаты. Её пальцы ловко крутят короткий клинок между указательным и средним пальцами — *цик-цик-цик*. Она щурится, оценивая расстояние до темноты в глубине зала.
+
+Сбоку, тяжело дыша через шлем, выступает Сайлерд. Он инстинктивно выпячивает грудь, пытаясь казаться ещё выше и могучее перед лицом неизвестности. Его огромная шпага дрожит в руках от напряжения — то ли от нетерпения, то ли от тяжести стали на плече.
+
+— Вперёд! — рычит Сайлерд, стараясь заглушить тишину залпа собственных шагов.
+
+Комоара кивает ему, но не идёт следом, а скользит влево, в более темный угол зала, прижимаясь к массивной колонне. Руйион делает шаг внутрь, её сапог глухо стучит по мраморному полу. Сайлерд следует за ней, его шаги тяжелеют с каждым метром.
+
+```
+Morale: Высокое (полны энтузиазма и уверенности в легкости победы)
+Warriors: ~100+ (все участники экспедиции живы)
+```
+
+[2026-05-01T18:50:19.952155] FULL_RESPONSE_stage3_final
+Content:
+[Пятница, 13 Октября, 09:15]
+
+Массивные ворота с треском распахиваются наружу. В проеме стоит Руйион, и её рапира уже нацелена в центр зала. Она выпрямилась во весь рост, белый плащ застыл неподвижно под тягучим воздухом подземелья.
+
+— Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий? — её голос звенит, эхо бежит по стенам, ударяясь о высокие колонны. Она смотрит не на трон, а прямо в глаза входящим, ожидая почтения.
+
+За ней, почти сливаясь с тенью арки, стоит Комоара. Рыжеволосая девушка отклонилась чуть назад, чтобы её лёгкая броня не звякнула о камень, когда мимо проходят солдаты. Её пальцы ловко крутят короткий клинок между указательным и средним пальцами — *цик-цик-цик*. Она щурится, оценивая расстояние до темноты в глубине зала.
+
+Сбоку, тяжело дыша через шлем, выступает Сайлерд. Он инстинктивно выпячивает грудь, пытаясь казаться ещё выше и могучее перед лицом неизвестности. Его огромная шпага дрожит в руках от напряжения — то ли от нетерпения, то ли от тяжести стали на плече.
+
+— Вперёд! — рычит Сайлерд, стараясь заглушить тишину залпа собственных шагов.
+
+Комоара кивает ему, но не идёт следом, а скользит влево, в более темный угол зала, прижимаясь к массивной колонне. Руйион делает шаг внутрь, её сапог глухо стучит по мраморному полу. Сайлерд следует за ней, его шаги тяжелеют с каждым метром.
+
+```
+Morale: Высокое (полны энтузиазма и уверенности в легкости победы)
+Warriors: ~100+ (все участники экспедиции живы)
+```
+
+[2026-05-01T18:50:19.980633] === STAGE8: history_check ===
+
+[2026-05-01T18:50:20.022531] STAGE11_SKIPPED
+Stage11 (validation) disabled
+
+[2026-05-01T18:50:20.022741] STAGE12_SKIPPED
+Stage12 (emotions) disabled
+
+[2026-05-01T18:50:20.022898] === STAGE13: auto_character_creator ===
+
+[2026-05-01T18:50:20.120459] PROMPT_FORMAT_WARNING
+Missing key 'existing_characters' in prompt stage13_auto_character_creator
+
+
+=== FULL_MESSAGES_stage13_auto_character_creator (total 3) ===
+
+[1] ROLE: SYSTEM
+Ты — помощник игрового мастера. Проанализируй текст ответа ассистента и найди всех персонажей, которые упоминаются впервые, имеют индивидуальное имя и ещё не присутствуют в списке существующих персонажей.
+
+Список существующих персонажей (имя и описание):
+{existing_characters}
+
+Текст ответа ассистента:
+{assistant_response}
+
+**Правила:**
+1. Сравнивай имя и описание нового персонажа с каждым из существующих. Если имя совпадает (без учёта регистра) или описание очень похоже по смыслу (тот же самый персонаж) — НЕ создавай.
+2. ЗАПРЕЩЕНО создавать групповых, обобщённых персонажей: «солдаты», «толпа», «стража», «крестьяне» и т.п. Создавай только персонажей с индивидуальным именем.
+3. Имя должно быть конкретным: «Борек», «Эльза», «Старый кузнец» (если это конкретный персонаж).
+4. Не создавай персонажа, если он уже был упомянут ранее в истории (даже без явного описания) — это должен определить ты на основе контекста.
+
+Для каждого нового персонажа создай JSON-объект со следующими полями:
+- "name" (строка, обязательно): имя персонажа.
+- "description" (строка, опционально): общее описание.
+- "appearance" (строка, опционально): внешность.
+- "personality" (строка, опционально): черты характера.
+- "bio" (строка, опционально): краткая биография, происхождение.
+- "notes" (строка, опционально): дополнительные заметки.
+
+Верни массив объектов в формате JSON. Если новых персонажей нет, верни пустой массив [].
+
+**Важно:**
+- Не включай в ответ ничего, кроме JSON.
+- Не создавай персонажа, если его имя или описание совпадает с существующими (даже частично).
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Ты — помощник игрового мастера. Проанализируй текст ответа ассистента и найди всех персонажей, которые упоминаются впервые, имеют индивидуальное имя и ещё не присутствуют в списке существующих персонажей.
+
+Список существующих персонажей (имя и описание):
+Имя: The Kingdom's Finest
+Описание: --- description ---
+{{char}} represents a group of characters in a fixed scenario.
+<Characters>
+Silerd, Komoaru, Ruyijon
+</Characters>
+<Silerd>
+A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow movin...
+
+Имя: Рюйжон
+Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+
+Имя: Комара
+Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+
+Имя: Силерд
+Описание: Внешность: широкие плечи, держит огромный меч
+
+Имя: темный владыка
+Описание: Внешность: сидит на троне в зале с высоченными колоннами
+
+Имя: Церера (Служанка владыки тьмы)
+Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. 
+На ней броня в виде плятья служанки и жесткийх кремниевых полос. 
+Одним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.
+У нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. 
+И от каждого ее шага атмосфера, буд-то шагает непреступная крепость.
+Если ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она ...
+
+Текст ответа ассистента:
+[Пятница, 13 Октября, 09:15]
+
+Массивные ворота с треском распахиваются наружу. В проеме стоит Руйион, и её рапира уже нацелена в центр зала. Она выпрямилась во весь рост, белый плащ застыл неподвижно под тягучим воздухом подземелья.
+
+— Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий? — её голос звенит, эхо бежит по стенам, ударяясь о высокие колонны. Она смотрит не на трон, а прямо в глаза входящим, ожидая почтения.
+
+За ней, почти сливаясь с тенью арки, стоит Комоара. Рыжеволосая девушка отклонилась чуть назад, чтобы её лёгкая броня не звякнула о камень, когда мимо проходят солдаты. Её пальцы ловко крутят короткий клинок между указательным и средним пальцами — *цик-цик-цик*. Она щурится, оценивая расстояние до темноты в глубине зала.
+
+Сбоку, тяжело дыша через шлем, выступает Сайлерд. Он инстинктивно выпячивает грудь, пытаясь казаться ещё выше и могучее перед лицом неизвестности. Его огромная шпага дрожит в руках от напряжения — то ли от нетерпения, то ли от тяжести стали на плече.
+
+— Вперёд! — рычит Сайлерд, стараясь заглушить тишину залпа собственных шагов.
+
+Комоара кивает ему, но не идёт следом, а скользит влево, в более темный угол зала, прижимаясь к массивной колонне. Руйион делает шаг внутрь, её сапог глухо стучит по мраморному полу. Сайлерд следует за ней, его шаги тяжелеют с каждым метром.
+
+```
+Morale: Высокое (полны энтузиазма и уверенности в легкости победы)
+Warriors: ~100+ (все участники экспедиции живы)
+```
+
+**Правила:**
+1. Сравнивай имя и описание нового персонажа с каждым из существующих. Если имя совпадает (без учёта регистра) или описание очень похоже по смыслу (тот же самый персонаж) — НЕ создавай.
+2. ЗАПРЕЩЕНО создавать групповых, обобщённых персонажей: «солдаты», «толпа», «стража», «крестьяне» и т.п. Создавай только персонажей с индивидуальным именем.
+3. Имя должно быть конкретным: «Борек», «Эльза», «Старый кузнец» (если это конкретный персонаж).
+4. Не создавай персонажа, если он уже был упомянут ранее в истории (даже без явного описания) — это должен определить ты на основе контекста.
+
+Для каждого нового персонажа создай JSON-объект со следующими полями:
+- "name" (строка, обязательно): имя персонажа.
+- "description" (строка, опционально): общее описание.
+- "appearance" (строка, опционально): внешность.
+- "personality" (строка, опционально): черты характера.
+- "bio" (строка, опционально): краткая биография, происхождение.
+- "notes" (строка, опционально): дополнительные заметки.
+
+Верни массив объектов в формате JSON. Если новых персонажей нет, верни пустой массив [].
+
+**Важно:**
+- Не включай в ответ ничего, кроме JSON.
+- Не создавай персонажа, если его имя или описание совпадает с существующими (даже частично).
+--------------------------------------------------------------------------------
+================================================================================
+
+[2026-05-01T18:50:31.993562] FULL_REASONING_stage13_auto_character_creator
+[]
+
+[2026-05-01T18:50:32.001032] FULL_RESPONSE_stage13_auto_character_creator
+Content:
+[]
+
+[2026-05-01T18:50:32.093106] === STAGE11: significant_changes (attempt 1) ===
+
+[2026-05-01T18:50:32.192433] STAGE9_SKIPPED
+Stage9 (summary) disabled
+
+[2026-05-01T18:50:32.192643] === STAGE10: associative (attempt 1) ===
+
+
+=== FULL_MESSAGES_stage10_associative_memory (total 3) ===
+
+[1] ROLE: SYSTEM
+Ты — система ассоциативной памяти. Твоя задача — для каждого объекта с непустым полем «Инструкция» выполнить эту инструкцию буквально, используя финальную историю И предыдущую память (поле «Память»).
+
+Финальная история:
+[Пятница, 13 Октября, 09:15]
+
+Массивные ворота с треском распахиваются наружу. В проеме стоит Руйион, и её рапира уже нацелена в центр зала. Она выпрямилась во весь рост, белый плащ застыл неподвижно под тягучим воздухом подземелья.
+
+— Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий? — её голос звенит, эхо бежит по стенам, ударяясь о высокие колонны. Она смотрит не на трон, а прямо в глаза входящим, ожидая почтения.
+
+За ней, почти сливаясь с тенью арки, стоит Комоара. Рыжеволосая девушка отклонилась чуть назад, чтобы её лёгкая броня не звякнула о камень, когда мимо проходят солдаты. Её пальцы ловко крутят короткий клинок между указательным и средним пальцами — *цик-цик-цик*. Она щурится, оценивая расстояние до темноты в глубине зала.
+
+Сбоку, тяжело дыша через шлем, выступает Сайлерд. Он инстинктивно выпячивает грудь, пытаясь казаться ещё выше и могучее перед лицом неизвестности. Его огромная шпага дрожит в руках от напряжения — то ли от нетерпения, то ли от тяжести стали на плече.
+
+— Вперёд! — рычит Сайлерд, стараясь заглушить тишину залпа собственных шагов.
+
+Комоара кивает ему, но не идёт следом, а скользит влево, в более темный угол зала, прижимаясь к массивной колонне. Руйион делает шаг внутрь, её сапог глухо стучит по мраморному полу. Сайлерд следует за ней, его шаги тяжелеют с каждым метром.
+
+```
+Morale: Высокое (полны энтузиазма и уверенности в легкости победы)
+Warriors: ~100+ (все участники экспедиции живы)
+```
+
+Объекты:
+Объект: c4 (Силерд)
+Описание: Внешность: широкие плечи, держит огромный меч
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+Уровень возбуждения персонажа
+
+Объект: c5 (темный владыка)
+Описание: Внешность: сидит на троне в зале с высоченными колоннами
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+
+Объект: c2 (Рюйжон)
+Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+Уровень возбуждения персонажа
+
+Объект: c3 (Комара)
+Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+Уровень возбуждения персонажа
+
+---
+
+## ГЛАВНОЕ ПРАВИЛО
+
+Ты ОБЯЗАН интерпретировать текст инструкции как точное описание того, **какую информацию извлечь** и **в каком формате её записать**.
+
+**ЗАПРЕЩЕНО выводить фразы вроде «нет информации», «не указано», «неизвестно» или их варианты.**
+
+Если в финальной истории нет явного указания, но в предыдущей памяти уже есть значение для этой инструкции — **подтверди его** (выведи то же самое).
+
+Если нет ни явного указания, ни памяти — выведи **логически обоснованное значение по умолчанию**, исходя из контекста сцены, времени суток, обстановки и здравого смысла.
+
+---
+
+## АЛГОРИТМ ДЛЯ КАЖДОГО ОБЪЕКТА
+
+1. Прочитай поле «Инструкция».
+2. Запрошенное значение может быть, например: состояние, цвет, местоположение, одет ли персонаж и во что, чист ли, запах, список персонажей в локации и т.п.
+3. **Действие:**
+   - Если значение **явно описано** в финальной истории → извлеки и используй его.
+   - Если не описано, но есть в поле «Память» → оставь без изменений (выведи то же значение).
+   - Если нет ни явного описания, ни памяти → выведи **разумное значение по умолчанию**, соответствующее контексту.
+
+---
+
+## ФОРМАТ ВЫВОДА
+
+Только строки в формате:
+`object_id:  -> `
+
+Никаких списков, временных меток, накоплений действий.
+Никаких пустых строк, пояснений, лишнего текста.
+
+---
+
+## ТВОЙ ОТВЕТ
+
+Теперь выполни обновления.
+--------------------------------------------------------------------------------
+
+[2] ROLE: USER
+Предыдущий диалог:
+user: Опиши начало игры согласно сценарию. А не просто владыку со служанкой вставляй
+--------------------------------------------------------------------------------
+
+[3] ROLE: USER
+Ты — система ассоциативной памяти. Твоя задача — для каждого объекта с непустым полем «Инструкция» выполнить эту инструкцию буквально, используя финальную историю И предыдущую память (поле «Память»).
+
+Финальная история:
+[Пятница, 13 Октября, 09:15]
+
+Массивные ворота с треском распахиваются наружу. В проеме стоит Руйион, и её рапира уже нацелена в центр зала. Она выпрямилась во весь рост, белый плащ застыл неподвижно под тягучим воздухом подземелья.
+
+— Так ли уж мал ваш отряд для посягательства на покой повелителя подземелий? — её голос звенит, эхо бежит по стенам, ударяясь о высокие колонны. Она смотрит не на трон, а прямо в глаза входящим, ожидая почтения.
+
+За ней, почти сливаясь с тенью арки, стоит Комоара. Рыжеволосая девушка отклонилась чуть назад, чтобы её лёгкая броня не звякнула о камень, когда мимо проходят солдаты. Её пальцы ловко крутят короткий клинок между указательным и средним пальцами — *цик-цик-цик*. Она щурится, оценивая расстояние до темноты в глубине зала.
+
+Сбоку, тяжело дыша через шлем, выступает Сайлерд. Он инстинктивно выпячивает грудь, пытаясь казаться ещё выше и могучее перед лицом неизвестности. Его огромная шпага дрожит в руках от напряжения — то ли от нетерпения, то ли от тяжести стали на плече.
+
+— Вперёд! — рычит Сайлерд, стараясь заглушить тишину залпа собственных шагов.
+
+Комоара кивает ему, но не идёт следом, а скользит влево, в более темный угол зала, прижимаясь к массивной колонне. Руйион делает шаг внутрь, её сапог глухо стучит по мраморному полу. Сайлерд следует за ней, его шаги тяжелеют с каждым метром.
+
+```
+Morale: Высокое (полны энтузиазма и уверенности в легкости победы)
+Warriors: ~100+ (все участники экспедиции живы)
+```
+
+Объекты:
+Объект: c4 (Силерд)
+Описание: Внешность: широкие плечи, держит огромный меч
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+Уровень возбуждения персонажа
+
+Объект: c5 (темный владыка)
+Описание: Внешность: сидит на троне в зале с высоченными колоннами
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+
+Объект: c2 (Рюйжон)
+Описание: Внешность: белое одеяние с золотом
+Характер: авторитетная, уверенная
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+Уровень возбуждения персонажа
+
+Объект: c3 (Комара)
+Описание: Внешность: крутит кинжал в пальцах
+Характер: неопределённая, сторонящаяся пустоты
+Ассоциации (история): 
+Инструкция: Одет ли персонаж, и во что
+Чист ли персонаж
+Запах персонажа или его отсутствие
+Уровень возбуждения персонажа
+
+---
+
+## ГЛАВНОЕ ПРАВИЛО
+
+Ты ОБЯЗАН интерпретировать текст инструкции как точное описание того, **какую информацию извлечь** и **в каком формате её записать**.
+
+**ЗАПРЕЩЕНО выводить фразы вроде «нет информации», «не указано», «неизвестно» или их варианты.**
+
+Если в финальной истории нет явного указания, но в предыдущей памяти уже есть значение для этой инструкции — **подтверди его** (выведи то же самое).
+
+Если нет ни явного указания, ни памяти — выведи **логически обоснованное значение по умолчанию**, исходя из контекста сцены, времени суток, обстановки и здравого смысла.
+
+---
+
+## АЛГОРИТМ ДЛЯ КАЖДОГО ОБЪЕКТА
+
+1. Прочитай поле «Инструкция».
+2. Запрошенное значение может быть, например: состояние, цвет, местоположение, одет ли персонаж и во что, чист ли, запах, список персонажей в локации и т.п.
+3. **Действие:**
+   - Если значение **явно описано** в финальной истории → извлеки и используй его.
+   - Если не описано, но есть в поле «Память» → оставь без изменений (выведи то же значение).
+   - Если нет ни явного описания, ни памяти → выведи **разумное значение по умолчанию**, соответствующее контексту.
+
+---
+
+## ФОРМАТ ВЫВОДА
+
+Только строки в формате:
+`object_id: {текст инструкции} -> {значение}`
+
+Никаких списков, временных меток, накоплений действий.
+Никаких пустых строк, пояснений, лишнего текста.
+
+---
+
+## ТВОЙ ОТВЕТ
+
+Теперь выполни обновления.
+--------------------------------------------------------------------------------
+================================================================================
+

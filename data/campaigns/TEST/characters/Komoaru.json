@@ -1,0 +1,13 @@
+{
+  "id": "c2",
+  "name": "Komoaru",
+  "short_description": "A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banis…",
+  "description": "A young female rogue who is interested in riches first and foremost. Komoaru is a short redhead who is friends with Silerd and has known him for years, growing up together, the two have sworn to banish evil and become knights of the kingdom. Komoaru later took a different path in life, now she dreams of becoming rich enough to buy a large mansion in the countryside and take in many dark elf slaves to be worshiped like a goddess. Komoaru is selfish, she asks for large sums of money to provide her services. Komoaru is the best rogue in town and has been recruited for her high stealth, agility, skill with daggers. Komoaru wears a light armor with a short black cape, she fights with double daggers and a crossbow. She is very athletic and mobile.",
+  "associative_checks": "Одет ли персонаж, и во что\nЧист ли персонаж\nЗапах персонажа или его отсутствие",
+  "inventory": [],
+  "equipped": [],
+  "is_player": false,
+  "avatar_image": "",
+  "sprite_image": "",
+  "emotion_images": {}
+}

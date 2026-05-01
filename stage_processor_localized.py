@@ -564,8 +564,15 @@ class StageProcessor:
             obj_id = str(obj_id)
             self._display_system(loc.tr("messages_fetching_desc", obj_id=obj_id))
             try:
-                desc = self._get_object_description_with_local(obj_id)
-                obj = self.main_app._get_object_by_id(obj_id)
+                # Получаем базовое описание (включая глобальное и локальное)
+                base_desc = self._get_object_description_with_local(obj_id)
+                # Добавляем краткое описание, если оно есть
+                obj = self._get_object_by_id(obj_id)
+                if obj and hasattr(obj, 'short_description') and obj.short_description:
+                    short = obj.short_description.strip()
+                    if short:
+                        base_desc = f"Кратко: {short}\nПолное описание: {base_desc}"
+                desc = base_desc
                 if obj and hasattr(obj, 'is_player') and obj.is_player:
                     if "(ИГРОК)" not in desc:
                         desc += " (ИГРОК)"
@@ -604,7 +611,9 @@ class StageProcessor:
             if loc_obj:
                 assoc = self._get_latest_associations_for_objects([lid])
                 assoc_str = f" ({assoc})" if assoc else ""
-                objects_text.append(f"Локация: {lid} - {loc_obj.name}{assoc_str}")
+                short = loc_obj.short_description.strip() if loc_obj.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Локация: {lid} - {loc_obj.name}{short_str}{assoc_str}")
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
             if char:
@@ -612,25 +621,35 @@ class StageProcessor:
                 assoc_str = f" ({assoc})" if assoc else ""
                 is_player = char.is_player
                 player_tag = ' (ИГРОК)' if is_player else ''
-                objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
+                short = char.short_description.strip() if char.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Персонаж: {cid} - {char.name}{short_str}{player_tag}{assoc_str}")
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
             if item:
                 assoc = self._get_latest_associations_for_objects([iid])
                 assoc_str = f" ({assoc})" if assoc else ""
-                objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
+                short = item.short_description.strip() if item.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Предмет: {iid} - {item.name}{short_str}{assoc_str}")
         for sid in self.main_app.current_profile.enabled_scenarios:
             scen = self.main_app.scenarios.get(sid)
             if scen:
-                objects_text.append(f"Сценарий: {sid} - {scen.name} (описание: {scen.description[:100]}...)")
+                short = scen.short_description.strip() if scen.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Сценарий: {sid} - {scen.name}{short_str} (описание: {scen.description[:100]}...)")
         for eid in self.main_app.current_profile.enabled_emotions:
             em = self.main_app.emotions.get(eid)
             if em:
-                objects_text.append(f"Эмоция: {eid} - {em.name}")
+                short = em.short_description.strip() if em.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Эмоция: {eid} - {em.name}{short_str}")
         for evid in self.main_app.current_profile.enabled_events:
             ev = self.main_app.events.get(evid)
             if ev:
-                objects_text.append(f"Событие: {evid} - {ev.name} (описание: {ev.description[:100]}...)")
+                short = ev.short_description.strip() if ev.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Событие: {evid} - {ev.name}{short_str} (описание: {ev.description[:100]}...)")
 
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
@@ -1363,7 +1382,9 @@ class StageProcessor:
             if loc_obj:
                 assoc = self._get_latest_associations_for_objects([lid])
                 assoc_str = f" ({assoc})" if assoc else ""
-                objects_text.append(f"Локация: {lid} - {loc_obj.name}{assoc_str}")
+                short = loc_obj.short_description.strip() if loc_obj.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Локация: {lid} - {loc_obj.name}{short_str}{assoc_str}")
         for cid in self.main_app.current_profile.enabled_characters:
             char = self.main_app.characters.get(cid)
             if char:
@@ -1371,13 +1392,17 @@ class StageProcessor:
                 assoc_str = f" ({assoc})" if assoc else ""
                 is_player = char.is_player
                 player_tag = ' (ИГРОК)' if is_player else ''
-                objects_text.append(f"Персонаж: {cid} - {char.name}{player_tag}{assoc_str}")
+                short = char.short_description.strip() if char.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Персонаж: {cid} - {char.name}{short_str}{player_tag}{assoc_str}")
         for iid in self.main_app.current_profile.enabled_items:
             item = self.main_app.items.get(iid)
             if item:
                 assoc = self._get_latest_associations_for_objects([iid])
                 assoc_str = f" ({assoc})" if assoc else ""
-                objects_text.append(f"Предмет: {iid} - {item.name}{assoc_str}")
+                short = item.short_description.strip() if item.short_description else ""
+                short_str = f" [{short}]" if short else ""
+                objects_text.append(f"Предмет: {iid} - {item.name}{short_str}{assoc_str}")
         available = "\n".join(objects_text) if objects_text else "Нет доступных объектов."
 
         descriptions_text = "\n".join([f"{oid}: {desc}" for oid, desc in self.stage_data["descriptions"].items()])
@@ -2615,26 +2640,34 @@ class StageProcessor:
         self._emotion_results[character_id] = emotion
         self._process_next_emotion()
 
-    # -------------------------------------------------------------------------
-    # НОВЫЙ ЭТАП 13: АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ПЕРСОНАЖЕЙ
-    # -------------------------------------------------------------------------
+
     def _stage13_auto_character_creator(self, retry_count=0):
         if not self.main_app.settings.get("enable_auto_character_creation", True):
+            self._log_debug("STAGE13_SKIPPED", "Auto character creation disabled")
             self._stage11_significant_changes()
             return
 
         self._log_debug("=== STAGE13: auto_character_creator ===")
-        self._display_system("🧙‍♂️ Этап 13/13: Автоматическое создание новых персонажей...\n")
+        self._display_system(loc.tr("messages_stage13_start"))
 
         assistant_response = self.stage_data.get("final_response", "")
         if not assistant_response:
+            self._display_system(loc.tr("messages_stage13_no_response"))
             self._stage11_significant_changes()
             return
 
-        existing = []
+        # Собираем информацию о существующих персонажах (имя + описание)
+        existing_list = []
         for cid, char in self.main_app.characters.items():
-            existing.append(f"{char.name} (ID: {cid})")
-        existing_text = "\n".join(existing) if existing else "Пусто"
+            desc = char.description if char.description else ""
+            if len(desc) > 800:
+                desc = desc[:800] + "..."
+            existing_list.append(f"ID: {cid}\nИмя: {char.name}\nОписание: {desc}")
+        existing_text = "\n\n".join(existing_list) if existing_list else "Пусто"
+
+        self._display_system(loc.tr("messages_stage13_analyzing"))
+        preview = assistant_response[:300] + "..." if len(assistant_response) > 300 else assistant_response
+        self._display_system(loc.tr("messages_stage13_response_preview", preview=preview))
 
         try:
             prompt_template = self.main_app.prompt_manager.get_prompt_content("stage13_auto_character_creator")
@@ -2649,33 +2682,47 @@ class StageProcessor:
             assistant_response=assistant_response
         )
 
-        debug_inputs = {
+        # Дополнительные контекстные данные для форматирования (если потребуется)
+        extra_context = {
             "existing_characters": existing_text,
+            "assistant_response": assistant_response
+        }
+        full_context = {**self.stage_data, **extra_context}
+
+        debug_inputs = {
+            "existing_characters": existing_text[:1000] + "..." if len(existing_text) > 1000 else existing_text,
             "assistant_response": assistant_response[:500] + "..." if len(assistant_response) > 500 else assistant_response
         }
 
         self._send_request(
             user_data=user_data,
             callback=lambda content, extra: self._after_stage13_auto_character_creator(content, extra),
-            extra={"retry_count": retry_count},
+            extra={"retry_count": retry_count, "assistant_response": assistant_response},
             stage_name="stage13_auto_character_creator",
             use_temp=False,
             show_in_thinking=True,
+            context_data=full_context,      # <-- теперь full_context содержит existing_characters
             debug_inputs=debug_inputs
         )
 
     def _after_stage13_auto_character_creator(self, content, extra):
         retry_count = extra.get("retry_count", 0)
+        assistant_response = extra.get("assistant_response", "")
         self._log_full_response("stage13_auto_character_creator", content)
 
-        json_match = re.search(r'\[[\s\S]*\]', content.strip())
+        # Ищем JSON в ответе
+        json_match = re.search(r'\{[\s\S]*\}', content.strip())
         if not json_match:
             self._display_system("⚠️ Модель не вернула JSON. Пропускаем.\n")
             self._stage11_significant_changes()
             return
 
         try:
-            new_chars = json.loads(json_match.group())
+            data = json.loads(json_match.group())
+            found_existing = data.get("found_existing", [])
+            new_chars = data.get("new_characters", [])
+            if not isinstance(found_existing, list):
+                found_existing = []
             if not isinstance(new_chars, list):
                 new_chars = []
         except json.JSONDecodeError:
@@ -2683,33 +2730,107 @@ class StageProcessor:
             self._stage11_significant_changes()
             return
 
+        # Отображаем найденных существующих персонажей
+        if found_existing:
+            existing_names = []
+            for oid in found_existing:
+                obj = self.main_app._get_object_by_id(oid)
+                if obj:
+                    existing_names.append(f"{obj.name} (ID: {oid})")
+                else:
+                    existing_names.append(oid)
+            self._display_system(loc.tr("messages_stage13_found_existing", list=", ".join(existing_names)))
+        else:
+            self._display_system(loc.tr("messages_stage13_no_existing_found"))
+
+        # Отображаем кандидатов на создание
+        if new_chars:
+            cand_names = [c.get("name", "?") for c in new_chars]
+            self._display_system(loc.tr("messages_stage13_candidates", list=", ".join(cand_names)))
+        else:
+            self._display_system(loc.tr("messages_stage13_no_candidates"))
+
+        # Функция для приблизительного сравнения (оставляем как защиту)
+        def similar(a, b, threshold=0.8):
+            if not a or not b:
+                return False
+            a_lower = a.lower()
+            b_lower = b.lower()
+            if a_lower == b_lower:
+                return True
+            words_a = set(a_lower.split())
+            words_b = set(b_lower.split())
+            if not words_a or not words_b:
+                return False
+            common = len(words_a & words_b)
+            ratio = common / max(len(words_a), len(words_b))
+            return ratio >= threshold
+
         created = 0
+        created_names = []
         for char_data in new_chars:
             name = char_data.get("name", "").strip()
             if not name:
                 continue
 
-            exists = any(c.name.lower() == name.lower() for c in self.main_app.characters.values())
-            if exists:
+            # Запрет на групповые имена
+            lower_name = name.lower()
+            if lower_name.endswith(("ы", "и", "а", "я", "е")) and len(name) > 3:
+                if name[0].islower() or " " not in name:
+                    self._display_system(loc.tr("messages_stage13_skip_group", name=name))
+                    continue
+
+            # Проверка по имени
+            exists_by_name = any(c.name.lower() == name.lower() for c in self.main_app.characters.values())
+            if exists_by_name:
+                self._display_system(loc.tr("messages_stage13_skip_exists_name", name=name))
                 continue
 
+            # Формируем описание нового персонажа
+            new_desc_parts = []
+            if char_data.get("description"):
+                new_desc_parts.append(char_data["description"])
+            if char_data.get("appearance"):
+                new_desc_parts.append(f"Внешность: {char_data['appearance']}")
+            if char_data.get("personality"):
+                new_desc_parts.append(f"Характер: {char_data['personality']}")
+            if char_data.get("bio"):
+                new_desc_parts.append(f"Биография: {char_data['bio']}")
+            new_description = " ".join(new_desc_parts)
+
+            duplicate = False
+            for cid, existing_char in self.main_app.characters.items():
+                existing_desc = existing_char.description or ""
+                if existing_desc and new_description and similar(existing_desc, new_description, threshold=0.8):
+                    self._display_system(loc.tr("messages_stage13_skip_similar", name=name, existing=existing_char.name))
+                    duplicate = True
+                    break
+
+            if duplicate:
+                continue
+
+            # Создаём персонажа
             description = char_data.get("description", "")
             appearance = char_data.get("appearance", "")
             personality = char_data.get("personality", "")
             notes = char_data.get("notes", "")
+            bio = char_data.get("bio", "")
 
             full_desc = description
             if appearance:
                 full_desc += f"\nВнешность: {appearance}"
             if personality:
                 full_desc += f"\nХарактер: {personality}"
+            if bio:
+                full_desc += f"\nБиография: {bio}"
             if notes:
                 full_desc += f"\nЗаметки: {notes}"
+            full_desc = full_desc.strip()
 
             from models import Character
             new_char = Character(
                 name=name,
-                description=full_desc.strip(),
+                description=full_desc,
                 associative_checks="",
                 is_player=False
             )
@@ -2721,17 +2842,19 @@ class StageProcessor:
                 self.main_app.current_profile.enabled_characters.append(new_char.id)
 
             created += 1
-            self._display_system(f"✨ Создан персонаж: {name} (ID: {new_char.id})\n")
+            created_names.append(name)
+            self._display_system(loc.tr("messages_stage13_created", name=name, oid=new_char.id))
 
         if created:
             self.main_app._save_profile_to_file()
             self.main_app._refresh_all_ui()
-            self._display_system(f"✅ Создано {created} новых персонажей.\n")
+            self._display_system(loc.tr("messages_stage13_summary_created", count=created, names=", ".join(created_names)))
         else:
-            self._display_system("ℹ️ Новых персонажей не обнаружено.\n")
+            self._display_system(loc.tr("messages_stage13_none_created"))
 
         self._stage11_significant_changes()
         self._save_checkpoint("stage13_auto_character_creator")
+
 
     # -------------------------------------------------------------------------
     # ОСТАВШИЕСЯ СТАДИИ
@@ -2924,9 +3047,11 @@ class StageProcessor:
             obj = self.main_app._get_object_by_id(oid)
             if obj:
                 latest_assoc = self._get_latest_associations_for_objects([oid])
+                short = obj.short_description.strip() if hasattr(obj, 'short_description') and obj.short_description else ""
+                short_str = f" (кратко: {short})" if short else ""
                 objects_info.append(
-                    f"Объект: {oid} ({obj.name})\n"
-                    f"Описание: {obj.description[:500] if obj.description else 'Нет описания'}\n"
+                    f"Объект: {oid} ({obj.name}){short_str}\n"
+                    f"Полное описание: {obj.description[:500] if obj.description else 'Нет описания'}\n"
                     f"Ассоциации (история): {latest_assoc}\n"
                     f"Инструкция: {getattr(obj, 'associative_checks', '')}"
                 )
@@ -3351,6 +3476,10 @@ class StageProcessor:
         self.main_app.center_panel.update_translation_button_state()
         self.main_app.current_debug_log_path = None
         self.main_app.display_generation_memory_summary()
+
+        # Авто-перевод финального рассказа (только один раз в конце генерации)
+        if hasattr(self.main_app, '_auto_translate_if_enabled'):
+            self.main_app._auto_translate_if_enabled()
 
         if hasattr(self.main_app, 'vn_frame') and self.main_app.vn_frame and self.main_app.vn_frame.winfo_viewable():
             self.main_app.vn_frame.set_freeze(False)

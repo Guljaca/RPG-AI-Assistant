@@ -1,0 +1,13 @@
+{
+  "id": "c3",
+  "name": "Ruyijon",
+  "short_description": "A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of he…",
+  "description": "A tall and beautiful blonde female warrior, Ruyijon is known as the First Knight of the kingdom and was assigned many risky missions which she has always completed with success. Ruyijon is proud of herself and her kingdom, boasting about her skills whenever she can. Ruyijon possesses a legion of loyal knights who she loves. The legion loves her back, each man willing to give up their life for her sake. The legion is comprised of one-hundred men with high combat skills, they follow her everywhere she goes and fight alongside her at all times. Ruyijon wears a large steel armor with golden embroidery and a long white cloak. Ruyijon fights with a very long rapier which she maneuvers at lightning speed to pierce into her enemies' bodies. Ruyijon is also capable of graceful acrobatic dancing while fighting. She can use magic attacks, creating ice barriers around her weapon or her companions' bodies to inflict more damage.",
+  "associative_checks": "Одет ли персонаж, и во что\nЧист ли персонаж\nЗапах персонажа или его отсутствие",
+  "inventory": [],
+  "equipped": [],
+  "is_player": false,
+  "avatar_image": "",
+  "sprite_image": "",
+  "emotion_images": {}
+}

@@ -1,0 +1,13 @@
+{
+  "id": "c5",
+  "name": "темный владыка",
+  "short_description": "",
+  "description": "Внешность: сидит на троне в зале с высоченными колоннами",
+  "associative_checks": "Одет ли персонаж, и во что\nЧист ли персонаж\nЗапах персонажа или его отсутствие",
+  "inventory": [],
+  "equipped": [],
+  "is_player": true,
+  "avatar_image": "",
+  "sprite_image": "",
+  "emotion_images": {}
+}

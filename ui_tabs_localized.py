@@ -541,13 +541,51 @@ class BaseEditorTab(ttk.Frame):
         self.reset_local_btn = ttk.Button(mode_frame, text=loc.tr("editor_reset_local"), command=self._reset_local, state=tk.DISABLED)
         self.reset_local_btn.pack(side=tk.RIGHT, padx=5)
 
+        # ----- НАЗВАНИЕ -----
+        editor_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_name"))
+        editor_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(editor_frame, text=loc.tr("editor_name")).pack(anchor='w', padx=5, pady=2)
+        self.name_entry = ttk.Entry(editor_frame)
+        self.name_entry.pack(fill=tk.X, padx=5, pady=2)
+        add_context_menu(self.name_entry)
+
+        # ----- КРАТКОЕ ОПИСАНИЕ (short_description) -----
+        short_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_short_description"))
+        short_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.short_entry = ttk.Entry(short_frame)
+        self.short_entry.pack(fill=tk.X, padx=5, pady=5)
+        add_context_menu(self.short_entry)
+
+        # ----- АССОЦИАТИВНЫЕ ПРОВЕРКИ -----
+        assoc_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_assoc_checks"))
+        assoc_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(assoc_frame, text=loc.tr("editor_assoc_hint")).pack(anchor='w', padx=5, pady=2)
+        self.assoc_text = scrolledtext.ScrolledText(assoc_frame, height=6, wrap=tk.WORD)
+        self.assoc_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        add_context_menu(self.assoc_text)
+
+        # Кнопка "Применить ко всем" под ассоциативными проверками
+        assoc_btn_frame = ttk.Frame(assoc_frame)
+        assoc_btn_frame.pack(fill=tk.X, padx=5, pady=(0,5))
+        self.apply_assoc_all_btn = ttk.Button(assoc_btn_frame, text=loc.tr("editor_apply_assoc_all"), command=self._apply_assoc_to_all)
+        self.apply_assoc_all_btn.pack(side=tk.RIGHT)
+
+        # ----- ПОЛНОЕ ОПИСАНИЕ -----
+        full_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_full_description"))
+        full_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.desc_text = scrolledtext.ScrolledText(full_frame, height=10, wrap=tk.WORD)
+        self.desc_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        add_context_menu(self.desc_text)
+
+        # ----- ИЗОБРАЖЕНИЯ ДЛЯ ПЕРСОНАЖЕЙ / ЛОКАЦИЙ / ЭМОЦИЙ -----
         if self.obj_type == "characters":
             player_frame = ttk.Frame(scrollable_frame)
             player_frame.pack(fill=tk.X, padx=5, pady=5)
             self.player_check = ttk.Checkbutton(player_frame, text=loc.tr("editor_is_player"), variable=self.player_var, command=self._on_player_flag_change)
             self.player_check.pack(side=tk.LEFT)
 
-        if self.obj_type == "characters":
             images_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_images_vn"))
             images_frame.pack(fill=tk.X, padx=5, pady=5)
 
@@ -634,27 +672,6 @@ class BaseEditorTab(ttk.Frame):
 
             self.em_sprite_preview = ttk.Label(sprite_row, text="[Нет]")
             self.em_sprite_preview.grid(row=0, column=4, padx=5)
-
-        assoc_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_assoc_checks"))
-        assoc_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Label(assoc_frame, text=loc.tr("editor_assoc_hint")).pack(anchor='w', padx=5, pady=2)
-        self.assoc_text = scrolledtext.ScrolledText(assoc_frame, height=6, wrap=tk.WORD)
-        self.assoc_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        add_context_menu(self.assoc_text)
-
-        editor_frame = ttk.LabelFrame(scrollable_frame, text=loc.tr("editor_name"))
-        editor_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        ttk.Label(editor_frame, text=loc.tr("editor_name")).pack(anchor='w', padx=5, pady=2)
-        self.name_entry = ttk.Entry(editor_frame)
-        self.name_entry.pack(fill=tk.X, padx=5, pady=2)
-        add_context_menu(self.name_entry)
-
-        ttk.Label(editor_frame, text=loc.tr("editor_description")).pack(anchor='w', padx=5, pady=2)
-        self.desc_text = scrolledtext.ScrolledText(editor_frame, height=10, wrap=tk.WORD)
-        self.desc_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        add_context_menu(self.desc_text)
 
         scrollable_frame.update_idletasks()
         main_canvas.configure(scrollregion=main_canvas.bbox("all"))
@@ -1101,6 +1118,12 @@ class BaseEditorTab(ttk.Frame):
             self._select_object_by_id(current_selection)
         else:
             self._clear_form()
+        # Обновить состояние кнопки "Применить ко всем" в зависимости от количества объектов
+        objects_dict = self._get_objects_dict()
+        if objects_dict and self.editing_mode.get() == "global":
+            self.apply_assoc_all_btn.config(state=tk.NORMAL)
+        else:
+            self.apply_assoc_all_btn.config(state=tk.DISABLED)
 
     def add_object(self, obj_id: str):
         self.refresh()
@@ -1121,6 +1144,12 @@ class BaseEditorTab(ttk.Frame):
             self._load_current_description()
             local_exists = self.current_obj_id in self.app.local_descriptions
             self.reset_local_btn.config(state=tk.NORMAL if local_exists else tk.DISABLED)
+        # Обновить состояние кнопки "Применить ко всем"
+        objects_dict = self._get_objects_dict()
+        if objects_dict and self.editing_mode.get() == "global":
+            self.apply_assoc_all_btn.config(state=tk.NORMAL)
+        else:
+            self.apply_assoc_all_btn.config(state=tk.DISABLED)
 
     def _load_current_description(self):
         if not self.current_obj_id:
@@ -1131,9 +1160,14 @@ class BaseEditorTab(ttk.Frame):
 
         self.name_entry.delete(0, tk.END)
         self.name_entry.insert(0, obj.name)
-        self.desc_text.delete(1.0, tk.END)
+
+        # Загружаем краткое описание
+        short_desc = getattr(obj, 'short_description', '')
+        self.short_entry.delete(0, tk.END)
+        self.short_entry.insert(0, short_desc)
 
         if self.editing_mode.get() == "global":
+            self.desc_text.delete(1.0, tk.END)
             self.desc_text.insert(1.0, obj.description)
             self.assoc_text.delete(1.0, tk.END)
             if hasattr(obj, 'associative_checks') and obj.associative_checks:
@@ -1174,7 +1208,9 @@ class BaseEditorTab(ttk.Frame):
                 self._update_em_sprite_preview(sprite)
         else:
             local_desc = self.app.local_descriptions.get(self.current_obj_id, "")
+            self.desc_text.delete(1.0, tk.END)
             self.desc_text.insert(1.0, local_desc)
+            # В локальном режиме краткое описание не меняется (оно глобальное)
             self.assoc_text.delete(1.0, tk.END)
             if hasattr(obj, 'associative_checks') and obj.associative_checks:
                 self.assoc_text.insert(1.0, obj.associative_checks)
@@ -1201,6 +1237,7 @@ class BaseEditorTab(ttk.Frame):
     def _clear_form(self):
         self.current_obj_id = None
         self.name_entry.delete(0, tk.END)
+        self.short_entry.delete(0, tk.END)
         self.desc_text.delete(1.0, tk.END)
         self.assoc_text.delete(1.0, tk.END)
         self.assoc_text.config(state=tk.NORMAL)
@@ -1247,8 +1284,9 @@ class BaseEditorTab(ttk.Frame):
 
     def _create_new(self):
         default_name = loc.tr("editor_create")
+        default_short = ""
         default_desc = ""
-        data = {"name": default_name, "description": default_desc, "associative_checks": ""}
+        data = {"name": default_name, "short_description": default_short, "description": default_desc, "associative_checks": ""}
         if self.obj_type == "characters":
             data["is_player"] = False
         if self.obj_type == "narrators":
@@ -1272,24 +1310,24 @@ class BaseEditorTab(ttk.Frame):
         obj = self._get_objects_dict().get(self.current_obj_id)
         if not obj:
             return
-        if messagebox.askyesno(loc.tr("editor_delete"), loc.tr("confirm_delete_object", name=obj.name)):
-            if self.obj_type == "narrators":
-                self.app.update("delete_narrator", {"id": self.current_obj_id})
-            elif self.obj_type == "characters":
-                self.app.update("delete_character", {"id": self.current_obj_id})
-            elif self.obj_type == "locations":
-                self.app.update("delete_location", {"id": self.current_obj_id})
-            elif self.obj_type == "items":
-                self.app.update("delete_item", {"id": self.current_obj_id})
-            elif self.obj_type == "events":
-                self.app.update("delete_event", {"id": self.current_obj_id})
-            elif self.obj_type == "scenarios":
-                self.app.update("delete_scenario", {"id": self.current_obj_id})
-            elif self.obj_type == "emotions":
-                self.app.update("delete_emotion", {"id": self.current_obj_id})
+        if self.obj_type == "narrators":
+            self.app.update("delete_narrator", {"id": self.current_obj_id})
+        elif self.obj_type == "characters":
+            self.app.update("delete_character", {"id": self.current_obj_id})
+        elif self.obj_type == "locations":
+            self.app.update("delete_location", {"id": self.current_obj_id})
+        elif self.obj_type == "items":
+            self.app.update("delete_item", {"id": self.current_obj_id})
+        elif self.obj_type == "events":
+            self.app.update("delete_event", {"id": self.current_obj_id})
+        elif self.obj_type == "scenarios":
+            self.app.update("delete_scenario", {"id": self.current_obj_id})
+        elif self.obj_type == "emotions":
+            self.app.update("delete_emotion", {"id": self.current_obj_id})
 
     def _save_current(self):
         name = self.name_entry.get().strip()
+        short_desc = self.short_entry.get().strip()
         desc = self.desc_text.get(1.0, tk.END).strip()
         if not name:
             messagebox.showwarning(loc.tr("error_invalid_name"), loc.tr("error_invalid_name"))
@@ -1297,7 +1335,7 @@ class BaseEditorTab(ttk.Frame):
         if self.editing_mode.get() == "global":
             assoc_checks = self.assoc_text.get(1.0, tk.END).strip()
             if not self.current_obj_id:
-                data = {"name": name, "description": desc, "associative_checks": assoc_checks}
+                data = {"name": name, "short_description": short_desc, "description": desc, "associative_checks": assoc_checks}
                 if self.obj_type == "characters":
                     data["is_player"] = self.player_var.get()
                     data["avatar_image"] = self.avatar_path_var.get().strip()
@@ -1354,7 +1392,7 @@ class BaseEditorTab(ttk.Frame):
                         new_sprite = self.em_sprite_path_var.get().strip()
                         if old_sprite and old_sprite != new_sprite:
                             self._delete_image_file(old_sprite)
-                data = {"id": self.current_obj_id, "name": name, "description": desc, "associative_checks": assoc_checks}
+                data = {"id": self.current_obj_id, "name": name, "short_description": short_desc, "description": desc, "associative_checks": assoc_checks}
                 if self.obj_type == "characters":
                     data["is_player"] = self.player_var.get()
                     data["avatar_image"] = self.avatar_path_var.get().strip()
@@ -1436,6 +1474,7 @@ class BaseEditorTab(ttk.Frame):
                 data = {
                     "id": self.current_obj_id,
                     "name": obj.name,
+                    "short_description": getattr(obj, 'short_description', ''),
                     "description": obj.description,
                     "is_player": self.player_var.get(),
                     "associative_checks": getattr(obj, 'associative_checks', []),
@@ -1444,6 +1483,48 @@ class BaseEditorTab(ttk.Frame):
                     "emotion_images": getattr(obj, 'emotion_images', {})
                 }
                 self.app.update("update_character", data)
+
+    def _apply_assoc_to_all(self):
+        """Применить текущий текст ассоциативных проверок ко всем объектам этого типа."""
+        if self.editing_mode.get() != "global":
+            messagebox.showinfo(loc.tr("editor_assoc_all_title"), loc.tr("editor_assoc_all_global_only"))
+            return
+        assoc_text = self.assoc_text.get(1.0, tk.END).strip()
+        objects_dict = self._get_objects_dict()
+        if not objects_dict:
+            messagebox.showinfo(loc.tr("editor_assoc_all_title"), loc.tr("editor_assoc_all_no_objects"))
+            return
+        count = len(objects_dict)
+        if not messagebox.askyesno(
+            loc.tr("editor_assoc_all_title"),
+            loc.tr("editor_assoc_all_confirm", count=count, obj_type=self.obj_type)
+        ):
+            return
+        # Применяем
+        for obj_id, obj in objects_dict.items():
+            if hasattr(obj, 'associative_checks'):
+                obj.associative_checks = assoc_text
+                self.app.storage.save_object(self.obj_type, obj)
+        # Обновляем словари в app
+        if self.obj_type == "narrators":
+            self.app.narrators = {obj.id: obj for obj in self.app.storage.load_all_objects("narrators")}
+        elif self.obj_type == "characters":
+            self.app.characters = {obj.id: obj for obj in self.app.storage.load_all_objects("characters")}
+        elif self.obj_type == "locations":
+            self.app.locations = {obj.id: obj for obj in self.app.storage.load_all_objects("locations")}
+        elif self.obj_type == "items":
+            self.app.items = {obj.id: obj for obj in self.app.storage.load_all_objects("items")}
+        elif self.obj_type == "events":
+            self.app.events = {obj.id: obj for obj in self.app.storage.load_all_objects("events")}
+        elif self.obj_type == "scenarios":
+            self.app.scenarios = {obj.id: obj for obj in self.app.storage.load_all_objects("scenarios")}
+        elif self.obj_type == "emotions":
+            self.app.emotions = {obj.id: obj for obj in self.app.storage.load_all_objects("emotions")}
+        # Обновляем интерфейс
+        self.refresh()
+        if self.current_obj_id and self.current_obj_id in objects_dict:
+            self._load_current_description()
+        messagebox.showinfo(loc.tr("editor_assoc_all_title"), loc.tr("editor_assoc_all_done", count=count))
 
 
 class SystemPromptsTab(ttk.Frame):

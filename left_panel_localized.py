@@ -8,6 +8,9 @@ class LeftPanel(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
+        self._loading = False
+        self._pending_campaign = None
+        self._pending_session = None
         self._build_ui()
         self.refresh_campaign_list()
         self.refresh_session_list()
@@ -17,7 +20,7 @@ class LeftPanel(ttk.Frame):
         campaign_frame = ttk.LabelFrame(self, text=loc.tr("left_campaigns"))
         campaign_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        self.campaign_listbox = tk.Listbox(campaign_frame, height=4)
+        self.campaign_listbox = tk.Listbox(campaign_frame, height=4, exportselection=False)
         self.campaign_listbox.pack(fill=tk.X, padx=5, pady=5)
         self.campaign_listbox.bind("<<ListboxSelect>>", self._on_campaign_select)
 
@@ -31,32 +34,30 @@ class LeftPanel(ttk.Frame):
         session_frame = ttk.LabelFrame(self, text=loc.tr("left_sessions"))
         session_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.session_listbox = tk.Listbox(session_frame, height=10)
+        self.session_listbox = tk.Listbox(session_frame, height=10, exportselection=False)
         self.session_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.session_listbox.bind("<<ListboxSelect>>", self._on_session_select)
         self.session_listbox.bind("<Double-Button-1>", self._on_session_double_click)
 
         session_btn_row1 = ttk.Frame(session_frame)
         session_btn_row1.pack(fill=tk.X, padx=5, pady=(0,2))
-        ttk.Button(session_btn_row1, text=loc.tr("left_new_session"), command=lambda: self.app.update("new_session")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(session_btn_row1, text=loc.tr("left_new_session"), command=lambda: self._safe_update("new_session")).pack(side=tk.LEFT, padx=2)
         ttk.Button(session_btn_row1, text=loc.tr("left_delete_session"), command=self._delete_session).pack(side=tk.LEFT, padx=2)
 
         session_btn_row2 = ttk.Frame(session_frame)
         session_btn_row2.pack(fill=tk.X, padx=5, pady=(0,5))
         ttk.Button(session_btn_row2, text=loc.tr("left_rename_session"), command=self._rename_session).pack(side=tk.LEFT, padx=2)
-        ttk.Button(session_btn_row2, text=loc.tr("left_edit_json"), command=lambda: self.app.update("edit_session")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(session_btn_row2, text=loc.tr("left_edit_json"), command=lambda: self._safe_update("edit_session")).pack(side=tk.LEFT, padx=2)
+
+    def _safe_update(self, event_type, data=None):
+        """Безопасный вызов update, игнорирующий события во время загрузки"""
+        if self._loading:
+            return
+        self.app.update(event_type, data)
 
     def refresh_language(self):
-        """Обновляет тексты после смены языка."""
         self.campaign_listbox.master.config(text=loc.tr("left_campaigns"))
         self.session_listbox.master.config(text=loc.tr("left_sessions"))
-        # Кнопки пересоздавать не будем, просто обновим текст у существующих
-        for widget in self.winfo_children():
-            if isinstance(widget, ttk.LabelFrame):
-                if widget.cget("text") in (loc.tr("left_campaigns"), loc.tr("left_sessions")):
-                    continue
-        # Проще перестроить UI, но для простоты обновим тексты кнопок вручную
-        # Найдём кнопки в campaign_btn_frame и session_btn_frame
         for child in self.winfo_children():
             if isinstance(child, ttk.LabelFrame):
                 for sub in child.winfo_children():
@@ -64,22 +65,26 @@ class LeftPanel(ttk.Frame):
                         for btn in sub.winfo_children():
                             if isinstance(btn, ttk.Button):
                                 txt = btn.cget("text")
-                                if txt == "Новая" or txt == "New":
+                                if txt in ("Новая", "New"):
                                     btn.config(text=loc.tr("left_new_campaign"))
-                                elif txt == "Переименовать" or txt == "Rename":
+                                elif txt in ("Переименовать", "Rename"):
                                     btn.config(text=loc.tr("left_rename_campaign"))
-                                elif txt == "Удалить" or txt == "Delete":
+                                elif txt in ("Удалить", "Delete"):
                                     btn.config(text=loc.tr("left_delete_campaign"))
-                                elif txt == "Новая" or txt == "New" and btn in session_btn_row1.winfo_children():
+                                elif txt in ("Новая сессия", "New session"):
                                     btn.config(text=loc.tr("left_new_session"))
-                                elif txt == "Удалить" or txt == "Delete" and btn in session_btn_row1.winfo_children():
+                                elif txt in ("Удалить сессию", "Delete session"):
                                     btn.config(text=loc.tr("left_delete_session"))
-                                elif txt == "Переименовать" or txt == "Rename" and btn in session_btn_row2.winfo_children():
+                                elif txt in ("Переименовать сессию", "Rename session"):
                                     btn.config(text=loc.tr("left_rename_session"))
-                                elif txt == "Редактировать JSON" or txt == "Edit JSON":
+                                elif txt in ("Редактировать JSON", "Edit JSON"):
                                     btn.config(text=loc.tr("left_edit_json"))
 
     def refresh_campaign_list(self):
+        if self._loading:
+            return
+        # Сохраняем текущее выделение, чтобы восстановить после обновления
+        old_selection = self.campaign_listbox.curselection()
         self.campaign_listbox.delete(0, tk.END)
         campaigns = self.app.storage.list_campaigns()
         for camp in campaigns:
@@ -92,43 +97,17 @@ class LeftPanel(ttk.Frame):
                     self.campaign_listbox.selection_set(i)
                     self.campaign_listbox.see(i)
                     break
-
-    def _on_campaign_select(self, event):
-        selection = self.campaign_listbox.curselection()
-        if not selection:
-            return
-        camp_name = self.campaign_listbox.get(selection[0])
-        if camp_name != self.app.storage.current_campaign:
-            self.app.update("select_campaign", {"name": camp_name})
-
-    def _create_campaign(self):
-        name = simpledialog.askstring(loc.tr("left_new_campaign"), loc.tr("left_new_campaign"), parent=self)
-        if name:
-            self.app.update("create_campaign", {"name": name})
-
-    def _rename_campaign(self):
-        selection = self.campaign_listbox.curselection()
-        if not selection:
-            messagebox.showwarning(loc.tr("left_rename_campaign"), loc.tr("error_invalid_name"))
-            return
-        old_name = self.campaign_listbox.get(selection[0])
-        new_name = simpledialog.askstring(loc.tr("left_rename_campaign"), loc.tr("left_rename_campaign"), initialvalue=old_name, parent=self)
-        if new_name and new_name != old_name:
-            self.app.update("rename_campaign", {"old_name": old_name, "new_name": new_name})
-
-    def _delete_campaign(self):
-        selection = self.campaign_listbox.curselection()
-        if not selection:
-            messagebox.showwarning(loc.tr("left_delete_campaign"), loc.tr("error_invalid_name"))
-            return
-        camp_name = self.campaign_listbox.get(selection[0])
-        if camp_name == "Default":
-            messagebox.showwarning(loc.tr("left_delete_campaign"), loc.tr("error_campaign_delete_default"))
-            return
-        if messagebox.askyesno(loc.tr("left_delete_campaign"), loc.tr("confirm_delete_campaign", name=camp_name)):
-            self.app.update("delete_campaign", {"name": camp_name})
+        elif old_selection:
+            # Если текущей кампании нет, пытаемся восстановить выделение
+            idx = old_selection[0]
+            if idx < self.campaign_listbox.size():
+                self.campaign_listbox.selection_set(idx)
+                self.campaign_listbox.see(idx)
 
     def refresh_session_list(self):
+        if self._loading:
+            return
+        old_selection = self.session_listbox.curselection()
         self.session_listbox.delete(0, tk.END)
         sessions = self.app.list_sessions()
         for sid in sessions:
@@ -147,12 +126,68 @@ class LeftPanel(ttk.Frame):
                     self.session_listbox.selection_set(i)
                     self.session_listbox.see(i)
                     break
+        elif old_selection:
+            idx = old_selection[0]
+            if idx < self.session_listbox.size():
+                self.session_listbox.selection_set(idx)
+                self.session_listbox.see(idx)
 
     def get_session_name(self, session_id: str) -> str:
         data = self.app.storage.load_session(session_id)
         return data.get("name", loc.tr("left_new_session")) if data else loc.tr("left_new_session")
 
+    def _on_campaign_select(self, event):
+        if self._loading:
+            return
+        selection = self.campaign_listbox.curselection()
+        if not selection:
+            return
+        camp_name = self.campaign_listbox.get(selection[0])
+        if camp_name == self.app.storage.current_campaign:
+            return
+        # Сохраняем отложенное действие
+        self._pending_campaign = camp_name
+        self._pending_session = None
+        self._start_loading()
+
+    def _start_loading(self):
+        if self._loading:
+            return
+        self._loading = True
+        # Отключаем привязки событий, чтобы предотвратить новые выборы
+        self.campaign_listbox.unbind("<<ListboxSelect>>")
+        self.session_listbox.unbind("<<ListboxSelect>>")
+        # Запускаем процесс применения отложенного действия
+        self.after(50, self._apply_pending)
+
+    def _apply_pending(self):
+        if self._pending_campaign is not None:
+            camp = self._pending_campaign
+            self._pending_campaign = None
+            if camp != self.app.storage.current_campaign:
+                self.app.update("select_campaign", {"name": camp})
+        elif self._pending_session is not None:
+            sess = self._pending_session
+            self._pending_session = None
+            if sess != self.app.current_session_id:
+                self.app.update("load_session", {"session_id": sess})
+        # После применения ждём завершения через callback от app
+        # Флаг _loading будет сброшен после того, как app вызовет refresh_ui или явно уведомит
+        # В MainApp после загрузки кампании/сессии вызывается _refresh_all_ui, который обновит панели
+        # Поэтому здесь не сбрасываем _loading, а сделаем сброс через after с задержкой (запасной вариант)
+        self.after(3000, self._reset_loading)  # защита от зависания
+
+    def _reset_loading(self):
+        if self._loading:
+            self._loading = False
+            self.campaign_listbox.bind("<<ListboxSelect>>", self._on_campaign_select)
+            self.session_listbox.bind("<<ListboxSelect>>", self._on_session_select)
+            self.refresh_campaign_list()
+            self.refresh_session_list()
+
     def _on_session_select(self, event):
+        if self._loading:
+            return
         selection = self.session_listbox.curselection()
         if not selection:
             return
@@ -160,8 +195,38 @@ class LeftPanel(ttk.Frame):
         if selection[0] >= len(sessions):
             return
         session_id = sessions[selection[0]]
-        if session_id != self.app.current_session_id:
-            self.app.update("load_session", {"session_id": session_id})
+        if session_id == self.app.current_session_id:
+            return
+        self._pending_session = session_id
+        self._pending_campaign = None
+        self._start_loading()
+
+    def _create_campaign(self):
+        name = simpledialog.askstring(loc.tr("left_new_campaign"), loc.tr("left_new_campaign"), parent=self)
+        if name:
+            self._safe_update("create_campaign", {"name": name})
+
+    def _rename_campaign(self):
+        selection = self.campaign_listbox.curselection()
+        if not selection:
+            messagebox.showwarning(loc.tr("left_rename_campaign"), loc.tr("error_invalid_name"))
+            return
+        old_name = self.campaign_listbox.get(selection[0])
+        new_name = simpledialog.askstring(loc.tr("left_rename_campaign"), loc.tr("left_rename_campaign"), initialvalue=old_name, parent=self)
+        if new_name and new_name != old_name:
+            self._safe_update("rename_campaign", {"old_name": old_name, "new_name": new_name})
+
+    def _delete_campaign(self):
+        selection = self.campaign_listbox.curselection()
+        if not selection:
+            messagebox.showwarning(loc.tr("left_delete_campaign"), loc.tr("error_invalid_name"))
+            return
+        camp_name = self.campaign_listbox.get(selection[0])
+        if camp_name == "Default":
+            messagebox.showwarning(loc.tr("left_delete_campaign"), loc.tr("error_campaign_delete_default"))
+            return
+        if messagebox.askyesno(loc.tr("left_delete_campaign"), loc.tr("confirm_delete_campaign", name=camp_name)):
+            self._safe_update("delete_campaign", {"name": camp_name})
 
     def _on_session_double_click(self, event):
         selection = self.session_listbox.curselection()
@@ -182,7 +247,7 @@ class LeftPanel(ttk.Frame):
         if selection[0] >= len(sessions):
             return
         session_id = sessions[selection[0]]
-        self.app.update("delete_session", {"session_id": session_id})
+        self._safe_update("delete_session", {"session_id": session_id})
 
     def _rename_session(self):
         selection = self.session_listbox.curselection()
@@ -202,4 +267,4 @@ class LeftPanel(ttk.Frame):
         old_name = data.get("name", loc.tr("left_new_session"))
         new_name = simpledialog.askstring(loc.tr("left_rename_session"), loc.tr("left_rename_session"), initialvalue=old_name, parent=self)
         if new_name and new_name != old_name:
-            self.app.update("rename_session", {"session_id": session_id, "new_name": new_name})
+            self._safe_update("rename_session", {"session_id": session_id, "new_name": new_name})

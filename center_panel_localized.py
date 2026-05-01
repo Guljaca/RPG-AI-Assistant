@@ -39,7 +39,6 @@ class CenterPanel(ttk.Frame):
         self.debug_check.config(text=loc.tr("center_debug_mode"))
         self.step_btn.config(text=loc.tr("center_step"))
         self.regenerate_step_btn.config(text=loc.tr("center_regenerate_step"))
-        # Дополнительно заголовок инфо-панели
         self._update_stage_combobox()
 
     def _build_ui(self):
@@ -402,6 +401,35 @@ class CenterPanel(ttk.Frame):
     def display_system_message(self, text: str):
         self.display_message(text, "system")
 
+    def bulk_display_history(self, history):
+        """
+        Быстрое отображение всей истории чата без прокрутки после каждого сообщения.
+        history: list of dict with keys 'role' and 'content'
+        """
+        self.chat_display.config(state=tk.NORMAL)
+        # Отключаем автоматическую прокрутку во время вставки
+        self.chat_display.see(tk.END)  # временно
+        tags_to_apply = []
+        for msg in history:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "user":
+                prefix = f"{loc.tr('center_user_prefix')}"
+                tag = "user"
+            else:
+                prefix = f"{loc.tr('center_assistant_prefix')}"
+                tag = "assistant"
+            line = f"{prefix}{content}\n\n"
+            start = self.chat_display.index("end-1c")
+            self.chat_display.insert(tk.END, line)
+            end = self.chat_display.index("end-1c")
+            tags_to_apply.append((start, end, tag))
+        for start, end, tag in tags_to_apply:
+            self.chat_display.tag_add(tag, start, end)
+        self.chat_display.see(tk.END)
+        self.chat_display.config(state=tk.DISABLED)
+        self.update_idletasks()
+
     def clear_chat(self):
         self.chat_display.config(state=tk.NORMAL)
         self.chat_display.delete(1.0, tk.END)
@@ -416,10 +444,6 @@ class CenterPanel(ttk.Frame):
         self.prompts_by_stage.clear()
         self.current_selected_stage = None
         self._update_stage_combobox()
-        self.info_text.config(state=tk.NORMAL)
-        self.info_text.delete(1.0, tk.END)
-        self.info_text.config(state=tk.DISABLED)
-        self.last_full_prompt = ""
 
     def update_translation_button_state(self):
         if self.app.enable_assistant_translation and self.app.use_two_models and self.app.last_original_response is not None:

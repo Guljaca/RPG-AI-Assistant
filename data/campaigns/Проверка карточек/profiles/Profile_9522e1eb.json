@@ -1,0 +1,20 @@
+{
+  "name": "Profile_9522e1eb",
+  "enabled_narrators": [],
+  "enabled_characters": [
+    "c1",
+    "c2",
+    "c3",
+    "c4",
+    "c5",
+    "c6"
+  ],
+  "enabled_locations": [],
+  "enabled_items": [],
+  "enabled_events": [],
+  "enabled_scenarios": [
+    "s1"
+  ],
+  "enabled_emotions": [],
+  "player_character_id": "c5"
+}

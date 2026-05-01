@@ -1,12 +1,14 @@
 {
   "api_url": "http://localhost:1234/v1",
-  "model_name": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
+  "model_name": "qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive",
   "max_history_messages": 10,
   "use_two_models": false,
-  "primary_model": "google/gemma-4-e4b",
+  "primary_model": "qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive",
   "translator_model": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
+  "primary_api_url": "http://localhost:1234/v1",
+  "translator_api_url": "http://localhost:1234/v1",
   "enable_assistant_translation": false,
-  "max_tokens": 8192,
+  "max_tokens": 4096,
   "temperature": 0.95,
   "primary_temperature": 0.95,
   "primary_max_tokens": 4096,
@@ -38,9 +40,7 @@
     ],
     "stage1_random_event_details": [
       "stage1_random_event_continue",
-      "history:auto",
-      "narrator:n1",
-      "narrator:n6"
+      "history:auto"
     ],
     "stage2_npc_action": [
       "stage2_npc_action",
@@ -49,9 +49,7 @@
     "stage3_final": [
       "stage3_final",
       "dice_rules",
-      "history:auto",
-      "narrator:n1",
-      "narrator:n6"
+      "history:auto"
     ],
     "stage11_validation": [
       "stage11_validation",
@@ -86,7 +84,7 @@
   "max_associative_memory_entries": 5,
   "max_events_per_scene": 5,
   "max_scenarios_per_scene": 5,
-  "language": "en",
+  "language": "ru",
   "enable_auto_character_creation": true,
   "enabled_stages": {
     "stage1_request_descriptions": true,
@@ -208,7 +206,7 @@
     "stage4_summary": 0.5,
     "stage10_associative_memory": 0.65
   },
-  "last_campaign": "\u0414\u0435\u0440\u0435\u0432\u043d\u044f \u0432 \u0433\u043e\u0440\u0430\u0445",
+  "last_campaign": "TEST",
   "random_event_chance": 30,
   "stage_retry_limits": {
     "stage1_request_descriptions": 2,

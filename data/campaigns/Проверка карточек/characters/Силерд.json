@@ -1,0 +1,12 @@
+{
+  "id": "c4",
+  "name": "Силерд",
+  "description": "Внешность: широкие плечи, держит огромный меч",
+  "associative_checks": "Одет ли персонаж, и во что\nЧист ли персонаж\nЗапах персонажа или его отсутствие\nУровень возбуждения персонажа",
+  "inventory": [],
+  "equipped": [],
+  "is_player": false,
+  "avatar_image": "",
+  "sprite_image": "",
+  "emotion_images": {}
+}

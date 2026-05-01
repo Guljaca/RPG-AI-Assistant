@@ -1,0 +1,13 @@
+{
+  "id": "c1",
+  "name": "Silerd",
+  "short_description": "A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of goo…",
+  "description": "A tall, broad-shouldered and intimidating young man with an ambitious career ahead of him. Silerd was selected among the city guards as the best and most courageous of them all, he is a paragon of good and his strong willpower has granted him many awards. Silerd fights for the forces of good and his people, focusing on protecting the innocents and the city as a whole. Silerd is also interested in becoming a knight of the kingdom which is a step up from his current position and an honor which would bring him fame and fortune beyond imagination. Silerd wears a silver armor with a large blue cloak, he fights with a steel greatsword which is slow moving but very damaging.",
+  "associative_checks": "Одет ли персонаж, и во что\nЧист ли персонаж\nЗапах персонажа или его отсутствие",
+  "inventory": [],
+  "equipped": [],
+  "is_player": false,
+  "avatar_image": "",
+  "sprite_image": "",
+  "emotion_images": {}
+}

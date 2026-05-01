@@ -2,17 +2,20 @@
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict
 
+
 @dataclass
 class BaseObject:
     id: str = ""
     name: str = ""
-    description: str = ""
-    associative_checks: str = ""   # просто текст: инструкция для модели, на что обратить внимание
+    short_description: str = ""   # краткое описание для быстрого понимания моделью
+    description: str = ""         # полное описание
+    associative_checks: str = ""  # инструкция для модели, на что обратить внимание
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "name": self.name,
+            "short_description": self.short_description,
             "description": self.description,
             "associative_checks": self.associative_checks
         }
@@ -22,6 +25,7 @@ class BaseObject:
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
+            short_description=data.get("short_description", ""),
             description=data.get("description", ""),
             associative_checks=data.get("associative_checks", "")
         )
@@ -50,6 +54,7 @@ class Emotion(BaseObject):
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
+            short_description=data.get("short_description", ""),
             description=data.get("description", ""),
             associative_checks=data.get("associative_checks", ""),
             avatar_image=data.get("avatar_image", ""),
@@ -83,6 +88,7 @@ class Character(BaseObject):
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
+            short_description=data.get("short_description", ""),
             description=data.get("description", ""),
             associative_checks=data.get("associative_checks", ""),
             inventory=data.get("inventory", []),
@@ -114,6 +120,7 @@ class Location(BaseObject):
         return cls(
             id=data.get("id", ""),
             name=data.get("name", ""),
+            short_description=data.get("short_description", ""),
             description=data.get("description", ""),
             associative_checks=data.get("associative_checks", ""),
             characters=data.get("characters", []),

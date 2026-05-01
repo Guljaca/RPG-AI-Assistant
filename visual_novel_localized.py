@@ -409,6 +409,10 @@ class VisualNovelFrame(ttk.Frame):
         if self.debug_mode:
             self._draw_debug_rects()
 
+        # Подтягиваем перевод, если он есть (для синхронизации режимов)
+        if hasattr(self, 'sync_translation'):
+            self.sync_translation()
+
     def _get_avatar_for_character(self, char, emotion_name: str = None) -> str:
         if not char:
             return ""
@@ -647,6 +651,41 @@ class VisualNovelFrame(ttk.Frame):
         self.app.center_panel.display_system_message = wrapped_display_system
         self.app.center_panel.set_input_state = wrapped_set_input_state
 
+        # === TRANSLATION WRAPPERS + SYNC (для работы в VN режиме) ===
+        if not hasattr(self, 'original_start_translation'):
+            self.original_start_translation = getattr(self.app.center_panel, 'start_translation_response', None)
+            self.original_append_translation = getattr(self.app.center_panel, 'append_translation_stream', None)
+            self.original_finalize_translation = getattr(self.app.center_panel, 'finalize_translation', None)
+
+        def wrapped_start_translation_response():
+            if self.original_start_translation:
+                self.original_start_translation()
+            if self.winfo_viewable():
+                self.append_dialog("\n🌐 Перевод:\n")
+
+        def wrapped_append_translation_stream(text: str):
+            if self.original_append_translation:
+                self.original_append_translation(text)
+            # Всегда сохраняем для синхронизации
+            if not hasattr(self.app, 'last_translated_response'):
+                self.app.last_translated_response = ""
+            self.app.last_translated_response = (self.app.last_translated_response or "") + text
+            if self.winfo_viewable():
+                self.append_dialog(text)
+
+        def wrapped_finalize_translation(full_translation: str, response_start):
+            if self.original_finalize_translation:
+                self.original_finalize_translation(full_translation, response_start)
+            if self.winfo_viewable():
+                self.append_dialog("\n\n")
+
+        if self.original_start_translation:
+            self.app.center_panel.start_translation_response = wrapped_start_translation_response
+        if self.original_append_translation:
+            self.app.center_panel.append_translation_stream = wrapped_append_translation_stream
+        if self.original_finalize_translation:
+            self.app.center_panel.finalize_translation = wrapped_finalize_translation
+
         if hasattr(self.app, 'stage_processor'):
             self.original_finish = self.app.stage_processor._finish_generation
             def new_finish():
@@ -654,6 +693,13 @@ class VisualNovelFrame(ttk.Frame):
                 self.original_finish()
                 self._set_buttons_state(generating=False)
             self.app.stage_processor._finish_generation = new_finish
+
+    def sync_translation(self):
+        """Подтягивает перевод из нормального режима, если он есть."""
+        if hasattr(self.app, 'last_translated_response') and self.app.last_translated_response:
+            current = self.dialog_text.get("1.0", tk.END)
+            if self.app.last_translated_response not in current:
+                self.append_dialog("\n🌐 Перевод:\n" + self.app.last_translated_response + "\n\n")
 
     def cleanup(self):
         if self._monitor_after_id:
@@ -666,3 +712,9 @@ class VisualNovelFrame(ttk.Frame):
             self.app.center_panel.set_input_state = self.original_set_input_state
         if hasattr(self, 'original_finish'):
             self.app.stage_processor._finish_generation = self.original_finish
+        if hasattr(self, 'original_start_translation') and self.original_start_translation:
+            self.app.center_panel.start_translation_response = self.original_start_translation
+        if hasattr(self, 'original_append_translation') and self.original_append_translation:
+            self.app.center_panel.append_translation_stream = self.original_append_translation
+        if hasattr(self, 'original_finalize_translation') and self.original_finalize_translation:
+            self.app.center_panel.finalize_translation = self.original_finalize_translation
