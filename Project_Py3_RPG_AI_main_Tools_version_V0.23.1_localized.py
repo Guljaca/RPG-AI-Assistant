@@ -617,6 +617,7 @@ class MainApp(tk.Tk):
     def _handle_update_object(self, obj_type: str, data: dict):
         obj_id = data.get("id")
         name = data.get("name", "").strip()
+        short_desc = data.get("short_description", "").strip()   # <-- добавлено
         desc = data.get("description", "").strip()
         assoc_checks_raw = data.get("associative_checks", "")
         if isinstance(assoc_checks_raw, list):
@@ -649,6 +650,7 @@ class MainApp(tk.Tk):
             obj = objects_dict[obj_id]
             old_name = obj.name
             obj.name = name
+            obj.short_description = short_desc                     # <-- добавлено
             obj.description = desc
             obj.associative_checks = assoc_checks
             if obj_type == "characters":
@@ -696,6 +698,7 @@ class MainApp(tk.Tk):
 
     def _handle_create_object(self, obj_type: str, data: dict):
         name = data.get("name", "").strip()
+        short_desc = data.get("short_description", "").strip()   # <-- добавлено
         description = data.get("description", "").strip()
         assoc_checks_raw = data.get("associative_checks", "")
         if isinstance(assoc_checks_raw, list):
@@ -721,6 +724,7 @@ class MainApp(tk.Tk):
             return
         kwargs = {
             "name": name,
+            "short_description": short_desc,                      # <-- добавлено
             "description": description,
             "associative_checks": assoc_checks
         }
