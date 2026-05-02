@@ -307,5 +307,10 @@
     "messages_stage13_skip_similar": "ℹ️ Описание '{name}' похоже на '{existing}'. Пропускаем.",
     "messages_stage13_created": "✨ Создан персонаж: {name} (ID: {oid})",
     "messages_stage13_summary_created": "✅ Создано {count} новых персонажей: {names}",
-    "messages_stage13_none_created": "ℹ️ Новых персонажей не создано."
+    "messages_stage13_none_created": "ℹ️ Новых персонажей не создано.",
+    "editor_full_edit": "✏️ Редактировать описание",
+    "editor_no_object_selected": "Не выбран объект для редактирования",
+    "editor_full_description_title": "Редактирование описания: {name}",
+    "editor_full_description_saved": "Глобальное описание сохранено",
+    "editor_local_description_saved": "Локальное описание сохранено"
 }

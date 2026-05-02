@@ -730,25 +730,39 @@ class StageProcessor:
                 self._log_debug("ERROR", f"send_object_info parse error: {e}")
 
         if object_ids is not None and isinstance(object_ids, list) and object_ids:
-            objects_display = []
+            # Фильтруем только существующие ID
+            valid_ids = []
             for oid in object_ids:
-                obj = self.main_app._get_object_by_id(oid)
-                name = obj.name if obj else oid
-                objects_display.append(f"{oid} ({name})")
-            display_str = ", ".join(objects_display)
-            self._display_system(loc.tr("messages_request_objects", objects=display_str))
-            self._fetch_descriptions_sync(object_ids)
+                oid_str = str(oid)
+                if self._object_exists(oid_str):
+                    valid_ids.append(oid_str)
+                else:
+                    self._display_system(f"⚠️ Игнорирую несуществующий ID: {oid_str}")
+            if valid_ids:
+                objects_display = []
+                for oid in valid_ids:
+                    obj = self.main_app._get_object_by_id(oid)
+                    name = obj.name if obj else oid
+                    objects_display.append(f"{oid} ({name})")
+                display_str = ", ".join(objects_display)
+                self._display_system(loc.tr("messages_request_objects", objects=display_str))
+                self._fetch_descriptions_sync(valid_ids)
 
-            if self.debug_mode:
-                output_items = {
-                    "object_ids": object_ids,
-                    "descriptions": self.stage_data["descriptions"]
-                }
-                self._print_debug_section("Выходные данные этапа stage1_request_descriptions", output_items, blank_lines_before=1, blank_lines_after=1)
+                if self.debug_mode:
+                    output_items = {
+                        "object_ids": valid_ids,
+                        "descriptions": self.stage_data["descriptions"]
+                    }
+                    self._print_debug_section("Выходные данные этапа stage1_request_descriptions", output_items, blank_lines_before=1, blank_lines_after=1)
 
-            self._stage1_create_scene()
-            self._save_checkpoint("stage1_request_descriptions")
-            return
+                self._stage1_create_scene()
+                self._save_checkpoint("stage1_request_descriptions")
+                return
+            else:
+                self._display_error("⚠️ Нет валидных ID. Создаю сцену по умолчанию.\n")
+                self._create_default_scene()
+                self._save_checkpoint("stage1_request_descriptions")
+                return
         else:
             self._display_error("⚠️ send_object_info вызван без корректного списка object_ids.\n")
 
@@ -944,13 +958,21 @@ class StageProcessor:
             self._save_checkpoint("stage1_create_scene")
 
     def _handle_confirm_scene(self, obj_ids: list):
+        # Фильтруем только существующие ID
+        valid_ids = []
+        for obj_id in obj_ids:
+            obj_id = str(obj_id)
+            if self._object_exists(obj_id):
+                valid_ids.append(obj_id)
+            else:
+                self._display_system(f"⚠️ Игнорирую несуществующий ID: {obj_id}")
+
         location_id = None
         character_ids = []
         item_ids = []
         scenario_ids = []
         event_ids = []
-        for obj_id in obj_ids:
-            obj_id = str(obj_id)
+        for obj_id in valid_ids:
             if obj_id.startswith('l'):
                 if location_id is None:
                     location_id = obj_id
@@ -1623,23 +1645,28 @@ class StageProcessor:
         self._log_debug(f"=== STAGE6: NPCs (attempt {retry_count+1}) ===")
         self._display_system(loc.tr("messages_stage6", attempt=retry_count+1))
 
+        # Инициализация структур для NPC – ТОЛЬКО ОДИН РАЗ за всю сцену
+        if "npc_actions" not in self.stage_data:
+            self.stage_data["npc_actions"] = {}
+        if "current_npc_index" not in self.stage_data:
+            self.stage_data["current_npc_index"] = 0
+
         all_chars = self.stage_data.get("scene_character_ids", [])
         npc_ids = []
         for cid in all_chars:
-            char = self.main_app.characters.get(str(cid))
+            cid_str = str(cid)
+            char = self.main_app.characters.get(cid_str)
             if char and not char.is_player:
-                npc_ids.append(cid)
+                npc_ids.append(cid_str)
             elif char is None:
-                npc_ids.append(cid)
+                # Несуществующий персонаж – логируем и пропускаем
+                self._display_error(loc.tr("messages_npc_skipped", npc_id=cid_str))
+                # Не добавляем в список
 
         if not npc_ids:
             self._display_system(loc.tr("messages_no_npc"))
             self._stage3_final()
             return
-
-        if not self.stage_data.get("npc_actions"):
-            self.stage_data["npc_actions"] = {}
-            self.stage_data["current_npc_index"] = 0
 
         if self.stage_data["current_npc_index"] >= len(npc_ids):
             self._display_system(loc.tr("messages_all_npc_done"))
@@ -3506,3 +3533,18 @@ class StageProcessor:
     def _get_obj_name(self, obj_id: str) -> str:
         obj = self.main_app._get_object_by_id(obj_id)
         return obj.name if obj else obj_id
+    
+    def _object_exists(self, obj_id: str) -> bool:
+        """Проверяет, существует ли объект с данным ID в соответствующем хранилище."""
+        obj_id = str(obj_id)
+        if obj_id.startswith('l'):
+            return obj_id in self.main_app.locations
+        elif obj_id.startswith('c'):
+            return obj_id in self.main_app.characters
+        elif obj_id.startswith('i'):
+            return obj_id in self.main_app.items
+        elif obj_id.startswith('s'):
+            return obj_id in self.main_app.scenarios
+        elif obj_id.startswith('e'):
+            return obj_id in self.main_app.events
+        return False

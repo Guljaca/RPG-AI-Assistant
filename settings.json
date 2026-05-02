@@ -1,6 +1,6 @@
 {
   "api_url": "http://localhost:1234/v1",
-  "model_name": "qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive",
+  "model_name": "gemma-4-26b-a4b-it-ultra-uncensored-heretic",
   "max_history_messages": 10,
   "use_two_models": false,
   "primary_model": "qwen3.6-35b-a3b-uncensored-hauhaucs-aggressive",
@@ -118,7 +118,7 @@
       "max_summaries": 0
     },
     "stage1_player_action": {
-      "max_history": 2,
+      "max_history": 4,
       "max_summaries": 0
     },
     "stage1_random_event_determine": {
@@ -134,11 +134,11 @@
       "max_summaries": 0
     },
     "stage2_npc_action": {
-      "max_history": 2,
+      "max_history": 4,
       "max_summaries": 0
     },
     "stage3_final": {
-      "max_history": 2,
+      "max_history": 4,
       "max_summaries": 0
     },
     "stage8_history_check": {
@@ -206,7 +206,7 @@
     "stage4_summary": 0.5,
     "stage10_associative_memory": 0.65
   },
-  "last_campaign": "TEST",
+  "last_campaign": "\u0414\u0435\u0440\u0435\u0432\u043d\u044f \u0432 \u0433\u043e\u0440\u0430\u0445",
   "random_event_chance": 30,
   "stage_retry_limits": {
     "stage1_request_descriptions": 2,

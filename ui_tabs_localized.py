@@ -8,6 +8,7 @@ from PIL import Image, ImageTk, ImageDraw
 from models import Narrator, Character, Location, Item, Event, Scenario, Emotion
 from ui_utils import add_context_menu
 from localization import loc
+from full_editor import FullDescriptionEditor
 
 
 def center_window(window, parent):
@@ -492,6 +493,62 @@ class BaseEditorTab(ttk.Frame):
         self._build_ui()
         self.refresh()
 
+    def _open_full_editor(self):
+        """Открыть полноэкранный редактор полного описания."""
+        if not self.current_obj_id:
+            messagebox.showwarning(loc.tr("error_invalid_name"), loc.tr("editor_no_object_selected"))
+            return
+
+        # Получаем текущий текст в зависимости от режима
+        if self.editing_mode.get() == "global":
+            obj = self._get_objects_dict().get(self.current_obj_id)
+            if not obj:
+                return
+            current_text = obj.description
+        else:
+            current_text = self.app.local_descriptions.get(self.current_obj_id, "")
+
+        title = loc.tr("editor_full_description_title", name=self.name_entry.get().strip() if self.name_entry.get().strip() else self.current_obj_id)
+
+        FullDescriptionEditor(
+            parent=self.app,
+            title=title,
+            initial_text=current_text,
+            callback_save=self._on_full_editor_save
+        )
+
+    def _on_full_editor_save(self, new_text: str):
+        """Обработчик сохранения из полноэкранного редактора."""
+        if not self.current_obj_id:
+            return
+
+        if self.editing_mode.get() == "global":
+            # Сохраняем в глобальное описание объекта
+            obj = self._get_objects_dict().get(self.current_obj_id)
+            if obj:
+                obj.description = new_text
+                self.app.storage.save_object(self.obj_type, obj)
+                # Обновляем словарь в app
+                objects_dict = self._get_objects_dict()
+                objects_dict[self.current_obj_id] = obj
+                # Обновляем текстовое поле в текущей вкладке
+                self.desc_text.delete(1.0, tk.END)
+                self.desc_text.insert(1.0, new_text)
+                messagebox.showinfo(loc.tr("profile_save"), loc.tr("editor_full_description_saved"))
+        else:
+            # Сохраняем локальное описание
+            self.app.local_descriptions[self.current_obj_id] = new_text
+            self.app._save_current_session_safe()
+            self.desc_text.delete(1.0, tk.END)
+            self.desc_text.insert(1.0, new_text)
+            # Обновляем состояние кнопки сброса локального описания
+            self.reset_local_btn.config(state=tk.NORMAL)
+            messagebox.showinfo(loc.tr("profile_save"), loc.tr("editor_local_description_saved"))
+
+        # Обновляем интерфейс в правой панели (если нужно)
+        if hasattr(self.app, 'right_panel') and self.app.right_panel:
+            self.app.right_panel.refresh()
+
     def _build_ui(self):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -578,6 +635,12 @@ class BaseEditorTab(ttk.Frame):
         self.desc_text = scrolledtext.ScrolledText(full_frame, height=10, wrap=tk.WORD)
         self.desc_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         add_context_menu(self.desc_text)
+
+        # ----- Кнопка полноэкранного редактора -----
+        full_edit_btn_frame = ttk.Frame(full_frame)
+        full_edit_btn_frame.pack(fill=tk.X, pady=(0, 5))
+        self.full_edit_btn = ttk.Button(full_edit_btn_frame, text=loc.tr("editor_full_edit"), command=self._open_full_editor)
+        self.full_edit_btn.pack(side=tk.RIGHT, padx=5)
 
         # ----- ИЗОБРАЖЕНИЯ ДЛЯ ПЕРСОНАЖЕЙ / ЛОКАЦИЙ / ЭМОЦИЙ -----
         if self.obj_type == "characters":

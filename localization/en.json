@@ -307,5 +307,10 @@
     "messages_stage13_skip_similar": "ℹ️ Description of '{name}' is similar to '{existing}'. Skipping.",
     "messages_stage13_created": "✨ Created character: {name} (ID: {oid})",
     "messages_stage13_summary_created": "✅ Created {count} new characters: {names}",
-    "messages_stage13_none_created": "ℹ️ No new characters created."
+    "messages_stage13_none_created": "ℹ️ No new characters created.",
+    "editor_full_edit": "✏️ Edit description",
+    "editor_no_object_selected": "No object selected for editing",
+    "editor_full_description_title": "Editing description: {name}",
+    "editor_full_description_saved": "Global description saved",
+    "editor_local_description_saved": "Local description saved"
 }

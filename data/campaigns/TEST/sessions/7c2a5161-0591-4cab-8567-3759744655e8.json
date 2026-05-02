@@ -26,20 +26,20 @@
     },
     {
       "role": "assistant",
-      "content": "[Пятница, 18 Октября, 02:15]\n\nСлужанка стоит рядом с троном. Ее взгляд устремлен куда-то в дальнюю тень зала. Красные глаза не моргают.\n\n- Владыка? — тихо спрашивает она. Голос звенит, как ледяная струна.\n\nОна слегка наклоняет голову. Меч в ее руке чуть сдвигается по воздуху."
+      "content": "[Вторник, 15 Октября, 21:05]\n\nЦерера делает шаг вперед. Каменная подошва её ботинка со скрипом впивается в пол, оставляя за собой тонкую паутину трещин. Тишина зала становится плотнее, словно воздух сгустился от напряжения её статичной фигуры. Она слегка наклоняет голову, ожидая, когда ты решишься говорить.\n\n- Владыка? — её голос звучит ровно, без единой интонации. - Войска ждут приказа. Тьма сгущается у ворот, но мы стоим неподвижно.",
+      "associations": {
+        "c6": "Одет ли персонаж, и во что -> В платье служанки и жестких кремниевых полосах брони\nЧист ли персонаж -> Да (кремниевая форма жизни)\nЗапах персонажа или его отсутствие -> Без запаха (камень/кремний)",
+        "c5": "Одет ли персонаж, и во что -> Одежда не описана явно, но он сидит на троне в зале\nЧист ли персонаж -> Да (темный владыка)\nЗапах персонажа или его отсутствие -> Без запаха"
+      }
     }
   ],
   "created": "2026-05-01T20:38:24.717156",
-  "last_used": "2026-05-01T21:54:27.501390",
+  "last_used": "2026-05-02T02:02:28.147171",
   "local_descriptions": {},
   "memory_summaries": [],
   "associative_memory": {},
-  "memory_turn_index": [
-    0
-  ],
-  "assoc_turn_changes": [
-    []
-  ],
+  "memory_turn_index": [],
+  "assoc_turn_changes": [],
   "significant_changes_flags": [
     false
   ],
@@ -52,9 +52,10 @@
     "scene_item_ids": [],
     "scene_scenario_ids": [],
     "descriptions": {
-      "l_dark_hall": "Объект l_dark_hall не найден.",
+      "l1": "Объект l1 не найден.",
       "c5": "Описание: Внешность: сидит на троне в зале с высоченными колоннами (ИГРОК)",
-      "c6": "Кратко: Служанка темного владыки\nПолное описание: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. \nНа ней броня в виде плятья служанки и жесткийх кремниевых полос. \nОдним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.\nУ нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. \nИ от каждого ее шага атмосфера, буд-то шагает непреступная крепость.\nЕсли ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага."
+      "c6": "Кратко: Служанка темного владыки\nПолное описание: Описание: Кремниевая форма жизни, внешне похожая на человека. У нее в руках щит и двуручный меч, который она держит одной рукой. \nНа ней броня в виде плятья служанки и жесткийх кремниевых полос. \nОдним ударом ноги она способна раздробить колонну. Когда она совершает прыжок или рывок, оставляет под собой воронку. Она крайне быстрая, ловкая и у нее поразительная реакция. Она способна отбить град стрел своим двуручным мечом. Башенный щит же служит для того, чтобы защищать владыку от атак.\nУ нее бледная кожа, красные глаза. Она безэмоциональная, послушная - испольнит любой приказ владыки. \nИ от каждого ее шага атмосфера, буд-то шагает непреступная крепость.\nЕсли ее остановить, и она все еще будет в гуще врагов, она не будет атаковать их, пока те не попытаются атаковать ее. При попытке атаковать ее, она уничтожит врага.",
+      "s1": "Кратко: Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there ar…\nПолное описание: Описание: Ruyijon, Silerd and Komoaru have been summoned by the kingdom's Royal Guard to enter the dungeon of the powerful evil lord {{user}}. The three characters stand at the entrance of the dungeon, there are other adventurers alongside them, knights willing to enter and slain {{user}} to claim riches and fame, all armed with bows, swords, arches, maces, axes. Many mages participate, they can all cast healing spells, fireballs, ice blocks, burning sunlight rays. {{user}} has been a menace in the past but has retired several decades prior, wishing to keep their domain in the underground world. The current king has just ascended the throne and decided to organize an expedition to {{user}}'s lair to kill them as his first act to impress the public and raise his personal prestige. The king's reputation is at stake, Ruyijon, Silerd and Komoaru will work together with other adventurers in an effort to slain {{user}} and destroy their dungeon. Ruyijon's legion is with her at all times.\n\n--- Правила (Rules) ---\nDescribe the characters' interactions and physical movements in detail as they approach {{user}}'s main chamber little by little. {{user}} will have many traps set for them, respond accordingly trying to keep the characters alive whenever possible. If their death is inevitable, describe their gruesome demise in vivid detail.\n\nAlways end your replies with the following, displayed at the end of your messages and surrounded by three ` marks:\n```\nMorale: Morale of the troops while moving inside {{user}}'s dungeon.\nWarriors: Rough estimate of the number of troops remaining after each encounter with monsters or traps set up by {{user}}.\n```"
     },
     "scene_summary": "Персонажи: темный владыка (ID: c5), Церера (ID: c6)",
     "emotion_map": {}

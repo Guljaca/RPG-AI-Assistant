@@ -33,12 +33,7 @@
     "l21",
     "l22",
     "l23",
-    "l24",
-    "l25",
-    "l5",
-    "l26",
-    "l27",
-    "l28"
+    "l5"
   ],
   "enabled_items": [
     "i1",
@@ -51,7 +46,9 @@
   "enabled_events": [
     "e1"
   ],
-  "enabled_scenarios": [],
+  "enabled_scenarios": [
+    "s2"
+  ],
   "enabled_emotions": [
     "em1",
     "em2",
