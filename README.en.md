@@ -19,12 +19,6 @@
 - Those who need unlimited memory for the neural network.
 - Those who want to create their own world and "bring it to life".
 
-**Who this project is NOT for:**
-- You don't know the difference between a "program" and a "neural network model".
-- You want to press one button and play whatever the neural network throws at you.
-- You are not ready to create your own world.
-
----
 
 ## 📖 Features
 
